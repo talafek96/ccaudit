@@ -104,7 +104,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="raise log detail; repeat for debug.",
     )
     _add_analysis_options(parser)
-    subparsers = parser.add_subparsers(dest="command")
+    # The metavar is set explicitly so the two internal commands below stay out of the usage
+    # line. They are an implementation detail of the plugin hook, not a surface to discover.
+    subparsers = parser.add_subparsers(dest="command", metavar="{analyse,sessions,explain,pricing}")
 
     analyse = subparsers.add_parser(
         "analyse",
@@ -133,10 +135,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     # Internal, invoked by the plugin's SessionEnd hook and by the detached worker it spawns.
     # Underscore-prefixed and help-suppressed: these are not a user-facing surface.
-    enqueue_parser = subparsers.add_parser("_enqueue", help=argparse.SUPPRESS)
+    enqueue_parser = subparsers.add_parser("_enqueue")
     enqueue_parser.add_argument("--session", dest="enqueue_session", default=None)
     enqueue_parser.add_argument("--transcript", dest="enqueue_transcript", default=None)
-    subparsers.add_parser("_process_queue", help=argparse.SUPPRESS)
+    subparsers.add_parser("_process_queue")
 
     pricing = subparsers.add_parser(
         "pricing",
