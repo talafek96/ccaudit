@@ -22,9 +22,10 @@ contract* — realign the code to it; never weaken, rewrite, or delete the test 
 pass without explicit human sign-off.
 
 **Numbers are the product (constitution Principle X):** every cost figure is
-API-equivalent, labeled as such, paired with a share of total, and reconciles to the
-session total. A breakdown that does not add up is a show-stopper defect, not a rounding
-detail.
+API-equivalent, labeled as such, paired with a share of total, and **adds up**: per-item figures
+plus the unattributed remainder equal the session total, exactly. A breakdown that does not add up
+is a show-stopper defect, not a rounding detail. Exactness is not accuracy — never display a
+figure to more precision than its confidence supports.
 
 ## Core Guidelines & Standards — the constitution
 

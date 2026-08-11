@@ -363,6 +363,18 @@ item's residency shortened.
   produced it, without rerunning the analysis.
 - **FR-016**: System MUST present a plain-language name for every cost component alongside its
   technical term, drawn from a single authoritative definition.
+- **FR-095**: System MUST NOT display a figure to more precision than its confidence supports.
+  Displayed precision is derived from the figure's confidence level, so a figure resting on a
+  splitting policy is never rendered as though it were measured to the cent.
+- **FR-096**: System MUST express the uncertainty of a figure, not merely label it. Where a
+  figure's confidence is below the highest level, the system MUST convey the range or magnitude
+  of that uncertainty in the same place the figure appears.
+- **FR-097**: System MUST state, wherever totals are presented, the sources of uncertainty that
+  dominate them — that prices are imputed rather than billed, that shared cost is divided by a
+  policy the reader can change, and that some resident content is absent from the source records.
+- **FR-098**: Internal exactness MUST NOT be presented as accuracy. The system reconciles its
+  arithmetic exactly, and MUST NOT let that exactness imply the underlying figures are known to
+  the same precision.
 - **FR-017**: System MUST produce identical results for identical inputs.
 - **FR-018**: System MUST state known limitations of the underlying records alongside the
   figures those limitations affect.
@@ -655,6 +667,11 @@ item's residency shortened.
   the next invocation completes it without manual intervention.
 - **SC-035**: A user asking for a session another process is analysing waits no longer than a
   stated bound before receiving a correct result.
+- **SC-036**: No displayed figure carries more significant digits than its confidence level
+  supports, and a reader can tell from the display alone which figures are measured and which
+  rest on a policy choice.
+- **SC-037**: A reader who asks "how wrong could this be?" finds the answer on the same surface as
+  the figure, without consulting documentation.
 
 ## Assumptions
 

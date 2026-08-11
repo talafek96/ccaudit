@@ -91,12 +91,14 @@ feature rather than a debug aid.
 | `0` | Success |
 | `1` | Usage error — bad arguments or selection |
 | `2` | No analysable sessions found for the selection |
-| `3` | **Reconciliation failure** — a breakdown did not sum to its total. A show-stopper defect (Principle I, X); the tool refuses to present the numbers |
+| `3` | **The breakdown does not add up** — the per-item figures plus the unattributed remainder did not equal the total. A show-stopper defect (Principle I, X); the tool refuses to present the numbers |
 | `4` | Data error — records unreadable in a way that prevents a result; the diagnostic names the file and record |
 | `130` | Interrupted |
 
-Exit code `3` deserves its own code precisely because it must never be mistaken for a warning: a
-tool that emits numbers which do not add up has failed at the only thing it exists to do.
+Exit code `3` deserves its own code precisely because it must never be mistaken for a warning.
+Every other failure is visible — a crash, a missing file, an error. This one produces a complete,
+plausible-looking report full of wrong numbers, which is worse than no report because someone will
+act on it.
 
 ## Environment
 

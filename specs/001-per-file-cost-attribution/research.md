@@ -157,13 +157,32 @@ requires 512.
 Floats appear only at the presentation edge, where rounding happens exactly once. Remainders from
 proportional splits are allocated explicitly (largest-remainder) rather than left to rounding.
 
-**Rationale.** SC-001 demands per-item sums equal the session total with **zero tolerance**, and
-float accumulation over thousands of turns cannot deliver that. Explicit remainder allocation is
-also what keeps the unattributed line honest rather than absorbing drift.
+**Rationale — conservation, not precision.** This is *not* about float accuracy. Float64 error
+across even ten thousand additions is on the order of `1e-10` dollars: irrelevant next to the real
+uncertainty in these figures. The reason is that SC-001 requires the invariant to be a literal
+equality:
 
-**Alternatives rejected.** *`Decimal`* — correct, but slower and still needs an explicit remainder
-policy; integers make the invariant checkable by equality. *Floats with tolerance* — would require
-weakening SC-001, which is the spec's core promise.
+```
+Σ per-item + unattributed == session total
+```
+
+With floats that comparison can be `False` because of a `1e-16` ordering artifact on a perfectly
+correct breakdown. The fix would be a tolerance — and **the moment an epsilon exists, it becomes
+the place real errors hide**: a genuine $0.003 misattribution slips under a threshold chosen to
+absorb float noise. Integers make the check exact and need no epsilon.
+
+The same argument covers splitting: when carry cost divides across dozens of resident items, the
+slices must sum to the pool exactly. Integer largest-remainder gives that by construction. Floats
+would need explicit remainder allocation anyway — the same code, plus a tolerance.
+
+**Explicitly not a claim about accuracy.** Exact arithmetic on imputed inputs is still imputed.
+FR-095 to FR-098 exist precisely so this internal exactness is never presented as precision the
+figures do not have.
+
+**Alternatives rejected.** *`Decimal`* — also exact and equality-checkable, but slower and still
+needs the same remainder policy; integers are the simpler primitive for identical benefit.
+*Floats with a tolerance* — weakens SC-001 into "approximately adds up", which is the failure
+mode the tool exists to avoid.
 
 ---
 

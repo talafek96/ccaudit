@@ -8,6 +8,29 @@ the project. Where the two disagree, this file wins.
 
 ---
 
+## 0. Glossary — say it plainly
+
+Principle X says jargon only the author understands is a defect. That applies to this document and
+to anything the tool prints.
+
+| Term used internally | What it actually means | Say this to a user |
+|---|---|---|
+| **Reconciliation** | The parts add up to the whole: every per-item figure plus the unattributed remainder equals the session total, exactly | "the breakdown adds up" |
+| **Reconciliation failure** | They don't add up — so the tool refuses to print rather than show plausible wrong numbers | "the breakdown does not add up" |
+| **Unattributed** | Cost we could not tie to any item, shown as its own line rather than hidden or spread around | "couldn't attribute" |
+| **Direct cost** | The one-time charge for putting content into the conversation | "loading into context" |
+| **Carry cost** | The recurring charge for keeping content there, paid every turn | "keeping context loaded" |
+| **Residency** | How long content stayed in the conversation | "how long it stayed loaded" |
+| **Basis** | How a figure was derived: read from the records, computed by a rule, or estimated | "how we got this number" |
+| **API-equivalent cost** | Token counts × published list prices — not a bill | "estimated at API rates" |
+
+**Exact ≠ accurate.** The arithmetic conserves exactly (integer micro-dollars, see
+`specs/…/research.md` §8), but the inputs are imputed prices and a splitting policy. Internal
+exactness must never be displayed as precision the figures don't have — hence FR-095 to FR-098.
+A carry figure that depends on a policy choice does not get printed to the cent.
+
+---
+
 ## 1. The four components and what they actually cost
 
 Every request bills four token classes. Their *rates* differ by an order of magnitude, so the
