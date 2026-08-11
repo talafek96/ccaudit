@@ -90,7 +90,49 @@ distinguishes them and recommends different remedies.
 
 ---
 
-### User Story 3 - Settle the "are our docs expensive?" question (Priority: P2)
+### User Story 3 - Run it without ceremony (Priority: P1)
+
+A developer wants an answer, not a setup project. They run one command with no arguments and
+get the breakdown for the session they just finished. Later they want the same answer without
+leaving Claude Code, and eventually they want it to accumulate on its own so that by the time
+someone asks "did that change make things worse?", the history is already there.
+
+**Why this priority**: A tool that is a chore to run gets run once, during the argument, and
+never again — which forfeits every ongoing-optimization outcome this product exists for. The
+zero-argument default and the in-editor path are what make it a companion rather than an
+investigation.
+
+**Independent Test**: On a machine with the tool never previously run, execute it with no
+arguments in a project directory and confirm it produces a correct breakdown of the most recent
+session with no configuration, no account, and no prior setup step.
+
+**Acceptance Scenarios**:
+
+1. **Given** a developer in a project directory that has session history, **When** they run the
+   tool with no arguments, **Then** it analyses the most recent session for that project and
+   reports the breakdown, without requiring configuration.
+2. **Given** the tool has never been run on this machine, **When** it is run for the first time,
+   **Then** it requires no setup step, no account, and no credential.
+3. **Given** a developer working inside Claude Code, **When** they invoke the tool from within
+   their session, **Then** they receive the breakdown for that same in-progress session without
+   switching to a terminal.
+4. **Given** a developer asks their assistant a question about session cost in natural language,
+   **When** the assistant has the integration available, **Then** the assistant can produce the
+   answer from real measured data rather than estimating.
+5. **Given** automatic capture is enabled, **When** a session ends, **Then** its analysis is
+   recorded without the user taking any action.
+6. **Given** automatic capture is enabled, **When** a session ends, **Then** the user's workflow
+   is not blocked, delayed, or interrupted by the analysis.
+7. **Given** the integration is installed, **When** the user measures its own footprint,
+   **Then** the cost it adds to every session is reported and is a negligible share of session
+   cost.
+8. **Given** the integration is uninstalled, **When** the user runs sessions afterwards,
+   **Then** no residue of the tool remains in their sessions and previously recorded results
+   are retained.
+
+---
+
+### User Story 4 - Settle the "are our docs expensive?" question (Priority: P2)
 
 A manager believes a large share of spend comes from reading and re-reading `.md` files —
 instruction files, skills, and specs. A developer needs to confirm or refute this with numbers
@@ -122,7 +164,7 @@ read during work — as separately labelled figures that a non-expert reads corr
 
 ---
 
-### User Story 4 - Share the finding (Priority: P2)
+### User Story 5 - Share the finding (Priority: P2)
 
 A developer needs to hand the result to a manager who will not install anything, run anything,
 or read a terminal.
@@ -147,7 +189,7 @@ open it, and confirm every figure and visual renders with no network access.
 
 ---
 
-### User Story 5 - Know what a change cost (Priority: P3)
+### User Story 6 - Know what a change cost (Priority: P3)
 
 A team adds a tool integration, a skill, or a section to an instruction file, and needs to know
 whether that change made their sessions more expensive.
@@ -171,7 +213,7 @@ configuration change and verify the tool reports a per-item delta identifying wh
 
 ---
 
-### User Story 6 - See what could be saved (Priority: P4)
+### User Story 7 - See what could be saved (Priority: P4)
 
 A developer wants the tool to quantify the opportunity, not just the cost: how much would have
 been saved if a specific expensive item had not been carried for so long.
@@ -330,6 +372,30 @@ item's residency shortened.
 - **FR-047**: System MUST be safely re-runnable, producing no duplicate stored results when run
   repeatedly over the same records.
 
+**Invocation and integration**
+
+- **FR-048**: System MUST produce a useful result when invoked with no arguments, defaulting to
+  the most recent session of the project in the current working directory.
+- **FR-049**: System MUST be runnable without a prior install step, and MUST also support being
+  installed for repeat use.
+- **FR-050**: System MUST require no configuration file, account, credential, or service before
+  first use, and MUST create any state it needs on demand.
+- **FR-051**: System MUST be invocable from within a Claude Code session and, when so invoked,
+  MUST default to analysing that same session, including while it is still in progress.
+- **FR-052**: System MUST expose its capability such that an assistant can invoke it in response
+  to a natural-language question about session cost, and answer from measured data.
+- **FR-053**: System MUST offer an opt-in mode that records a session's analysis automatically
+  when the session ends, requiring no user action.
+- **FR-054**: Automatic recording MUST NOT block, delay, or interrupt the user's session, and
+  MUST fail silently to a log rather than surfacing errors into the user's workflow.
+- **FR-055**: System MUST NOT add persistent resident content to the user's sessions. Any
+  in-editor integration MUST consume context only when actively invoked.
+- **FR-056**: System MUST be able to measure and report its own contribution to session cost.
+- **FR-057**: System MUST be removable such that no residue remains in the user's sessions,
+  while previously recorded results are retained.
+- **FR-058**: System MUST be installable and updatable through the mechanism Claude Code
+  provides for distributing such integrations, without manual file copying.
+
 ### Key Entities
 
 - **Session**: One recorded Claude Code conversation. Has a total cost, a project, a time
@@ -385,15 +451,27 @@ item's residency shortened.
   no duplicate entries.
 - **SC-014**: For a session containing images, resumes, subagents, and a compaction, the tool
   produces a complete result with no crash and with every affected limitation declared.
+- **SC-015**: A first-time user goes from "never heard of it" to a correct breakdown of their
+  most recent session in a single command and under 2 minutes, including any download, with no
+  configuration and no account.
+- **SC-016**: The in-editor integration is installed in under 2 minutes by a user who has not
+  installed one before, using only the mechanism Claude Code already provides.
+- **SC-017**: The tool's own always-resident contribution to a session is under 0.5% of that
+  session's total cost, and the tool reports this figure about itself.
+- **SC-018**: With automatic recording enabled, the user perceives no added delay at session
+  end, and a failure of the recording never surfaces as an error in their session.
+- **SC-019**: After the integration is removed, a subsequent session contains no trace of it,
+  and every previously recorded result remains available.
 
 ## Assumptions
 
 **Scope**
 
-- **Single-session analysis is the v1 boundary.** Stories 1–4 (per-file attribution, cause
-  analysis, the instruction-versus-reads comparison, and the shareable report) constitute the
-  first release. Cross-session aggregation and comparison (Story 5) and the counterfactual
-  panel (Story 6) follow once single-session numbers are demonstrably trustworthy. Rationale:
+- **Single-session analysis is the v1 boundary.** Stories 1–5 (per-file attribution, cause
+  analysis, frictionless invocation, the instruction-versus-reads comparison, and the shareable
+  report) constitute the first release. Cross-session aggregation and comparison (Story 6) and
+  the counterfactual panel (Story 7) follow once single-session numbers are demonstrably
+  trustworthy. Rationale:
   the value and the risk both live in the per-file numbers being correct; aggregation is
   mechanical once they are, and worthless if they are not. Requirements FR-044 to FR-047 are
   specified now so the storage design does not have to be revisited, but only FR-044 and
@@ -430,6 +508,25 @@ item's residency shortened.
 - Optional richer telemetry may be unavailable on managed enterprise installations. The tool
   therefore treats it as an enhancement and never a requirement (FR-031).
 
+**Invocation**
+
+- **The tool must not become the thing it measures.** This constrains the integration design
+  more than any preference does. An integration that registers persistent capabilities adds its
+  descriptions to the resident context of *every* session, permanently — and the research
+  underlying this spec found that exactly this category of always-resident tool description is
+  the single largest block of resident context, roughly fifty times the size of a project's
+  instruction file. A cost-observability tool that inflated that block would corrupt the
+  baseline it exists to measure and would show up in its own reports. Hence FR-055: any
+  in-editor integration consumes context only when actively invoked, and FR-056 requires the
+  tool to measure and disclose its own footprint rather than assume it is negligible.
+- Three invocation paths are assumed, in decreasing order of expected use: a terminal command
+  (the primary and only mandatory one), invocation from within a Claude Code session, and
+  opt-in automatic recording at session end. Only the first is required for the tool to be
+  useful; the others make it habitual.
+- Automatic recording is opt-in rather than default, because writing to a user's environment
+  without being asked is a decision that belongs to the user (consistent with how this project
+  treats the user's own directories elsewhere).
+
 **Environment and users**
 
 - Users are developers with a working local Claude Code installation; report *readers* may be
@@ -452,3 +549,5 @@ item's residency shortened.
 - Modifying, moving, pruning, or optimising the user's session records or context.
 - Automatically acting on its own recommendations.
 - Reporting true billed amounts, which are not available locally.
+- Registering persistent always-resident capabilities in the user's sessions (see Assumptions,
+  *Invocation*).

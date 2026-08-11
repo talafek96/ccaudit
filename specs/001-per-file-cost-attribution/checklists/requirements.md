@@ -37,6 +37,16 @@ Validation performed 2026-08-11, single iteration, all items passing.
 and a self-contained HTML report; the spec states the observable properties instead (results
 persist locally between runs, FR-044; the report is a single self-contained file that opens
 without additional software or network access, FR-032). The choice belongs in `/speckit-plan`.
+SQLite has since been chosen and is recorded in `HANDOFF.md` under locked decisions; the spec
+is intentionally left unchanged, since nothing observable to a user depends on it.
+
+**Invocation surfaces added after initial validation** (User Story 3, FR-048 to FR-058,
+SC-015 to SC-019). Re-validated: still zero clarification markers, and the requirements remain
+observable rather than prescriptive — they state that the tool must be invocable from within a
+session and installable through the mechanism Claude Code provides, without naming the plugin
+file layout, which belongs in the plan. FR-055 (no persistent resident content) and FR-056
+(measure its own footprint) are the load-bearing ones: they encode the constraint that a
+cost-observability tool must not inflate the context it measures.
 
 **Zero [NEEDS CLARIFICATION] markers, by design not by omission.** Every open question in the
 source description had a defensible default backed by the research in `docs/research/`, and each
