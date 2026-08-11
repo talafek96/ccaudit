@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+dist/
+build/
+
+# Local data & generated reports
+*.db
+*.duckdb
+*.sqlite
+*.sqlite3
+data/
+out/
+reports/
+
+# OS / editor
+.DS_Store
+.idea/
+*.swp
+
+# Scratch research
+.research/
