@@ -29,3 +29,7 @@ reports/
 # Scratch research
 .research/
 docs/research/
+
+# Session memory (local, not shared)
+HANDOFF.md
+PITFALLS.md
