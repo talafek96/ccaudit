@@ -248,13 +248,32 @@ def read_image_dimensions(data: bytes) -> tuple[int, int] | None:
 
 
 def resolve_tool_result_tokens(record: ToolResultRecord, model: str | None = None) -> TokenQuantity:
-    """Size one tool result. ``model`` is the model of the turn that received it."""
-    return resolve_payload_tokens(
+    """Size one tool result. ``model`` is the model of the turn that received it.
+
+    Two places have to be searched, not one. ``toolUseResult`` is Claude Code's own summary of
+    what the tool returned, and for a screenshot it is often just ``{"isImage": true}`` — the
+    pixels live in the API message's ``tool_result`` content block instead. Sizing only the
+    first would withhold every embedded image, silently dropping what the corpus says is ~95%
+    of tool-result token volume.
+    """
+    quantity = resolve_payload_tokens(
         record.payload,
         model=model,
         tool_name=record.tool_name,
         text_length=record.text_length,
     )
+    if not quantity.is_withheld or record.content is None:
+        return quantity
+
+    from_content = resolve_payload_tokens(
+        record.content,
+        model=model,
+        tool_name=record.tool_name,
+        text_length=record.text_length,
+    )
+    # Only an actual figure displaces the withheld one; a second withheld result keeps the
+    # first one's reason, which is the more specific of the two.
+    return quantity if from_content.is_withheld else from_content
 
 
 def resolve_payload_tokens(

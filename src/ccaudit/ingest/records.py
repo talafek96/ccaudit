@@ -179,6 +179,11 @@ class ToolResultRecord:
     # The raw `toolUseResult` payload. Its shape varies by tool and it is not part of the API
     # message, so sizing it is `tokens.py`'s job, not this parser's.
     payload: Any = None
+    # The tool_result block's own content, from inside the API message. Images live *here*, not
+    # in `toolUseResult` — a screenshot's `toolUseResult` is often just `{"isImage": true}`.
+    # Without this the pixels never reach the sizer and every embedded image is withheld, which
+    # silently drops the single largest contributor to tool-result volume.
+    content: Any = None
     text_length: int = 0
 
 
@@ -476,7 +481,7 @@ def _parse_user(record: dict[str, Any], line: int) -> ToolResultRecord | None:
     """Parse a user record, keeping only the ones returning content into the conversation."""
     message = record.get("message")
     content = message.get("content") if isinstance(message, dict) else None
-    tool_use_id, text_length = _tool_result_shape(content)
+    tool_use_id, text_length, result_content = _tool_result_shape(content)
     payload = record.get("toolUseResult")
     if tool_use_id is None and payload is None:
         # Real user text, a compaction summary, or an isMeta sidecar. Not an injection with an
@@ -494,6 +499,7 @@ def _parse_user(record: dict[str, Any], line: int) -> ToolResultRecord | None:
         is_sidechain=bool(record.get("isSidechain")),
         is_meta=bool(record.get("isMeta")),
         payload=payload,
+        content=result_content,
         text_length=text_length,
     )
 
@@ -567,15 +573,20 @@ def _tool_use_ids(content: Any) -> tuple[str, ...]:
     return tuple(ids)
 
 
-def _tool_result_shape(content: Any) -> tuple[str | None, int]:
-    """Find the tool_result block's id and the length of its rendered text, if any."""
+def _tool_result_shape(content: Any) -> tuple[str | None, int, Any]:
+    """The tool_result block's id, its rendered text length, and its raw content.
+
+    The raw content is carried through because that is where image payloads live; sizing it is
+    `tokens.py`'s job, but a parser that discards it makes that job impossible.
+    """
     if not isinstance(content, list):
-        return None, 0
+        return None, 0, None
     for block in content:
         if not isinstance(block, dict) or block.get("type") != "tool_result":
             continue
-        return _as_str(block.get("tool_use_id")), _content_text_length(block.get("content"))
-    return None, 0
+        inner = block.get("content")
+        return _as_str(block.get("tool_use_id")), _content_text_length(inner), inner
+    return None, 0, None
 
 
 def _content_text_length(content: Any) -> int:

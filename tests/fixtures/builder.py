@@ -12,6 +12,7 @@ A fixture that only contains clean assistant turns would fence nothing. The buil
 noise too, on purpose.
 """
 
+import base64
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -371,3 +372,26 @@ def simple_session(**kwargs: Any) -> TranscriptBuilder:
     builder.add_ui_noise(3)
     builder.add_turn(input_tokens=10, cache_read=2100, output_tokens=120)
     return builder
+
+
+def minimal_png(width: int, height: int) -> bytes:
+    """A PNG header with real dimensions, and nothing else.
+
+    Constructed rather than committed as a binary: the sizer only reads the IHDR, so a real
+    image file would add bytes to the repo for no extra coverage. This is what lets a fixture
+    exercise the image path — the one place `chars // 4` is wrong by two orders of magnitude.
+    """
+    signature = b"\x89PNG\r\n\x1a\n"
+    ihdr_body = b"IHDR" + width.to_bytes(4, "big") + height.to_bytes(4, "big")
+    ihdr_body += bytes([8, 6, 0, 0, 0])  # bit depth, colour type, compression, filter, interlace
+    return signature + (13).to_bytes(4, "big") + ihdr_body + b"\x00\x00\x00\x00"
+
+
+def png_base64(width: int, height: int, padding_bytes: int = 0) -> str:
+    """A base64 PNG payload, optionally padded so its character count is absurdly large.
+
+    The padding is the point: a 2560x1430 screenshot is ~4,880 tokens but ~500,000 characters
+    of base64. A fixture that does not make those two numbers wildly different cannot catch a
+    character-count regression.
+    """
+    return base64.b64encode(minimal_png(width, height) + b"\x00" * padding_bytes).decode("ascii")
