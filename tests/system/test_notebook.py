@@ -7,14 +7,15 @@ this project no dependency, and that it computes no figure of its own.
 """
 
 import ast
+import json
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
-from ccaudit.cli import EXIT_OK, main
-from ccaudit.notebook import NOTEBOOK_SOURCE, write_notebook
+from ccaudit.cli import EXIT_INTERRUPTED, EXIT_OK, EXIT_USAGE, main
+from ccaudit.notebook import COMMAND_PLACEHOLDER, NOTEBOOK_SOURCE, ccaudit_command, write_notebook
 
 pytestmark = pytest.mark.system
 
@@ -76,7 +77,21 @@ class TestItComputesNoFigure:
         A notebook that summed per-session figures itself would be a second implementation of
         the arithmetic, free to disagree with the first.
         """
-        assert '"ccaudit", *args, "--json"' in notebook
+        assert "[*CCAUDIT, *args]" in notebook
+        assert '"--json"' in notebook
+
+    def test_it_is_told_where_to_find_ccaudit(self, notebook: str) -> None:
+        """`ccaudit` is not on PATH under `uvx`, and the notebook runs under a different
+        interpreter besides — so the command is resolved at write time and written in as an
+        absolute path. Assuming the bare name failed with a bare FileNotFoundError."""
+        assert COMMAND_PLACEHOLDER not in notebook
+        command = json.loads(notebook.split("CCAUDIT = ", 1)[1].split("\n", 1)[0])
+        assert Path(command[0]).is_absolute()
+
+    def test_a_missing_ccaudit_says_what_to_do(self, notebook: str) -> None:
+        """The failure it replaces gave the reader nothing to act on."""
+        assert "cannot run ccaudit at" in notebook
+        assert "uv tool install" in notebook
 
     def test_it_labels_its_figures_as_estimates(self, notebook: str) -> None:
         assert "API-equivalent" in notebook
@@ -89,6 +104,75 @@ class TestItComputesNoFigure:
 
     def test_it_reproduces_the_limitations(self, notebook: str) -> None:
         assert "limitations" in notebook
+
+
+class TestTheThrowawayNotebook:
+    """The default is the same bargain as `ccaudit ui`: one command, nothing left behind."""
+
+    @pytest.fixture
+    def launched(self, monkeypatch: pytest.MonkeyPatch) -> list:
+        """Capture what would have been launched, without launching marimo."""
+        calls: list = []
+
+        def fake_run(command, **kwargs):
+            calls.append([str(part) for part in command])
+            # The notebook has to exist *while* marimo is running, or there is nothing to open.
+            calls.append(Path(command[-1]).exists())
+            return subprocess.CompletedProcess(command, 0)
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        monkeypatch.setattr("shutil.which", lambda name: f"/usr/bin/{name}")
+        return calls
+
+    def test_it_opens_the_notebook_in_a_sandbox(
+        self, launched: list, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        assert main(["notebook"]) == EXIT_OK
+        command = launched[0]
+        assert command[-3:-1] == ["edit", "--sandbox"]
+        assert "marimo" in command
+
+    def test_the_notebook_exists_while_marimo_runs(self, launched: list) -> None:
+        main(["notebook"])
+        assert launched[1] is True
+
+    def test_nothing_is_left_on_disk_afterwards(self, launched: list) -> None:
+        """The whole point of the default: it litters nothing, not even marimo's own state."""
+        main(["notebook"])
+        assert not Path(launched[0][-1]).exists()
+        assert not Path(launched[0][-1]).parent.exists()
+
+    def test_it_says_the_notebook_is_temporary(
+        self, launched: list, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        main(["notebook"])
+        printed = " ".join(capsys.readouterr().out.split())
+        assert "temporary" in printed
+        assert "Nothing was left on disk" in printed
+
+    def test_it_says_how_to_keep_one_instead(
+        self, launched: list, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        main(["notebook"])
+        assert "--out" in " ".join(capsys.readouterr().out.split())
+
+    def test_interrupting_it_still_cleans_up(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Ctrl-C is the exit that actually happens, so it is the one that must not litter."""
+        seen: list[Path] = []
+
+        def interrupt(command, **kwargs):
+            seen.append(Path(command[-1]))
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr(subprocess, "run", interrupt)
+        monkeypatch.setattr("shutil.which", lambda name: f"/usr/bin/{name}")
+        assert main(["notebook"]) == EXIT_INTERRUPTED
+        assert seen and not seen[0].exists() and not seen[0].parent.exists()
+
+    def test_without_uv_it_says_what_to_install(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Naming the fallback matters: `--out` works with any marimo already on the machine."""
+        monkeypatch.setattr("shutil.which", lambda name: None)
+        assert main(["notebook"]) == EXIT_USAGE
 
 
 class TestTheCommand:
@@ -106,5 +190,45 @@ class TestTheCommand:
         monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "empty"))
         assert main(["notebook", "--out", str(tmp_path / "nb.py")]) == EXIT_OK
 
-    def test_the_written_file_matches_the_source(self, tmp_path: Path) -> None:
-        assert write_notebook(tmp_path / "nb.py").read_text(encoding="utf-8") == NOTEBOOK_SOURCE
+    def test_the_written_file_is_the_source_with_the_command_filled_in(
+        self, tmp_path: Path
+    ) -> None:
+        written = write_notebook(tmp_path / "nb.py", command=["/opt/ccaudit"]).read_text(
+            encoding="utf-8"
+        )
+        assert written == NOTEBOOK_SOURCE.replace(COMMAND_PLACEHOLDER, '["/opt/ccaudit"]')
+
+
+class TestFindingCcauditAgain:
+    """`ccaudit` on PATH is the assumption that broke this on a real machine.
+
+    Installed with `uvx --from git+... ccaudit`, the executable lives in a uv cache directory
+    and never reaches PATH; the notebook's first cell died with `FileNotFoundError [WinError 2]`
+    and nothing to act on. So the command is resolved when the notebook is written, by the
+    process that knows the answer.
+    """
+
+    def test_it_prefers_the_executable_that_is_running(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        launcher = tmp_path / "ccaudit"
+        launcher.write_text("#!/bin/sh\n")
+        monkeypatch.setattr("sys.argv", [str(launcher)])
+        assert ccaudit_command() == [str(launcher.resolve())]
+
+    def test_it_falls_back_to_one_on_path(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("sys.argv", ["pytest"])
+        monkeypatch.setattr("shutil.which", lambda name: "/usr/local/bin/ccaudit")
+        assert ccaudit_command() == ["/usr/local/bin/ccaudit"]
+
+    def test_it_falls_back_to_this_interpreter(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """`python -m ccaudit` works wherever the package is importable, which is here."""
+        monkeypatch.setattr("sys.argv", ["pytest"])
+        monkeypatch.setattr("shutil.which", lambda name: None)
+        assert ccaudit_command()[1:] == ["-m", "ccaudit"]
+
+    def test_every_form_is_absolute(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The notebook runs from a different directory, under a different interpreter."""
+        monkeypatch.setattr("sys.argv", ["pytest"])
+        monkeypatch.setattr("shutil.which", lambda name: None)
+        assert Path(ccaudit_command()[0]).is_absolute()

@@ -296,6 +296,41 @@ p { margin: 0.5rem 0; }
 .mark:hover .slice,
 .mark:hover .node { stroke: var(--text-primary); stroke-width: 2; }
 
+/* A bar that ran past the scale stops short and wears this. Same idea as a broken axis on
+   graph paper: the length past the mark is not to be read as a length. */
+.cut {
+  stroke: var(--text-primary);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* The tooltip. Only ever shown by the script, which is why it has no no-JS appearance: the
+   <title> elements it reads are the fallback, and the browser draws those itself. */
+.tip {
+  position: fixed;
+  z-index: 20;
+  max-width: min(34rem, 92vw);
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--keyline);
+  border-radius: 3px;
+  background: var(--surface-1);
+  color: var(--text-primary);
+  font-family: var(--font-figure);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  /* Long paths are the common case and they must wrap rather than run off the screen. */
+  overflow-wrap: anywhere;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+  pointer-events: none;
+}
+
+.tip[hidden] { display: none; }
+
+/* Anything that carries a tooltip says so with the cursor, and takes focus so a keyboard
+   reader can reach the same text. */
+.mark, .row-label, [data-tip] { cursor: help; }
+
 /* Cause plot. Points overlap by nature — a fill alone would read as one blob — so each carries
    a surface-coloured rim that separates it from its neighbours in both themes, and the fill is
    translucent enough that a dense cluster reads as dense rather than as one large point. */

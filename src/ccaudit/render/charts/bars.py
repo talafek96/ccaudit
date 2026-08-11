@@ -19,12 +19,9 @@ from ccaudit.render.charts import (
     BAR_HEIGHT,
     CHART_WIDTH,
     CORNER_RADIUS,
-    LABEL_GUTTER,
     MIN_LABELLED_WIDTH,
     ROW_HEIGHT,
     Slice,
-    common_directory_prefix,
-    elide_prefix,
     figure,
     hatch_defs,
     legend_list,
@@ -34,6 +31,7 @@ from ccaudit.render.charts import (
     rect,
     row_label,
     separators,
+    shortest_unique_labels,
     svg_open,
     swatch_fill,
     tick_label,
@@ -44,9 +42,17 @@ TICK_BASELINE = BAR_HEIGHT + 18
 COMPOSITION_HEIGHT = TICK_BASELINE + 6
 
 ROW_BAR_HEIGHT = 14
+
+# The label column. Wide, because a row label that has been squeezed to thirty characters is
+# not a label — it is a puzzle, and two sibling paths reduce to nearly the same string.
+ROW_LABEL_GUTTER = 300
 VALUE_GUTTER = 150
-ROW_BAR_WIDTH = CHART_WIDTH - LABEL_GUTTER - VALUE_GUTTER
-ROW_LABEL_LIMIT = 30
+ROW_BAR_WIDTH = CHART_WIDTH - ROW_LABEL_GUTTER - VALUE_GUTTER
+ROW_LABEL_LIMIT = 42
+
+# The torn edge on a bar that ran past the scale — the printer's convention for "this axis is
+# broken here", which is exactly what has happened.
+CUT_WIDTH = 12
 
 SPARK_HEIGHT = 170
 # Wide enough for a money figure and its share: the y-axis label is a figure like any
@@ -132,6 +138,16 @@ def composition_bar(
     return figure(chart_id=chart_id, title=title, svg=svg, legend=legend_list(slices), note=note)
 
 
+def _cut_mark(*, x: int, y: int) -> str:
+    """A broken-axis mark: this bar is longer than the scale, and its length is not to be read."""
+    top, bottom = y, y + ROW_BAR_HEIGHT
+    middle = x + CUT_WIDTH // 2
+    return (
+        f'<path class="cut" d="M{x} {bottom} L{middle} {top} L{middle} {bottom} '
+        f'L{x + CUT_WIDTH} {top}" fill="none"></path>'
+    )
+
+
 def stacked_bars(
     *,
     chart_id: str,
@@ -140,11 +156,21 @@ def stacked_bars(
     legend: Sequence[Slice],
     total_micros: int,
     note: str = "",
+    ranked: int | None = None,
 ) -> str:
-    """One stacked bar per row, all on a common scale set by the largest row.
+    """One stacked bar per row, on a common scale, with the summary rows kept off that scale.
 
     Each row's segments partition that row's bar exactly, so the split between loading and
     keeping can be read off the picture and still matches the table beside it.
+
+    ``ranked`` says how many leading rows are *items*. The rows after it — "79 other items",
+    what the model wrote back, the remainder — are sums of many things, and one of them is
+    routinely larger than every item put together. Scaling the whole chart to include them
+    flattens every item to an identical stub and destroys the ranking the chart exists to show,
+    so the scale is set by the items and the summary rows are drawn against the same axis but
+    are allowed to run to the end of it, marked as the aggregates they are. Left as ``None``,
+    every row is treated as an item, which is the right answer for a chart that has no summary
+    rows at all.
     """
     if not rows:
         return placeholder(
@@ -153,11 +179,12 @@ def stacked_bars(
             reason="No items were attributed any cost in this selection.",
         )
 
-    # Computed over every row at once, so one chart cuts one prefix and the labels stay
-    # comparable down the column.
-    shared = common_directory_prefix([label for label, _ in rows])
+    # The shortest tail of each path that still tells it apart from its neighbours, computed
+    # over the whole column so the labels stay mutually distinguishable.
+    labels = shortest_unique_labels([label for label, _ in rows])
     row_totals = [sum(part.micros for part in parts) for _, parts in rows]
-    scale = max(row_totals)
+    items = ranked if ranked is not None else len(rows)
+    scale = max(row_totals[:items], default=0) or max(row_totals, default=0)
     height = ROW_HEIGHT * len(rows) + 8
 
     body: list[str] = []
@@ -166,15 +193,20 @@ def stacked_bars(
         text_y = y + ROW_BAR_HEIGHT + 2
         body.append(
             row_label(
-                x=LABEL_GUTTER - 10,
+                x=ROW_LABEL_GUTTER - 10,
                 y=text_y,
-                text=truncate(elide_prefix(label, shared), ROW_LABEL_LIMIT),
+                text=truncate(labels[index], ROW_LABEL_LIMIT),
                 title=label,
             )
         )
-        bar_width = 0 if scale <= 0 else ROW_BAR_WIDTH * row_total // scale
+        # A summary row larger than the largest item is clamped rather than allowed to rescale
+        # the chart. A clamped bar drawn flush with the longest item would read as "the same
+        # size as that item", which is false, so it stops short and the gap carries a cut mark.
+        unclamped = 0 if scale <= 0 else ROW_BAR_WIDTH * row_total // scale
+        clamped = unclamped > ROW_BAR_WIDTH
+        bar_width = min(ROW_BAR_WIDTH - CUT_WIDTH, unclamped) if clamped else unclamped
         widths = partition(bar_width, [part.micros for part in parts])
-        x = LABEL_GUTTER
+        x = ROW_LABEL_GUTTER
         boundaries: list[int] = []
         for position, (part, width) in enumerate(zip(parts, widths, strict=True), start=1):
             if width > 0:
@@ -196,6 +228,8 @@ def stacked_bars(
             x += width
             if position < len(parts) and 0 < width:
                 boundaries.append(x)
+        if clamped:
+            body.append(_cut_mark(x=ROW_LABEL_GUTTER + bar_width, y=y))
         body.append(separators(boundaries, y=y, height=ROW_BAR_HEIGHT))
         sig_figs = min(part.sig_figs for part in parts)
         share = row_total / total_micros if total_micros else 0.0
@@ -213,7 +247,13 @@ def stacked_bars(
             "</svg>",
         ]
     )
-    return figure(chart_id=chart_id, title=title, svg=svg, legend=legend_list(legend), note=note)
+    return figure(
+        chart_id=chart_id,
+        title=title,
+        svg=svg,
+        legend=legend_list(legend) if legend else "",
+        note=note,
+    )
 
 
 def cumulative_sparkline(

@@ -21,9 +21,11 @@ pass and no interpretation of the records.
 """
 
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 from ccaudit.ingest.records import iter_records
 
@@ -36,6 +38,14 @@ TRANSCRIPT_SUFFIX = ".jsonl"
 # for the listing only — it is never what decides whether a stored figure is current, because
 # mtime is exactly the wrong signal for that (see module docstring). The fingerprint decides.
 IN_PROGRESS_WINDOW = timedelta(minutes=5)
+
+# Records that carry the session's name. Claude Code generates one (`ai-title`) and the user
+# may set their own (`custom-title`); both are read and the later record wins, which is what
+# makes a user's own name stick.
+TITLE_TYPES: frozenset[str] = frozenset({"ai-title", "custom-title"})
+
+# How much of a session id is shown beside its name. The first block of a UUID.
+SHORT_ID_LENGTH = 8
 
 
 class TranscriptTreeError(RuntimeError):
@@ -76,6 +86,30 @@ class SessionRef:
     modified_at: datetime
     in_progress: bool
     subagent_paths: tuple[Path, ...] = ()
+    # What the session is *about*, when Claude Code recorded a name for it. `None` is a normal
+    # outcome — a short session may never have been named — and every surface falls back to the
+    # id rather than inventing a name.
+    title: str | None = None
+
+    @property
+    def short_id(self) -> str:
+        """Enough of the id to identify the session among the others on one machine.
+
+        A UUID's first block is 8 hex digits: 4 billion values, against the few hundred
+        sessions a machine accumulates. Collisions are not a practical concern, and the full id
+        is always one `ccaudit sessions` away.
+        """
+        return self.session_id[:SHORT_ID_LENGTH]
+
+    @property
+    def display_name(self) -> str:
+        """How this session is named on every surface: its name, then a bit of its id.
+
+        A wall of UUIDs tells a reader nothing about which session was which. The name does,
+        and the id fragment is what they need to select it — so both travel together, always in
+        this order.
+        """
+        return f"{self.title} ({self.short_id})" if self.title else self.short_id
 
     @property
     def record_count(self) -> int:
@@ -137,20 +171,32 @@ def decode_project_dir(directory_name: str, *, must_exist: bool = True) -> Path 
     return candidate if candidate.is_dir() else None
 
 
-def fingerprint_transcript(path: Path, subagent_paths: tuple[Path, ...] = ()) -> Fingerprint:
-    """Compute a session's coverage fingerprint. Read-only; no full parse, no interpretation.
+def scan_transcript(
+    path: Path, subagent_paths: tuple[Path, ...] = ()
+) -> tuple[Fingerprint, str | None]:
+    """One read-only pass over a session's files: its coverage fingerprint and its name.
 
-    One line-oriented pass per file: records are counted and the last one's ``uuid`` is read.
-    Nothing is typed, priced, or attributed here — that is what keeps it cheap enough to run
-    over the whole corpus on every invocation (SC-021).
+    The two travel together because they come from the same pass. Splitting them into two
+    functions would mean reading every transcript twice to list a corpus, and this pass is the
+    thing that has to stay cheap enough to run on every invocation (SC-021).
+
+    Nothing is typed, priced, or attributed here.
     """
-    record_count, last_uuid = _count_records(path)
+    record_count, last_uuid, title = _count_records(path)
     byte_size = _byte_size(path)
     for subagent_path in subagent_paths:
-        extra_count, _ = _count_records(subagent_path)
+        extra_count, _, _ = _count_records(subagent_path)
         record_count += extra_count
         byte_size += _byte_size(subagent_path)
-    return Fingerprint(record_count=record_count, last_record_uuid=last_uuid, byte_size=byte_size)
+    fingerprint = Fingerprint(
+        record_count=record_count, last_record_uuid=last_uuid, byte_size=byte_size
+    )
+    return fingerprint, title
+
+
+def fingerprint_transcript(path: Path, subagent_paths: tuple[Path, ...] = ()) -> Fingerprint:
+    """A session's coverage fingerprint alone, for callers that do not need its name."""
+    return scan_transcript(path, subagent_paths)[0]
 
 
 def session_ref(path: Path, *, now: datetime | None = None) -> SessionRef:
@@ -159,7 +205,7 @@ def session_ref(path: Path, *, now: datetime | None = None) -> SessionRef:
         raise TranscriptTreeError(f"not a transcript file: {path}")
 
     subagent_paths = _subagent_paths(path)
-    fingerprint = fingerprint_transcript(path, subagent_paths)
+    fingerprint, title = scan_transcript(path, subagent_paths)
     modified_at = max(_modified_at(candidate) for candidate in (path, *subagent_paths))
     project_dir = path.parent.name
     return SessionRef(
@@ -170,6 +216,7 @@ def session_ref(path: Path, *, now: datetime | None = None) -> SessionRef:
         project_dir=project_dir,
         project_path=decode_project_dir(project_dir),
         fingerprint=fingerprint,
+        title=title,
         modified_at=modified_at,
         in_progress=(now or datetime.now(UTC)) - modified_at < IN_PROGRESS_WINDOW,
         subagent_paths=subagent_paths,
@@ -246,21 +293,49 @@ def _subagent_paths(path: Path) -> tuple[Path, ...]:
     return tuple(sorted(p for p in subagents.glob(f"*{TRANSCRIPT_SUFFIX}") if p.is_file()))
 
 
-def _count_records(path: Path) -> tuple[int, str | None]:
-    """Well-formed record count, and the uuid of the last record that carries one.
+def _count_records(path: Path) -> tuple[int, str | None, str | None]:
+    """Well-formed record count, the uuid of the last record carrying one, and the title.
 
     Goes through the shared :func:`iter_records` so there is exactly one JSON reading path in
     the ingest layer — a second, faster-but-different scanner would eventually disagree with
     the parser about what counts as a record (Principle II).
+
+    The title comes free here because this pass already visits every record. A separate pass
+    for it would double the cost of listing a corpus, which is the one thing this function is
+    shaped to keep cheap.
     """
     count = 0
     last_uuid: str | None = None
+    title: str | None = None
     for _, record in iter_records(path):
         count += 1
         uuid = record.get("uuid")
         if isinstance(uuid, str) and uuid:
             last_uuid = uuid
-    return count, last_uuid
+        found = session_title(record)
+        if found is not None:
+            title = found
+    return count, last_uuid, title
+
+
+def session_title(record: Mapping[str, Any]) -> str | None:
+    """The session's name from one record, or ``None`` if it does not carry one.
+
+    Claude Code names a session two ways: it generates one (``ai-title``), and the user can set
+    one (``custom-title``). Both are read, later wins — which is what makes a user's own name
+    stick, since it is written after the generated one.
+
+    Defined here rather than in the parser because discovery needs it *without* a full parse:
+    listing a corpus must not cost an analysis.
+    """
+    kind = record.get("type")
+    if kind not in TITLE_TYPES:
+        return None
+    for field in ("customTitle", "aiTitle", "title"):
+        value = record.get(field)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
 
 
 def _byte_size(path: Path) -> int:

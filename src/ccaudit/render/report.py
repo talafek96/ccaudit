@@ -158,7 +158,7 @@ def _refuse_if_it_does_not_add_up(data: Mapping[str, Any]) -> None:
 
 def _header(data: Mapping[str, Any]) -> str:
     scope = data["scope"]
-    sessions = scope["sessions_included"]
+    sessions = scope.get("session_names") or scope["sessions_included"]
     parts = [
         f"<h1>{escape(REPORT_TITLE)}</h1>",
         f'<p class="lede">{escape(COST_BASIS_SENTENCE)}</p>',
@@ -385,12 +385,17 @@ def _items_section(data: Mapping[str, Any]) -> str:
         chart_id="items",
         title="What cost the most, and whether it was the loading or the keeping",
         rows=rows,
-        legend=_attribution_slices(data),
+        # No legend: this chart sits under two sections that already carry the same one, and a
+        # third copy is noise between the reader and the ranking.
+        legend=(),
         total_micros=total,
+        ranked=len(shown),
         note=(
-            "Bars are on one common scale. Rows below the items are cost the exchange itself "
-            "caused rather than any file, and the remainder — together they reach the session "
-            "total."
+            "The item bars share one scale, set by the most expensive item. The rows beneath "
+            "them are sums — the items not shown, cost the exchange itself caused rather than "
+            "any file, and the remainder — so one of them can exceed every item and is drawn "
+            "at full width rather than being allowed to shrink the ranking above it. Together "
+            "they reach the session total."
         ),
     )
     return "".join(

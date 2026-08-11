@@ -22,9 +22,40 @@ the interactivity, ccaudit supplies every number. That is also what makes the se
 correct rather than approximately correct — reselecting re-runs the real analysis.
 """
 
+import json
+import shutil
+import sys
 from pathlib import Path
 
 DEFAULT_NOTEBOOK = Path("ccaudit-notebook.py")
+
+# Where the generated notebook learns how to call us back. Substituted at write time, because
+# the notebook cannot work it out for itself: it runs under marimo's sandbox interpreter, which
+# has marimo and altair in it and no ccaudit at all.
+COMMAND_PLACEHOLDER = "__CCAUDIT_COMMAND__"
+
+
+def ccaudit_command() -> list[str]:
+    """The argv prefix that reaches *this* ccaudit from an unrelated process.
+
+    Assuming ``ccaudit`` is on PATH is wrong for the way most people run this. `uvx --from
+    git+... ccaudit` puts the executable in a uv cache directory and never on PATH, so the
+    notebook's first cell died with a bare `FileNotFoundError` on Windows.
+
+    Resolution is most-specific first: the executable that is running now, then one on PATH,
+    then this interpreter with ``-m``. Every form is absolute, because the notebook runs with a
+    different interpreter, a different environment, and possibly a different working directory.
+    """
+    launcher = Path(sys.argv[0]) if sys.argv and sys.argv[0] else None
+    if launcher is not None and launcher.name.startswith("ccaudit") and launcher.is_file():
+        return [str(launcher.resolve())]
+    on_path = shutil.which("ccaudit")
+    if on_path:
+        return [str(Path(on_path).resolve())]
+    # `python -m ccaudit` works wherever the package is importable, which is the case whenever
+    # this code is the thing running.
+    return [str(Path(sys.executable).resolve()), "-m", "ccaudit"]
+
 
 # PEP 723 metadata, so the notebook carries its own environment. `marimo edit --sandbox` reads
 # it and builds a throwaway venv; the user installs nothing permanently and ccaudit depends on
@@ -68,14 +99,27 @@ def _():
 
 @app.cell
 def _(json, subprocess):
+    # Written in by `ccaudit notebook`, absolute. Not the bare name "ccaudit": this notebook
+    # runs under marimo's sandbox interpreter, and a ccaudit installed by `uvx` is not on PATH
+    # at all — which failed here with an unexplained FileNotFoundError.
+    CCAUDIT = __CCAUDIT_COMMAND__
+
+    def _run(args):
+        try:
+            return subprocess.run(
+                [*CCAUDIT, *args], capture_output=True, text=True, check=False
+            )
+        except FileNotFoundError as error:
+            raise RuntimeError(
+                f"cannot run ccaudit at {CCAUDIT[0]!r}. It was there when this notebook was "
+                f"written; if ccaudit has since moved, regenerate the notebook with "
+                f"`ccaudit notebook`, or install it permanently with "
+                f"`uv tool install --from git+https://github.com/talafek96/ccaudit ccaudit`."
+            ) from error
+
     def run_ccaudit(*args):
         """Ask ccaudit for a payload. The only source of a figure in this notebook."""
-        result = subprocess.run(
-            ["ccaudit", *args, "--json"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        result = _run([*args, "--json"])
         if result.returncode != 0:
             raise RuntimeError(
                 f"ccaudit exited {result.returncode}: {result.stderr.strip() or 'no detail'}"
@@ -83,24 +127,30 @@ def _(json, subprocess):
         return json.loads(result.stdout)
 
     def list_sessions():
-        lines = subprocess.run(
-            ["ccaudit", "sessions", "--all"], capture_output=True, text=True, check=True
-        ).stdout.splitlines()
-        return [line.split()[0] for line in lines if line[:1].isalnum() and len(line.split()[0]) > 20]
+        """Session ids paired with their names, newest first."""
+        result = _run(["sessions", "--all", "--json"])
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"ccaudit exited {result.returncode}: {result.stderr.strip() or 'no detail'}"
+            )
+        return json.loads(result.stdout)
 
-    return list_sessions, run_ccaudit
+    return CCAUDIT, list_sessions, run_ccaudit
 
 
 @app.cell
 def _(list_sessions, mo):
+    # Keyed by name, valued by id: the reader picks by what the session was about, and ccaudit
+    # is asked for it by id.
     sessions = list_sessions()
+    options = {row["display_name"]: row["session_id"] for row in sessions}
     picker = mo.ui.multiselect(
-        options=sessions,
-        value=sessions[: min(len(sessions), 8)],
+        options=options,
+        value=list(options)[: min(len(options), 8)],
         label="Sessions in the analysis",
     )
     picker
-    return picker, sessions
+    return options, picker, sessions
 
 
 @app.cell
@@ -194,7 +244,7 @@ def _(alt, mo, payload, pd):
     frame = pd.DataFrame(
         [
             {
-                "session": row["session_id"][:8],
+                "session": row.get("display_name") or row["session_id"][:8],
                 "cause": name,
                 "cost": row[field] / 1e6,
             }
@@ -239,12 +289,15 @@ if __name__ == "__main__":
 '''
 
 
-def write_notebook(path: Path = DEFAULT_NOTEBOOK) -> Path:
+def write_notebook(path: Path = DEFAULT_NOTEBOOK, *, command: list[str] | None = None) -> Path:
     """Write the notebook, returning the path written.
 
     The file is written whole, in one call, so an interrupted run leaves no half-written
     notebook that looks complete.
     """
+    source = NOTEBOOK_SOURCE.replace(
+        COMMAND_PLACEHOLDER, json.dumps(command if command is not None else ccaudit_command())
+    )
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(NOTEBOOK_SOURCE, encoding="utf-8")
+    path.write_text(source, encoding="utf-8")
     return path

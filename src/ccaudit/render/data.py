@@ -42,6 +42,7 @@ from ccaudit.config import (
     sig_figs_for,
 )
 from ccaudit.config.components import BASIS_VALUES, CONFIDENCE_VALUES, attribution_component
+from ccaudit.ingest.discover import SHORT_ID_LENGTH
 from ccaudit.model.policy import describe as describe_policy
 from ccaudit.model.reconcile import ReconciliationError
 from ccaudit.money import allocate
@@ -155,6 +156,17 @@ _MIXED = "(mixed)"
 # Above these, a list stops informing and starts burying the figures underneath it.
 SESSION_LIST_LIMIT = 6
 VERSION_LIST_LIMIT = 6
+
+
+def session_display_name(session_id: str, title: str | None) -> str:
+    """How a session is named on every surface: its name, then enough id to select it.
+
+    One function so the terminal, the report, the UI, and the notebook cannot drift into three
+    spellings of the same thing (Principle IX). A session Claude Code never named falls back to
+    the id fragment rather than to an invented name.
+    """
+    short = session_id[:SHORT_ID_LENGTH]
+    return f"{title} ({short})" if title else short
 
 
 def summarise_ids(ids: Sequence[str]) -> str:
@@ -453,6 +465,13 @@ def _scope(
         versions |= analysis.parsed.producing_versions
     return {
         "sessions_included": sorted(a.session_id for a in analyses),
+        # Names beside the ids. A wall of UUIDs says nothing about which session was which, and
+        # the name is the only thing that does; the id fragment is what selects it. Ordered to
+        # match `sessions_included` so a consumer can zip the two.
+        "session_names": [
+            session_display_name(a.session_id, getattr(a, "title", None))
+            for a in sorted(analyses, key=lambda item: item.session_id)
+        ],
         # Exclusion is part of the result, never a hidden input (FR-063).
         "sessions_excluded_count": excluded,
         # Sessions a sweep could not price at all — a foreign model in a shared ~/.claude. They
@@ -984,6 +1003,10 @@ def _sessions(
         rows.append(
             {
                 "session_id": analysis.session_id,
+                "title": getattr(analysis, "title", None),
+                "display_name": session_display_name(
+                    analysis.session_id, getattr(analysis, "title", None)
+                ),
                 "cost_micros": cost,
                 "direct_micros": direct,
                 "carry_micros": carry,

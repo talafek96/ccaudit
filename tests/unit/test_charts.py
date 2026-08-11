@@ -30,7 +30,12 @@ from ccaudit.render.charts import (
     series_swatch,
     truncate,
 )
-from ccaudit.render.charts.bars import composition_bar, cumulative_sparkline, stacked_bars
+from ccaudit.render.charts.bars import (
+    ROW_BAR_WIDTH,
+    composition_bar,
+    cumulative_sparkline,
+    stacked_bars,
+)
 from ccaudit.render.charts.hierarchy import icicle
 from ccaudit.render.charts.scatter import _cause, _money_ticks, cause_scatter, session_bars
 from ccaudit.render.charts.timeline import (
@@ -338,8 +343,10 @@ class TestGeometryAddsUp:
         )
         widths = [int(width) for width in RECT.findall(html)]
         # Both rows are the same size, so both fill the full track; every segment is accounted
-        # for in one row or the other.
-        assert sum(widths) == 2 * (720 - 210 - 150)
+        # for in one row or the other. Read from the layout constant rather than restated: the
+        # invariant is that a row's segments partition its bar, not that the bar is 360px, and
+        # a test that pins the width fails whenever the label column is widened.
+        assert sum(widths) == 2 * ROW_BAR_WIDTH
 
     def test_icicle_children_partition_their_parent(self) -> None:
         total = 1_000_000

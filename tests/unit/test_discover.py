@@ -15,6 +15,7 @@ import pytest
 
 from ccaudit.ingest.discover import (
     IN_PROGRESS_WINDOW,
+    SHORT_ID_LENGTH,
     TranscriptTreeError,
     claude_home,
     decode_project_dir,
@@ -22,7 +23,9 @@ from ccaudit.ingest.discover import (
     encode_project_dir,
     fingerprint_transcript,
     latest_session_for_cwd,
+    scan_transcript,
     session_ref,
+    session_title,
     sessions_for_project,
 )
 
@@ -340,3 +343,63 @@ class TestInProgressHint:
     def test_a_missing_transcript_raises_with_its_path(self, tmp_path: Path) -> None:
         with pytest.raises(TranscriptTreeError, match="not a transcript file"):
             session_ref(tmp_path / "nope.jsonl")
+
+
+class TestSessionNames:
+    """A session is identified by what it was about, not by a UUID.
+
+    Claude Code records a name for most sessions, and a listing of nine hundred UUIDs gives a
+    reader no way to find the one they mean. So the name leads and enough of the id to select
+    it follows — in that order, on every surface, from one function.
+    """
+
+    def test_the_generated_name_is_read(self, tmp_path: Path) -> None:
+        assert session_title({"type": "ai-title", "aiTitle": "Add money file to plan"}) == (
+            "Add money file to plan"
+        )
+
+    def test_a_name_the_user_set_wins(self) -> None:
+        """`custom-title` is written after the generated one, and is the reader's own word."""
+        record = {"type": "custom-title", "customTitle": "mine", "aiTitle": "generated"}
+        assert session_title(record) == "mine"
+
+    def test_a_record_that_is_not_a_title_yields_nothing(self) -> None:
+        assert session_title({"type": "assistant", "aiTitle": "not a title record"}) is None
+
+    def test_a_blank_name_is_not_a_name(self) -> None:
+        assert session_title({"type": "ai-title", "aiTitle": "   "}) is None
+
+    def test_the_name_is_found_on_the_pass_that_fingerprints(self, tmp_path: Path) -> None:
+        """Reading the transcript twice would double the cost of listing a corpus."""
+        path = tmp_path / "s.jsonl"
+        path.write_text(
+            '{"type": "ai-title", "aiTitle": "Name it", "sessionId": "s"}\n'
+            '{"type": "user", "uuid": "u1"}\n',
+            encoding="utf-8",
+        )
+        fingerprint, title = scan_transcript(path)
+        assert title == "Name it"
+        assert fingerprint.record_count == 2
+
+    def test_an_unnamed_session_falls_back_to_its_id(self, tmp_path: Path) -> None:
+        """Never an invented name — the id fragment is the honest answer."""
+        path = tmp_path / "abcdef01-2345-6789-abcd-ef0123456789.jsonl"
+        path.write_text('{"type": "user", "uuid": "u1"}\n', encoding="utf-8")
+        reference = session_ref(path)
+        assert reference.title is None
+        assert reference.display_name == "abcdef01"
+
+    def test_a_named_session_shows_the_name_then_the_id(self, tmp_path: Path) -> None:
+        path = tmp_path / "abcdef01-2345-6789-abcd-ef0123456789.jsonl"
+        path.write_text(
+            '{"type": "ai-title", "aiTitle": "Fix the parser"}\n{"type": "user", "uuid": "u1"}\n',
+            encoding="utf-8",
+        )
+        assert session_ref(path).display_name == "Fix the parser (abcdef01)"
+
+    def test_the_short_id_is_the_first_uuid_block(self, tmp_path: Path) -> None:
+        """Eight hex digits against a few hundred sessions: identification, not a hash."""
+        path = tmp_path / "abcdef01-2345-6789-abcd-ef0123456789.jsonl"
+        path.write_text('{"type": "user", "uuid": "u1"}\n', encoding="utf-8")
+        assert session_ref(path).short_id == "abcdef01"
+        assert len(session_ref(path).short_id) == SHORT_ID_LENGTH

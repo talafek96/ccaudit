@@ -25,12 +25,14 @@ from pathlib import Path
 
 from ccaudit.config import Pricing, load_pricing
 from ccaudit.ingest.dedup import DedupResult, dedup_turns
+from ccaudit.ingest.discover import session_title
 from ccaudit.ingest.records import (
     AttachmentRecord,
     CompactionRecord,
     IngestDiagnostic,
     ParsedTranscript,
     ToolResultRecord,
+    iter_records,
     parse_transcript,
 )
 from ccaudit.ingest.tokens import (
@@ -64,6 +66,7 @@ class SessionAnalysis:
     attribution: AttributionResult
     reconciliation: Reconciliation
     limitations: list[str] = field(default_factory=list)
+    title: str | None = None
 
     @property
     def total_micros(self) -> int:
@@ -94,6 +97,7 @@ def analyse_transcript(
     policy: str = DEFAULT_POLICY,
     project_path: str | None = None,
     provisional: bool = False,
+    title: str | None = None,
 ) -> SessionAnalysis:
     """Run the whole pipeline over one transcript file.
 
@@ -141,6 +145,7 @@ def analyse_transcript(
         attribution=attribution,
         reconciliation=checked,
         limitations=_limitations(parsed, deduped, timeline, resolved_pricing),
+        title=title if title is not None else _title_from(path),
         _provisional=provisional,
     )
 
@@ -230,6 +235,20 @@ def _limitations(
     return notes
 
 
+def _title_from(path: Path) -> str | None:
+    """The session's name, read from its own records when the caller did not supply one.
+
+    The CLI already knows it — discovery reads it on the pass that fingerprints the file — and
+    passes it in. This is the fallback for anything analysing a transcript directly, so a name
+    never depends on which entry point was used.
+    """
+    for _, record in iter_records(path):
+        found = session_title(record)
+        if found is not None:
+            return found
+    return None
+
+
 # --- the exportable conclusion -----------------------------------------------------------
 #
 # Everything below is what a finished analysis is worth keeping, and it lives here rather than
@@ -257,6 +276,9 @@ class SessionContribution:
     session_id: str
     policy: str
     provisional: bool
+    # The session's name, when Claude Code recorded one. Carried on the conclusion rather than
+    # looked up again at render time: a cached session must still know what it was called.
+    title: str | None
     parsed: ParsedFacts
     timeline: Timeline
     attribution: AttributionResult
@@ -307,6 +329,7 @@ def contribution_of(analysis: SessionAnalysis) -> SessionContribution:
         session_id=analysis.session_id,
         policy=analysis.policy,
         provisional=analysis.provisional,
+        title=analysis.title,
         parsed=ParsedFacts(
             producing_versions=set(analysis.parsed.producing_versions),
             compactions=list(analysis.parsed.compactions),

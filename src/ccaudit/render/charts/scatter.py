@@ -64,6 +64,9 @@ READ_THRESHOLD = 0.4
 # better surface. Whatever is dropped is stated in the drawing (never silently).
 MAX_POINTS = 120
 
+# A session name is prose and can run long; the gutter holds about this much.
+SESSION_LABEL_LIMIT = 30
+
 # One cent, in micro-dollars. The finest money the display ever shows, and therefore the
 # smallest axis tick that can carry a distinct label.
 CENT = 10_000
@@ -278,7 +281,7 @@ def session_bars(
     widest = max(int(row["cost_micros"]) for row in sessions) or 1
     row_height = 30
     bar_height = 16
-    gutter = 190
+    gutter = 260
     value_gutter = 210
     span = CHART_WIDTH - gutter - value_gutter
     height = row_height * len(sessions) + 10
@@ -288,11 +291,13 @@ def session_bars(
         y = index * row_height
         total = int(row["cost_micros"])
         figures = int(row["display_sig_figs"])
-        label = str(row["session_id"])[:8]
+        # The name is what tells a reader which session this bar is; the id fragment beside it
+        # is what they type to select it. `display_name` carries both, from one place.
+        label = str(row.get("display_name") or row["session_id"][:8])
         body.append(
             f'<text class="row-label" x="{gutter - 10}" y="{y + bar_height}" '
-            f'text-anchor="end">{escape(label)}<title>{escape(str(row["session_id"]))}</title>'
-            f"</text>"
+            f'text-anchor="end">{escape(truncate(label, SESSION_LABEL_LIMIT))}'
+            f"<title>{escape(label)} — {escape(str(row['session_id']))}</title></text>"
         )
         x = gutter
         parts = (

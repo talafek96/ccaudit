@@ -247,6 +247,46 @@ def row_label(*, x: int, y: int, text: str, anchor: str = "end", title: str = ""
 MIDDLE_TRUNCATION_FLOOR = 8
 
 
+def shortest_unique_labels(paths: Sequence[str]) -> list[str]:
+    """The shortest tail of each path that still tells it apart from the others.
+
+    Squeezing a full path into a chart gutter by cutting its middle produces labels like
+    ``…/specs/001-pe…ibution/spec.md`` — two ellipses, and two sibling files reduced to nearly
+    the same string. The reader cannot tell the rows apart, which is the one job a row label
+    has.
+
+    So this does what an editor does with tab titles: start at the file name, and give back a
+    parent directory only to the labels that would otherwise collide. ``spec.md`` and
+    ``plan.md`` need nothing more; two ``__init__.py`` files grow to ``config/__init__.py`` and
+    ``render/__init__.py``, and stop there. Every label is a real, contiguous tail of its path —
+    never an elision — so what is on screen can be matched against the full name in the tooltip
+    without decoding anything.
+    """
+    labels = [path.replace("\\", "/").rstrip("/").split("/")[-1] or path for path in paths]
+    depth = 1
+    # A path cannot have more segments than it has characters, so this terminates; the bound is
+    # a guard against a pathological input rather than an expected exit.
+    while depth < 64:
+        counts: dict[str, int] = {}
+        for label in labels:
+            counts[label] = counts.get(label, 0) + 1
+        clashing = [index for index, label in enumerate(labels) if counts[label] > 1]
+        if not clashing:
+            break
+        depth += 1
+        grown = False
+        for index in clashing:
+            segments = paths[index].replace("\\", "/").rstrip("/").split("/")
+            if len(segments) >= depth:
+                labels[index] = "/".join(segments[-depth:])
+                grown = True
+        if not grown:
+            # Genuinely identical paths. Nothing further to distinguish them by, and inventing a
+            # suffix would be labelling them with something that is not their name.
+            break
+    return labels
+
+
 def common_directory_prefix(labels: Sequence[str]) -> str:
     """The leading path segments every label shares, or "" when they share none.
 

@@ -14,8 +14,11 @@ import argparse
 import json
 import logging
 import os
+import shutil
 import sqlite3
+import subprocess
 import sys
+import tempfile
 import time
 import webbrowser
 from collections.abc import Iterator, Sequence
@@ -150,6 +153,11 @@ def build_parser() -> argparse.ArgumentParser:
     sessions.add_argument(
         "--all", action="store_true", help="Every session, not just this project."
     )
+    sessions.add_argument(
+        "--json",
+        action="store_true",
+        help="Machine-readable listing, for scripts and for the notebook.",
+    )
 
     ui_parser = subparsers.add_parser(
         "ui",
@@ -201,8 +209,8 @@ def build_parser() -> argparse.ArgumentParser:
     notebook_parser.add_argument(
         "--out",
         type=Path,
-        default=DEFAULT_NOTEBOOK,
-        help="Where to write the notebook.",
+        default=None,
+        help="Write the notebook here and keep it, instead of opening a throwaway one.",
     )
 
     explain_parser = subparsers.add_parser(
@@ -490,6 +498,10 @@ def _analyse_selection(args: argparse.Namespace, *, cached: bool = True) -> Sele
                     policy=args.policy,
                     project_path=str(ref.project_path) if ref.project_path else None,
                     provisional=ref.in_progress,
+                    # Supplied rather than re-read: discovery already found it on the pass that
+                    # fingerprinted the file, and reading the transcript twice to name it would
+                    # undo the work that made a corpus sweep affordable.
+                    title=ref.title,
                 )
             except UnknownModelError as exc:
                 if named:
@@ -678,15 +690,41 @@ def _run_sessions(args: argparse.Namespace) -> int:
     if not refs:
         raise NoSessionsFound("no Claude Code sessions found in the local records.")
 
+    if getattr(args, "json", False):
+        print(
+            json.dumps(
+                [
+                    {
+                        "session_id": ref.session_id,
+                        "short_id": ref.short_id,
+                        "title": ref.title,
+                        "display_name": ref.display_name,
+                        "project": str(ref.project_path or ref.project_dir),
+                        "modified_at": ref.modified_at.isoformat(),
+                        "record_count": ref.record_count,
+                        "byte_size": ref.byte_size,
+                        "in_progress": ref.in_progress,
+                    }
+                    for ref in refs
+                ],
+                indent=2,
+            )
+        )
+        return EXIT_OK
+
     console = build_console()
     console.print(f"{len(refs)} session(s) available\n")
+    # Name first, then the id fragment that selects it, then the full id — a listing is where
+    # someone goes to *find* a session, and a wall of UUIDs is no help with that.
     for ref in refs:
         project = ref.project_path or ref.project_dir
         marker = "  (in progress)" if ref.in_progress else ""
         console.print(
-            f"{ref.session_id}  {ref.modified_at:%Y-%m-%d %H:%M}  "
-            f"{ref.record_count:>6,} records  {ref.byte_size / 1e6:>6.1f} MB  {project}{marker}"
+            f"{ref.short_id}  {ref.modified_at:%Y-%m-%d %H:%M}  "
+            f"{ref.record_count:>6,} records  {ref.byte_size / 1e6:>6.1f} MB  "
+            f"{ref.title or '(unnamed)'}{marker}"
         )
+        console.print(f"{'':10}{ref.session_id}  ·  {project}")
     return EXIT_OK
 
 
@@ -773,20 +811,59 @@ def _run_report(args: argparse.Namespace) -> int:
 
 
 def _run_notebook(args: argparse.Namespace) -> int:
-    """Write the notebook and say how to run it. Analyses nothing — the notebook does that."""
-    path = write_notebook(args.out)
+    """Open a throwaway notebook, or write one to keep.
+
+    The default is the same bargain as ``ccaudit ui``: one command, and nothing left behind
+    when you stop it. The notebook is written to a temporary directory, marimo is launched over
+    it, and the directory goes when the command exits — including on Ctrl-C, which is the exit
+    that actually happens.
+
+    ``--out`` is the other intent: give me the file, I will run it myself. Then nothing is
+    launched and nothing is cleaned up, because the file is the deliverable.
+    """
     console = build_console()
-    console.print(f"Wrote {path}")
-    console.print(
-        f"Run it with:  uvx marimo edit --sandbox {path}\n"
-        f"It installs marimo into a throwaway environment for that file only — ccaudit itself "
-        f"gains no dependency, and neither does your machine."
-    )
-    console.print(
-        "Its cells call ccaudit for every figure, so the notebook cannot show a number the "
-        "terminal would not."
-    )
-    return EXIT_OK
+    if args.out is not None:
+        path = write_notebook(args.out)
+        console.print(f"Wrote {path}")
+        console.print(
+            f"Run it with:  uvx marimo edit --sandbox {path}\n"
+            f"That installs marimo into a throwaway environment for that file alone — ccaudit "
+            f"gains no dependency, and neither does your machine."
+        )
+        return EXIT_OK
+
+    runner = shutil.which("uvx") or shutil.which("uv")
+    if runner is None:
+        raise UsageError(
+            "the notebook needs `uvx` to run marimo in a sandbox, and neither uvx nor uv is on "
+            "PATH. Install uv (https://docs.astral.sh/uv/), or run `ccaudit notebook --out "
+            "notebook.py` and open the file with a marimo you already have."
+        )
+    command = [runner, "marimo"] if runner.endswith("uvx") else [runner, "tool", "run", "marimo"]
+
+    # A temporary directory rather than a temporary file: marimo writes its own state beside
+    # the notebook (`__marimo__/`), and cleaning up the notebook while leaving that behind
+    # would be the kind of litter this command exists not to leave.
+    with tempfile.TemporaryDirectory(prefix="ccaudit-notebook-") as workspace:
+        path = write_notebook(Path(workspace) / DEFAULT_NOTEBOOK.name)
+        console.print(
+            "Opening a marimo notebook. It is temporary — it and everything marimo writes "
+            "beside it are deleted when you stop this command."
+        )
+        console.print(
+            "Every figure in it comes from ccaudit itself, so it cannot show a number the "
+            "terminal would not. Press Ctrl-C here when you are done."
+        )
+        console.print(f"Keep a copy instead with:  ccaudit notebook --out {DEFAULT_NOTEBOOK}")
+        try:
+            completed = subprocess.run([*command, "edit", "--sandbox", str(path)], check=False)
+        except KeyboardInterrupt:
+            # Ctrl-C reaches marimo first and this process second. Nothing to report: the user
+            # asked it to stop and it stopped. The directory goes on the way out of the block.
+            console.print("Notebook closed. Nothing was left on disk.")
+            return EXIT_INTERRUPTED
+    console.print("Notebook closed. Nothing was left on disk.")
+    return EXIT_OK if completed.returncode == 0 else EXIT_DATA_ERROR
 
 
 def _run_explain(args: argparse.Namespace) -> int:

@@ -109,7 +109,8 @@ def _render_header(console: Console, data: Mapping[str, Any], *, plain: bool) ->
         f"not an amount charged. Currency: {data['currency']}."
     )
 
-    session_line = f"Sessions: {summarise_ids(included)}" if included else "Sessions: none"
+    named = scope.get("session_names") or included
+    session_line = f"Sessions: {summarise_ids(named)}" if named else "Sessions: none"
     if scope["sessions_excluded_count"]:
         session_line += f"  ({scope['sessions_excluded_count']} excluded from this result)"
     console.print(

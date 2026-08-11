@@ -111,4 +111,84 @@
       toggle.textContent = dark ? "Dark theme" : "Light theme";
     });
   }
+
+  // Tooltip. The markup already carries a <title> on every mark, which is what makes the page
+  // work with scripting disabled — but a native SVG tooltip waits about a second and then
+  // appears wherever the platform decides, which for a dense chart is useless. This replaces it
+  // with one that appears immediately, above the cursor, and follows it.
+  //
+  // It renders text that Python already produced. It computes nothing: there is no figure here
+  // that is not already in the <title> it reads.
+  var tip = document.createElement("div");
+  tip.className = "tip";
+  tip.setAttribute("role", "tooltip");
+  tip.hidden = true;
+  document.body.appendChild(tip);
+
+  // Move each <title> onto its parent as data and remove the node. Two reasons: the browser
+  // would otherwise draw its own tooltip on top of this one, and reading a data attribute is
+  // cheaper than walking into the SVG on every mouseover. The <title> is only the fallback for
+  // a reader with scripting off — and that reader never runs this line.
+  Array.prototype.forEach.call(document.querySelectorAll("title"), function (title) {
+    var holder = title.parentNode;
+    if (!holder || holder.tagName === "head") return;
+    holder.setAttribute("data-tip", title.textContent);
+    holder.setAttribute("tabindex", "0");
+    title.remove();
+  });
+
+  var GAP = 14;
+
+  function place(event) {
+    // Measured after the text is set, so a long path does not run off the right edge or get
+    // clipped at the top of the viewport.
+    var box = tip.getBoundingClientRect();
+    var left = event.clientX - box.width / 2;
+    var top = event.clientY - box.height - GAP;
+    left = Math.max(6, Math.min(left, window.innerWidth - box.width - 6));
+    if (top < 6) top = event.clientY + GAP;
+    tip.style.left = Math.round(left) + "px";
+    tip.style.top = Math.round(top) + "px";
+  }
+
+  function textFor(target) {
+    if (!target || !target.closest) return "";
+    var holder = target.closest("[data-tip]");
+    return holder ? holder.getAttribute("data-tip") : "";
+  }
+
+  document.addEventListener("mouseover", function (event) {
+    var text = textFor(event.target);
+    if (!text) return;
+    tip.textContent = text;
+    tip.hidden = false;
+    place(event);
+  });
+
+  document.addEventListener("mousemove", function (event) {
+    if (!tip.hidden) place(event);
+  });
+
+  document.addEventListener("mouseout", function (event) {
+    if (!textFor(event.target)) return;
+    tip.hidden = true;
+  });
+
+  // A keyboard reader gets the same text: the elements that carry one are focusable, and the
+  // tooltip follows focus rather than only the pointer.
+  document.addEventListener("focusin", function (event) {
+    var text = textFor(event.target);
+    if (!text) return;
+    var box = event.target.getBoundingClientRect();
+    tip.textContent = text;
+    tip.hidden = false;
+    place({ clientX: box.left + box.width / 2, clientY: box.top });
+  });
+
+  document.addEventListener("focusout", function () { tip.hidden = true; });
+
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape") tip.hidden = true;
+  });
+
 })();

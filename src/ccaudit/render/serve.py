@@ -210,8 +210,10 @@ def _controls(sessions: Sequence[SessionRef], selection: Selection) -> str:
 def _session_label(reference: SessionRef) -> str:
     project = str(reference.project_path) if reference.project_path else reference.project_dir
     running = " · still running" if reference.in_progress else ""
+    # Name first, then the id fragment that selects it. A picker listing 900 UUIDs gives a
+    # reader no way to find the session they mean.
     return (
-        f"{reference.session_id} — {project} · {reference.record_count:,} records · "
+        f"{reference.display_name} — {project} · {reference.record_count:,} records · "
         f"{reference.modified_at:%Y-%m-%d %H:%M}{running}"
     )
 
