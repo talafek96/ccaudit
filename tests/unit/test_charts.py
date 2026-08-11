@@ -57,6 +57,7 @@ def report_payload(
     turns: list[dict[str, Any]] | None = None,
     residency: list[dict[str, Any]] | None = None,
     tree: dict[str, Any] | None = None,
+    covered_through_turn: int = 12,
 ) -> dict[str, Any]:
     """A hand-built report-data payload that reconciles exactly.
 
@@ -131,7 +132,7 @@ def report_payload(
         "scope": {
             "sessions_included": ["session-a"],
             "sessions_excluded_count": 0,
-            "covered_through_turn": 12,
+            "covered_through_turn": covered_through_turn,
             "provisional": False,
             "producing_versions": ["1.2.3"],
         },
@@ -374,6 +375,48 @@ class TestResidency:
         spans = [{"item_id": "x", "display": "x", "first_turn": 5, "last_turn": 2}]
         with pytest.raises(ValueError, match="not a span"):
             residency_timeline(chart_id="r", title="t", spans=spans, turn_count=10)
+
+    def test_runs_draw_the_same_pixels_as_one_rect_per_turn(self) -> None:
+        """The run-length collapse is a serialisation change, never a visual one.
+
+        The expected geometry here is the naive drawing — one rectangle per turn, merged where
+        neighbours share a lane — so a collapse that moved a boundary, dropped a turn, or
+        mislabelled a run fails, while the picture itself is pinned pixel for pixel.
+        """
+        lanes = ["loading"] + ["cached"] * 40 + ["uncached"] * 5 + ["cached"] * 10
+        turn_count = 60
+        spans = [
+            {
+                "item_id": "x",
+                "display": "x",
+                "first_turn": 3,
+                "last_turn": 2 + len(lanes),
+                "lane_by_turn": lanes,
+                "end_reason": "evicted",
+            }
+        ]
+        html = residency_timeline(chart_id="r", title="t", spans=spans, turn_count=turn_count)
+
+        start_x = LABEL_GUTTER + TRACK_WIDTH * 2 // turn_count
+        end_x = LABEL_GUTTER + TRACK_WIDTH * (2 + len(lanes)) // turn_count
+        width = max(2, end_x - start_x)
+        edges = [start_x + width * position // len(lanes) for position in range(len(lanes) + 1)]
+        expected: list[tuple[str, int, int]] = []
+        for position, lane in enumerate(lanes):
+            piece = (lane, edges[position], edges[position + 1])
+            if expected and expected[-1][0] == lane and expected[-1][2] == piece[1]:
+                expected[-1] = (lane, expected[-1][1], piece[2])
+            else:
+                expected.append(piece)
+        expected = [piece for piece in expected if piece[2] > piece[1]]
+
+        drawn = [
+            (lane, int(x), int(x) + int(w))
+            for lane, x, w in re.findall(
+                r'<rect class="slice lane lane--(\w+)" x="(\d+)" y="\d+" width="(\d+)"', html
+            )
+        ]
+        assert drawn == expected
 
     def test_the_full_rate_lane_is_textured_not_only_coloured(self) -> None:
         spans = [

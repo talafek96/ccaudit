@@ -143,8 +143,8 @@ without rerunning the analysis (SC-008, SC-010).
 - [X] T054 [US2] Add grouping aggregation queries to `src/ccaudit/store/db.py` — by file, folder (at every level of the hierarchy), extension, category, and item, each reconciling to the total (FR-007)
 - [X] T055 [US2] Implement `--by`, `--sort`, and `--top` in `src/ccaudit/cli.py` and `src/ccaudit/render/terminal.py`, with the omitted remainder still shown as its own line
 - [X] T056 [US2] Populate `reads`, `turns_resident`, and the direct/carry split per item in `src/ccaudit/render/data.py`
-- [ ] T057 [US2] Create the cause-profile golden fixture under `tests/golden/fixtures/session_cause_profiles/` — two files, equal total, opposite profiles, expected breakdown hand-verified
-- [ ] T058 [US2] Golden-test cause attribution in `tests/golden/test_cause_profiles.py` — the two files' direct/carry splits differ measurably
+- [X] T057 [US2] Create the cause-profile golden fixture under `tests/golden/fixtures/session_cause_profiles/` — two files, equal total, opposite profiles, expected breakdown hand-verified
+- [X] T058 [US2] Golden-test cause attribution in `tests/golden/test_cause_profiles.py` — the two files' direct/carry splits differ measurably
 - [X] T059 [P] [US2] Unit-test grouping in `tests/unit/test_grouping.py` — every grouping level sums to the session total; no bucket silently absorbs the remainder
 - [X] T060 [P] [US2] Unit-test explain output in `tests/unit/test_explain.py` — a skeptic can recompute the figure from the trace alone
 - [X] T061 [US2] System-test the falsifiable premise in `tests/system/test_carry_reorders_ranking.py` — ranking by total attributed cost differs materially from ranking by read count on at least one real session (SC-010, quickstart Scenario 3). **If this fails, the product thesis is wrong and we stop and say so**
@@ -172,7 +172,7 @@ credential, no prior step (SC-011, SC-015).
 - [X] T069 [P] [US3] Create `src/ccaudit/plugin/commands/audit.md` — `/ccaudit:audit`, analysing the current session including while in progress; costs nothing until typed (FR-051, FR-055)
 - [X] T070 [P] [US3] Create `src/ccaudit/plugin/skills/ccaudit/SKILL.md` — model-invocable so a natural-language cost question is answered from measured data; shells out to the CLI and reimplements nothing (FR-052)
 - [X] T071 [P] [US3] Create `src/ccaudit/plugin/hooks/hooks.json` — opt-in `SessionEnd` hook invoking `ccaudit _enqueue` (FR-053, FR-054)
-- [ ] T072 [US3] Implement self-footprint measurement in `src/ccaudit/model/attribute.py` and `src/ccaudit/render/terminal.py` — report the tool's own always-resident contribution as its own figure (FR-056, SC-017)
+- [X] T072 [US3] Implement self-footprint measurement in `src/ccaudit/model/attribute.py` and `src/ccaudit/render/terminal.py` — report the tool's own always-resident contribution as its own figure (FR-056, SC-017)
 - [X] T073 [P] [US3] Unit-test claims in `tests/unit/test_claims.py` — an expired claim is reclaimable with no manual cleanup; a partial result is never readable as complete
 - [X] T074 [US3] Component-test the capture path in `tests/component/test_enqueue_worker.py` — `_enqueue` returns fast, the worker completes the analysis, two simultaneous analyses leave exactly one stored result with identical figures (SC-033, SC-034)
 - [X] T075 [US3] System-test first-run ceremony in `tests/system/test_zero_argument_run.py` — clean state directory, no arguments, correct breakdown, no configuration step
@@ -191,19 +191,19 @@ work-driven reads on one common scale.
 model and above it on another; verify the same file is classified differently per turn's model and
 reported as full-rate-every-turn where it does not cache (SC-026, SC-028).
 
-- [ ] T076 [US4] Create `src/ccaudit/model/lanes.py` — classify each (turn, resident item) as `cached` / `uncached` / `loading`, with the threshold read from `config/pricing.toml` for **that turn's model** and never inferred from model ordering (invariant L1, FR-077, FR-078, FR-079)
-- [ ] T077 [US4] Create `src/ccaudit/model/invalidation.py` — detect `tools`/`system`/`messages` tier changes, name the trigger, and charge the forced reload to the change rather than to the content re-loaded (FR-081, SC-027)
-- [ ] T078 [US4] Price carry per lane in `src/ccaudit/model/attribute.py` — reduced reuse rate, full rate, and the TTL-dependent write multiplier read per request (FR-080)
-- [ ] T079 [US4] Distinguish the four cache-miss reasons in `src/ccaudit/model/lanes.py` — left the conversation, prefix change, never eligible, lookback window exceeded — without collapsing them (FR-082, PITFALLS)
-- [ ] T080 [US4] Report each always-resident item individually in `src/ccaudit/render/data.py` — instruction files, skills, base instructions, and each group of tool descriptions, never one combined bucket (FR-076)
-- [ ] T081 [US4] Add `lanes` and `never_cacheable_on` to items in `src/ccaudit/render/data.py` and surface them in `src/ccaudit/render/terminal.py` as findings, not footnotes
-- [ ] T082 [US4] Build the `comparison` series in `src/ccaudit/render/data.py` — resident instruction content against work-driven reads on one common scale, two series and one axis (FR-037)
-- [ ] T083 [US4] Implement confidence-driven presentation in `src/ccaudit/render/data.py` and `src/ccaudit/render/terminal.py` — `display_sig_figs` from confidence, an `uncertainty` range with its dominant driver, and totals-level uncertainty notes (FR-095, FR-096, FR-097, FR-098)
-- [ ] T084 [US4] Populate `diagnostics.limitations` in `src/ccaudit/render/data.py` — including that injected instruction content is stripped before the transcript is written, stated alongside the figures it affects (FR-018, FR-019)
-- [ ] T085 [P] [US4] Unit-test lane assignment in `tests/unit/test_lanes.py` — the same 984-token file classifies as cached on Opus 5 and uncached on Opus 4.6 within one session
-- [ ] T086 [P] [US4] Unit-test invalidation tiers in `tests/unit/test_invalidation.py` — a tool-set change re-writes everything; a system-prompt edit re-writes system and messages but not tools
-- [ ] T087 [US4] Create the threshold-spanning golden fixture under `tests/golden/fixtures/session_threshold_span/` and pin it in `tests/golden/test_lane_pricing.py`
-- [ ] T088 [US4] Create the mid-session MCP-addition golden fixture under `tests/golden/fixtures/session_invalidation/` and pin it in `tests/golden/test_blame_the_change.py` — instruction files must **not** absorb the reload cost
+- [X] T076 [US4] Create `src/ccaudit/model/lanes.py` — classify each (turn, resident item) as `cached` / `uncached` / `loading`, with the threshold read from `config/pricing.toml` for **that turn's model** and never inferred from model ordering (invariant L1, FR-077, FR-078, FR-079)
+- [X] T077 [US4] Create `src/ccaudit/model/invalidation.py` — detect `tools`/`system`/`messages` tier changes, name the trigger, and charge the forced reload to the change rather than to the content re-loaded (FR-081, SC-027)
+- [X] T078 [US4] Price carry per lane in `src/ccaudit/model/attribute.py` — reduced reuse rate, full rate, and the TTL-dependent write multiplier read per request (FR-080)
+- [X] T079 [US4] Distinguish the four cache-miss reasons in `src/ccaudit/model/lanes.py` — left the conversation, prefix change, never eligible, lookback window exceeded — without collapsing them (FR-082, PITFALLS)
+- [X] T080 [US4] Report each always-resident item individually in `src/ccaudit/render/data.py` — instruction files, skills, base instructions, and each group of tool descriptions, never one combined bucket (FR-076)
+- [X] T081 [US4] Add `lanes` and `never_cacheable_on` to items in `src/ccaudit/render/data.py` and surface them in `src/ccaudit/render/terminal.py` as findings, not footnotes
+- [X] T082 [US4] Build the `comparison` series in `src/ccaudit/render/data.py` — resident instruction content against work-driven reads on one common scale, two series and one axis (FR-037)
+- [X] T083 [US4] Implement confidence-driven presentation in `src/ccaudit/render/data.py` and `src/ccaudit/render/terminal.py` — `display_sig_figs` from confidence, an `uncertainty` range with its dominant driver, and totals-level uncertainty notes (FR-095, FR-096, FR-097, FR-098)
+- [X] T084 [US4] Populate `diagnostics.limitations` in `src/ccaudit/render/data.py` — including that injected instruction content is stripped before the transcript is written, stated alongside the figures it affects (FR-018, FR-019)
+- [X] T085 [P] [US4] Unit-test lane assignment in `tests/unit/test_lanes.py` — the same 984-token file classifies as cached on Opus 5 and uncached on Opus 4.6 within one session
+- [X] T086 [P] [US4] Unit-test invalidation tiers in `tests/unit/test_invalidation.py` — a tool-set change re-writes everything; a system-prompt edit re-writes system and messages but not tools
+- [X] T087 [US4] Create the threshold-spanning golden fixture under `tests/golden/fixtures/session_threshold_span/` and pin it in `tests/golden/test_lane_pricing.py`
+- [X] T088 [US4] Create the mid-session MCP-addition golden fixture under `tests/golden/fixtures/session_invalidation/` and pin it in `tests/golden/test_blame_the_change.py` — instruction files must **not** absorb the reload cost
 
 **Checkpoint**: The motivating dispute can be settled with numbers that survive a skeptic.
 
@@ -218,17 +218,17 @@ part-to-whole view.
 **Independent Test**: Produce a report, move it to a machine with no tooling, disconnect the
 network, open it, and confirm every figure and visual renders (SC-012).
 
-- [ ] T089 [US5] Create `src/ccaudit/render/charts/__init__.py` — shared SVG geometry, the fixed-order categorical palette, single-hue sequential ramps, and light/dark theming (research §1, FR-041)
-- [ ] T090 [P] [US5] Implement the icicle and treemap in `src/ccaudit/render/charts/hierarchy.py` — drill-down over the folder tree with a flat/total toggle (FR-034)
-- [ ] T091 [P] [US5] Implement the residency timeline in `src/ccaudit/render/charts/timeline.py` — one bar per span, so prolonged residency is visible at a glance (FR-036)
-- [ ] T092 [P] [US5] Implement stacked/delta bars and the cumulative sparkline in `src/ccaudit/render/charts/bars.py` — direct-versus-carry per item, and cost accumulating over the session with compaction events marked (FR-035, FR-039)
-- [ ] T093 [US5] Build the `tree` and `turns` sections in `src/ccaudit/render/data.py`, with an `unattributed` node present at the root whenever the remainder is non-zero (FR-040)
-- [ ] T094 [US5] Create `src/ccaudit/render/assets/` — CSS and vanilla JS for sorting, filtering, and the flat/total toggle, inlined at render time; every distinction conveyed by more than colour (FR-042)
-- [ ] T095 [US5] Create `src/ccaudit/render/report.py` — a single self-contained HTML file with the data inlined as a JSON literal and zero external requests (FR-032, FR-075)
-- [ ] T096 [US5] Implement `report --out PATH` and `--open` in `src/ccaudit/cli.py`
-- [ ] T097 [US5] Implement `--redact` across `src/ccaudit/render/data.py` — stable pseudonyms in `display`, `identity` omitted, cost structure and tree shape preserved (FR-043)
-- [ ] T098 [P] [US5] Unit-test chart geometry in `tests/unit/test_charts.py` — rectangles partition their parent exactly; the unattributed slice is emitted whenever non-zero
-- [ ] T099 [US5] System-test the report in `tests/system/test_report_offline.py` — no external URL of any kind in the output, every figure labelled API-equivalent and paired with a share, redaction preserves totals
+- [X] T089 [US5] Create `src/ccaudit/render/charts/__init__.py` — shared SVG geometry, the fixed-order categorical palette, single-hue sequential ramps, and light/dark theming (research §1, FR-041)
+- [X] T090 [P] [US5] Implement the icicle and treemap in `src/ccaudit/render/charts/hierarchy.py` — drill-down over the folder tree with a flat/total toggle (FR-034)
+- [X] T091 [P] [US5] Implement the residency timeline in `src/ccaudit/render/charts/timeline.py` — one bar per span, so prolonged residency is visible at a glance (FR-036)
+- [X] T092 [P] [US5] Implement stacked/delta bars and the cumulative sparkline in `src/ccaudit/render/charts/bars.py` — direct-versus-carry per item, and cost accumulating over the session with compaction events marked (FR-035, FR-039)
+- [X] T093 [US5] Build the `tree` and `turns` sections in `src/ccaudit/render/data.py`, with an `unattributed` node present at the root whenever the remainder is non-zero (FR-040)
+- [X] T094 [US5] Create `src/ccaudit/render/assets/` — CSS and vanilla JS for sorting, filtering, and the flat/total toggle, inlined at render time; every distinction conveyed by more than colour (FR-042)
+- [X] T095 [US5] Create `src/ccaudit/render/report.py` — a single self-contained HTML file with the data inlined as a JSON literal and zero external requests (FR-032, FR-075)
+- [X] T096 [US5] Implement `report --out PATH` and `--open` in `src/ccaudit/cli.py`
+- [X] T097 [US5] Implement `--redact` across `src/ccaudit/render/data.py` — stable pseudonyms in `display`, `identity` omitted, cost structure and tree shape preserved (FR-043)
+- [X] T098 [P] [US5] Unit-test chart geometry in `tests/unit/test_charts.py` — rectangles partition their parent exactly; the unattributed slice is emitted whenever non-zero
+- [X] T099 [US5] System-test the report in `tests/system/test_report_offline.py` — no external URL of any kind in the output, every figure labelled API-equivalent and paired with a share, redaction preserves totals
 
 **Checkpoint**: The evidence can leave the machine that produced it.
 
@@ -242,15 +242,15 @@ exclude recomputed from stored data, and the exclusion stated as part of the res
 **Independent Test**: Combine several sessions and verify per-item totals equal the sum of the
 per-session figures; exclude one and verify the totals drop by exactly its contribution (SC-020).
 
-- [ ] T100 [US6] Implement the selection options in `src/ccaudit/cli.py` — `--session`, `--project`, `--since`/`--until`, `--all`, `--last N`, `--exclude`, combining as an intersection
-- [ ] T101 [US6] Implement the `sessions` command in `src/ccaudit/cli.py` and `src/ccaudit/render/terminal.py` — a browsable list with enough detail to identify each session (FR-060)
-- [ ] T102 [US6] Implement cross-session aggregation in `src/ccaudit/store/db.py` — accumulate per-item attribution from stored results **without re-reading the original records** (FR-061, FR-062, SC-021)
-- [ ] T103 [US6] Populate `scope.sessions_included`, `scope.sessions_excluded_count`, and `scope.producing_versions` in `src/ccaudit/render/data.py`, and state them in every multi-session output (FR-063, FR-028)
-- [ ] T104 [US6] Add `per_session` decomposition to each item in `src/ccaudit/render/data.py` — accumulated total plus contribution per contributing session (FR-064, FR-065)
-- [ ] T105 [US6] Create `src/ccaudit/render/serve.py` — an ephemeral `http.server` bound to `127.0.0.1` on an OS-assigned port, read-only over SQLite, serving the same data contract to the same renderer, shutting down cleanly (FR-072, FR-073)
-- [ ] T106 [US6] Implement the `ui` command in `src/ccaudit/cli.py` with drill-down, sorting, filtering, and session selection, leaving nothing running on exit (SC-025)
-- [ ] T107 [P] [US6] Unit-test aggregation exactness in `tests/unit/test_aggregation.py` — combined totals equal the sum of per-session figures; excluding one session subtracts exactly its contribution
-- [ ] T108 [US6] System-test multi-session behaviour in `tests/system/test_multi_session.py` — include/exclude recomputation under 2 s over a 100-session corpus, and a months-old session analysed with no loss of detail (SC-021, SC-022)
+- [X] T100 [US6] Implement the selection options in `src/ccaudit/cli.py` — `--session`, `--project`, `--since`/`--until`, `--all`, `--last N`, `--exclude`, combining as an intersection
+- [X] T101 [US6] Implement the `sessions` command in `src/ccaudit/cli.py` and `src/ccaudit/render/terminal.py` — a browsable list with enough detail to identify each session (FR-060)
+- [X] T102 [US6] Implement cross-session aggregation in `src/ccaudit/store/db.py` — accumulate per-item attribution from stored results **without re-reading the original records** (FR-061, FR-062, SC-021)
+- [X] T103 [US6] Populate `scope.sessions_included`, `scope.sessions_excluded_count`, and `scope.producing_versions` in `src/ccaudit/render/data.py`, and state them in every multi-session output (FR-063, FR-028)
+- [X] T104 [US6] Add `per_session` decomposition to each item in `src/ccaudit/render/data.py` — accumulated total plus contribution per contributing session (FR-064, FR-065)
+- [X] T105 [US6] Create `src/ccaudit/render/serve.py` — an ephemeral `http.server` bound to `127.0.0.1` on an OS-assigned port, read-only over SQLite, serving the same data contract to the same renderer, shutting down cleanly (FR-072, FR-073)
+- [X] T106 [US6] Implement the `ui` command in `src/ccaudit/cli.py` with drill-down, sorting, filtering, and session selection, leaving nothing running on exit (SC-025)
+- [X] T107 [P] [US6] Unit-test aggregation exactness in `tests/unit/test_aggregation.py` — combined totals equal the sum of per-session figures; excluding one session subtracts exactly its contribution
+- [X] T108 [US6] System-test multi-session behaviour in `tests/system/test_multi_session.py` — include/exclude recomputation under 2 s over a 100-session corpus, and a months-old session analysed with no loss of detail (SC-021, SC-022)
 
 **Checkpoint**: One session is an anecdote; the corpus is now an argument.
 
@@ -266,11 +266,11 @@ labelled provisional; re-run after more turns and confirm the later result super
 adds (SC-023, SC-031).
 
 - [X] T109 [US7] Set `scope.provisional` and `scope.covered_through_turn` for in-progress sessions in `src/ccaudit/render/data.py`, and render the provisional label prominently in `src/ccaudit/render/terminal.py` (FR-066, FR-067)
-- [ ] T110 [US7] Enforce freshness on read in `src/ccaudit/store/db.py` — a stored result whose fingerprint differs from the transcript's current fingerprint is either recomputed or served with explicit coverage ("covers turns 1–40; session is now at 62"), never as current (FR-084, FR-086, SC-030)
+- [X] T110 [US7] Enforce freshness on read in `src/ccaudit/store/db.py` — a stored result whose fingerprint differs from the transcript's current fingerprint is either recomputed or served with explicit coverage ("covers turns 1–40; session is now at 62"), never as current (FR-084, FR-086, SC-030)
 - [X] T111 [US7] Implement `--refresh` and `--watch` in `src/ccaudit/cli.py` — `--watch` polls the coverage fingerprint, redraws only on change, and exits on interrupt or when the session ends (FR-068)
-- [ ] T112 [US7] Ensure a later result supersedes an earlier provisional one for the same session in `src/ccaudit/store/db.py`, rather than accumulating alongside it (FR-069)
-- [ ] T113 [P] [US7] Unit-test freshness in `tests/unit/test_freshness.py` — invariants F1 and F2: stale is never current, and an unchanged transcript creates no second entry
-- [ ] T114 [US7] Component-test in-progress analysis in `tests/component/test_in_progress.py` — a growing fixture transcript yields a monotonically increasing total with no provisional figure ever later proving an over-count
+- [X] T112 [US7] Ensure a later result supersedes an earlier provisional one for the same session in `src/ccaudit/store/db.py`, rather than accumulating alongside it (FR-069)
+- [X] T113 [P] [US7] Unit-test freshness in `tests/unit/test_freshness.py` — invariants F1 and F2: stale is never current, and an unchanged transcript creates no second entry
+- [X] T114 [US7] Component-test in-progress analysis in `tests/component/test_in_progress.py` — a growing fixture transcript yields a monotonically increasing total with no provisional figure ever later proving an over-count
 
 **Checkpoint**: All seven v1 stories are independently functional.
 
@@ -279,10 +279,10 @@ adds (SC-023, SC-031).
 ## Phase 10: Polish & Cross-Cutting Concerns
 
 - [X] T115 Create the hostile golden fixture under `tests/golden/fixtures/session_hostile/` — images, a resume, subagents, and a compaction in one session — and pin it in `tests/golden/test_hostile_session.py` (SC-014, quickstart Scenario 13)
-- [ ] T116 System-test corpus reconciliation in `tests/system/test_corpus_reconciles.py` — the real CLI over the local corpus, asserting every breakdown adds up and every output is well-formed. **This is the merge gate** (constitution, Testing Discipline)
-- [ ] T117 [P] Validate the performance goals in `tests/system/test_performance.py` — a single session under 30 s, a ~25-session corpus under 5 minutes, the UI up in under 5 s (SC-005, SC-006, SC-025)
-- [ ] T118 [P] Audit precision and uncertainty across every surface in `tests/system/test_precision_audit.py` — no figure carries more significant digits than its confidence supports, and every totals surface names its dominant uncertainty (SC-036, SC-037)
-- [ ] T119 [P] Verify the no-network, no-credential guarantee in `tests/system/test_no_egress.py` — no outbound request from any code path, and the tool runs with no environment variable set (FR-029, FR-030, SC-011)
+- [X] T116 System-test corpus reconciliation in `tests/system/test_corpus_reconciles.py` — the real CLI over the local corpus, asserting every breakdown adds up and every output is well-formed. **This is the merge gate** (constitution, Testing Discipline)
+- [X] T117 [P] Validate the performance goals in `tests/system/test_performance.py` — a single session under 30 s, a ~25-session corpus under 5 minutes, the UI up in under 5 s (SC-005, SC-006, SC-025)
+- [X] T118 [P] Audit precision and uncertainty across every surface in `tests/system/test_precision_audit.py` — no figure carries more significant digits than its confidence supports, and every totals surface names its dominant uncertainty (SC-036, SC-037)
+- [X] T119 [P] Verify the no-network, no-credential guarantee in `tests/system/test_no_egress.py` — no outbound request from any code path, and the tool runs with no environment variable set (FR-029, FR-030, SC-011)
 - [ ] T120 Walk every scenario in `specs/001-per-file-cost-attribution/quickstart.md` end to end and record the result
 - [X] T121 [P] Update `README.md` with real usage — zero-argument invocation, the command table, and the honesty framing (API-equivalent, never billed)
 - [ ] T122 [P] Reconcile `HANDOFF.md` and `PITFALLS.md` with what was actually built and what was actually hit — the two files that carry session-to-session memory (constitution VII)
