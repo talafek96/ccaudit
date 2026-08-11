@@ -343,3 +343,51 @@ class TestReadOnly:
         second = parse_transcript(path)
         assert [t.dedup_key for t in first.turns] == [t.dedup_key for t in second.turns]
         assert first.record_count == second.record_count
+
+
+class TestSyntheticRecords:
+    """Claude Code writes `<synthetic>` for messages it generated locally.
+
+    "Not logged in · Please run /login" and "API Error: Connection closed mid-response" are
+    not API calls and were never billed. They appeared on 9 of 32 sessions in the local
+    corpus, so treating an unpriceable model as fatal would reject a quarter of real
+    transcripts.
+    """
+
+    def test_a_synthetic_record_is_not_a_billable_turn(self, tmp_path: Path) -> None:
+        builder = TranscriptBuilder()
+        builder.add_turn(output_tokens=100)
+        builder.add_raw(
+            {
+                "type": "assistant",
+                "uuid": "syn-1",
+                "message": {
+                    "model": "<synthetic>",
+                    "content": [{"type": "text", "text": "API Error: Connection closed."}],
+                    "usage": {
+                        "input_tokens": 0,
+                        "output_tokens": 0,
+                        "cache_creation_input_tokens": 0,
+                        "cache_read_input_tokens": 0,
+                    },
+                },
+            }
+        )
+        parsed = parse_transcript(write(builder, tmp_path))
+        assert len(parsed.turns) == 1
+        assert parsed.unparseable_count == 0
+
+    def test_a_synthetic_record_carrying_real_usage_is_surfaced(self, tmp_path: Path) -> None:
+        """If the assumption ever stops holding, the money must not be dropped in silence."""
+        builder = TranscriptBuilder()
+        builder.add_raw(
+            {
+                "type": "assistant",
+                "uuid": "syn-2",
+                "message": {"model": "<synthetic>", "usage": {"output_tokens": 500}},
+            }
+        )
+        parsed = parse_transcript(write(builder, tmp_path))
+        assert parsed.turns == []
+        assert "malformed_record" in parsed.diagnostics
+        assert "non-zero usage" in parsed.diagnostics["malformed_record"].samples[0]

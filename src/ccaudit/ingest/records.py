@@ -51,6 +51,13 @@ IGNORED_TYPES: frozenset[str] = frozenset(
     }
 )
 
+# Claude Code writes this in place of a model id on assistant messages it generated *locally* —
+# "Not logged in · Please run /login", "API Error: Connection closed mid-response". They are not
+# API calls, they carry all-zero usage, and they were never billed. Observed on 9 of 32 sessions
+# in the local corpus, so a parser that treats an unpriceable model as fatal rejects a quarter of
+# real transcripts.
+SYNTHETIC_MODEL = "<synthetic>"
+
 # Attachment types that place content into the conversation. Others (date changes, permission
 # echoes) occupy no meaningful space and are counted as ignored rather than treated as items.
 CONTENT_ATTACHMENT_TYPES: frozenset[str] = frozenset(
@@ -379,13 +386,28 @@ def _parse_assistant(record: dict[str, Any], line: int, path: Path) -> TurnRecor
             f"cannot be priced; uuid={record.get('uuid')!r}"
         )
 
+    usage = _parse_usage(usage_raw, path, line)
+
+    if model == SYNTHETIC_MODEL:
+        # Locally generated, never sent to the API, never billed. Not a turn.
+        if usage.prompt_tokens or usage.output_tokens:
+            # If one ever does carry usage, it was a real charge and dropping it would
+            # understate the session. Surface it rather than quietly losing the money.
+            raise TranscriptFormatError(
+                f"{path.name}:{line}: a {SYNTHETIC_MODEL} record carries non-zero usage "
+                f"({usage.prompt_tokens} prompt, {usage.output_tokens} output). These are "
+                f"assumed to be locally generated and unbilled; that assumption no longer "
+                f"holds and the charge would be dropped silently."
+            )
+        return None
+
     return TurnRecord(
         uuid=_as_str(record.get("uuid")) or f"{path.name}:{line}",
         line=line,
         message_id=_as_str(message.get("id")) or _as_str(record.get("messageId")),
         request_id=_as_str(record.get("requestId")),
         model=model,
-        usage=_parse_usage(usage_raw, path, line),
+        usage=usage,
         parent_uuid=_as_str(record.get("parentUuid")),
         logical_parent_uuid=_as_str(record.get("logicalParentUuid")),
         session_id=_first_str(record, "sessionId", "session_id"),
