@@ -1,0 +1,83 @@
+/* Styles for the interactive controls only. Everything below the controls is the report's own
+   stylesheet, unchanged, so the two surfaces cannot look like two different tools.
+
+   No colour carries meaning here: every state the controls express is also written in words
+   (FR-042). Both themes come from the report's variables rather than new ones. */
+
+.ui-controls {
+  max-width: 60rem;
+  margin: 1rem auto 0;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--grid);
+  border-radius: 8px;
+  background: var(--surface-1);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.ui-controls fieldset {
+  border: 1px solid var(--grid);
+  border-radius: 6px;
+  padding: 0.4rem 0.6rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1rem;
+}
+
+.ui-controls legend {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  padding: 0 0.3rem;
+}
+
+.ui-sessions {
+  max-height: 9rem;
+  overflow-y: auto;
+}
+
+.ui-session {
+  display: block;
+  width: 100%;
+  font-size: 0.88rem;
+}
+
+.ui-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+}
+
+.ui-controls button,
+.ui-controls select,
+.ui-controls input[type="search"] {
+  font: inherit;
+  font-size: 0.88rem;
+  color: var(--text-primary);
+  background: var(--page);
+  border: 1px solid var(--grid);
+  border-radius: 5px;
+  padding: 0.2rem 0.5rem;
+}
+
+.ui-controls button {
+  cursor: pointer;
+}
+
+.ui-stop {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.ui-controls code {
+  font-size: 0.85rem;
+  word-break: break-all;
+}
+
+/* Matches the report's own convention: controls that need scripting stay hidden until it runs,
+   so the page never offers a dead button. `.js-only` is defined by the report stylesheet as
+   inline-flex; the block-level ones here need their own display. */
+.js .ui-controls p.js-only { display: flex; }
+.js .ui-controls fieldset.js-only { display: flex; }

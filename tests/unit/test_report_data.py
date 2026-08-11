@@ -234,11 +234,62 @@ class TestItems:
         for item in payload["items"]:
             assert item["direct_micros"] + item["carry_micros"] == item["total_micros"]
 
-    def test_the_lanes_match_the_components_they_come_from(self, payload: dict) -> None:
-        """Direct cost is the loading lane and carry is the cached lane, by construction."""
+    def test_the_lanes_partition_the_item_figures(self, payload: dict) -> None:
+        """Direct cost is the write lane; carry spans the cache-rate and the full-rate lanes.
+
+        Contract change, deliberate and human-approved: the earlier form asserted
+        ``cached_micros == carry_micros``, which was true only while the sub-threshold lane was
+        reported as zero. Content below the model's minimum cacheable prefix is charged as
+        carry at *full* rate (cost-model §5.2), so folding it into the cached lane would state
+        a tenth of what it cost. The invariant that survives is that the lanes partition the
+        item's figures exactly.
+        """
         for item in payload["items"]:
-            assert item["lanes"]["loading_micros"] == item["direct_micros"]
-            assert item["lanes"]["cached_micros"] == item["carry_micros"]
+            lanes = item["lanes"]
+            assert lanes["loading_micros"] == item["direct_micros"]
+            assert lanes["cached_micros"] + lanes["uncached_micros"] == item["carry_micros"]
+            assert min(lanes.values()) >= 0
+
+    def test_only_a_sub_threshold_item_is_charged_in_the_full_rate_lane(
+        self, payload: dict
+    ) -> None:
+        """``uncached_micros > 0`` is a claim about the model's minimum, so it must be one."""
+        for item in payload["items"]:
+            if item["lanes"]["uncached_micros"]:
+                assert item["never_cacheable_on"]
+
+    def test_a_model_is_named_only_where_the_item_was_actually_resident_on_it(
+        self, tmp_path: Path
+    ) -> None:
+        """FR-078 is a finding about observed turns, not a size-against-every-model sweep.
+
+        The small file arrives only after the session has moved to a second model, so it was
+        never in context alongside the first one. Comparing every item's size against every
+        model the session used would name that first model anyway — a flag on a pairing that
+        never happened, in the direction that reads as a finding.
+        """
+        builder = TranscriptBuilder()
+        builder.add_turn(
+            model="claude-opus-4-5",
+            input_tokens=50,
+            cache_creation_5m=9_000,
+            output_tokens=20,
+            tool_use_ids=("t1",),
+        )
+        builder.add_tool_result(tool_use_id="t1", file_path="/repo/app.py", text="x = 1\n" * 200)
+        builder.add_turn(
+            model="claude-opus-4-5",
+            input_tokens=400,
+            cache_read=9_400,
+            output_tokens=9,
+            tool_use_ids=("t2",),
+        )
+        builder.add_tool_result(tool_use_id="t2", file_path="/repo/tiny.md", text="note\n" * 40)
+        builder.add_turn(model="claude-opus-5", input_tokens=400, cache_read=9_400, output_tokens=9)
+        payload = build_report_data([analyse(builder, tmp_path)], generated_at=FIXED_TIME)
+
+        tiny = next(i for i in payload["items"] if i["identity"].endswith("tiny.md"))
+        assert tiny["never_cacheable_on"] == ["claude-opus-5"]
 
     def test_reads_and_residency_are_reported_per_item(self, payload: dict) -> None:
         read_file = next(i for i in payload["items"] if i["identity"].endswith("app.py"))
@@ -353,13 +404,246 @@ class TestDeterminism:
         assert json.loads(json.dumps(payload))["schema_version"] == SCHEMA_VERSION
 
 
-class TestDeferredSections:
-    def test_unbuilt_sections_are_empty_rather_than_invented(self, payload: dict) -> None:
-        assert payload["tree"] == {}
-        assert payload["turns"] == []
-        assert payload["residency"] == []
-        assert payload["invalidations"] == []
+class TestTree:
+    """FR-034 — the hierarchy carries both measures, and it partitions at every level."""
+
+    def test_the_root_is_the_whole_session(self, payload: dict) -> None:
+        assert payload["tree"]["total_micros"] == payload["totals"]["cost_micros"]
+        assert payload["tree"]["share"] == 1.0
+
+    def test_every_node_is_its_children_plus_its_own_cost(self, payload: dict) -> None:
+        def check(node: dict) -> None:
+            covered = node["flat_micros"] + sum(c["total_micros"] for c in node["children"])
+            assert covered == node["total_micros"], node["path"]
+            for child in node["children"]:
+                check(child)
+
+        check(payload["tree"])
+
+    def test_the_remainder_is_a_node_of_its_own(self, payload: dict) -> None:
+        """A part-to-whole view must show what it could not attribute (FR-040)."""
+        remainder = next(
+            node for node in payload["tree"]["children"] if node["path"] == "unattributed"
+        )
+        assert remainder["flat_micros"] == payload["totals"]["unattributed_micros"]
+
+    def test_the_conclusions_that_belong_to_no_file_are_named_at_the_root(
+        self, payload: dict
+    ) -> None:
+        by_id = {c["id"]: c["cost_micros"] for c in payload["attribution"]}
+        by_path = {node["path"]: node["flat_micros"] for node in payload["tree"]["children"]}
+        assert by_path["(output)"] == by_id["output"]
+        assert by_path["(overhead)"] == by_id["overhead"]
+
+    def test_an_item_with_no_folder_gets_a_named_bucket_not_an_invented_one(
+        self, tmp_path: Path
+    ) -> None:
+        builder = TranscriptBuilder()
+        builder.add_turn(input_tokens=50, cache_creation_5m=9_000, output_tokens=20)
+        builder.add_skill_listing(names=["demo"], content="skill: demo\n" * 60)
+        builder.add_turn(input_tokens=5, cache_read=9_400, output_tokens=15)
+        payload = build_report_data([analyse(builder, tmp_path)], generated_at=FIXED_TIME)
+
+        paths = {node["path"] for node in payload["tree"]["children"]}
+        assert "/(skill)" in paths
+
+    def test_a_node_never_claims_more_precision_than_its_contents(self, payload: dict) -> None:
+        def check(node: dict) -> None:
+            for child in node["children"]:
+                assert child["display_sig_figs"] >= node["display_sig_figs"]
+                check(child)
+
+        check(payload["tree"])
+
+    def test_redaction_keeps_the_shape_and_removes_the_path(
+        self, analysis: SessionAnalysis
+    ) -> None:
+        clear = build_report_data([analysis], generated_at=FIXED_TIME)["tree"]
+        redacted = build_report_data([analysis], redact=True, generated_at=FIXED_TIME)["tree"]
+
+        def shape(node: dict) -> list:
+            return [node["total_micros"], [shape(child) for child in node["children"]]]
+
+        def paths(node: dict) -> list[str]:
+            return [node["path"], *(p for child in node["children"] for p in paths(child))]
+
+        assert shape(redacted) == shape(clear)
+        assert not any("repo" in path for path in paths(redacted))
+
+
+class TestTurns:
+    """FR-039, FR-083 — per-turn accumulation, and the prompt size stated honestly."""
+
+    def test_the_turns_sum_to_the_session_total(self, payload: dict) -> None:
+        assert sum(t["cost_micros"] for t in payload["turns"]) == payload["totals"]["cost_micros"]
+
+    def test_ordinals_run_from_one_without_a_gap(self, payload: dict) -> None:
+        assert [t["ordinal"] for t in payload["turns"]] == list(range(1, len(payload["turns"]) + 1))
+
+    def test_each_turns_components_sum_to_its_cost(self, payload: dict) -> None:
+        for turn in payload["turns"]:
+            assert sum(turn["components"].values()) == turn["cost_micros"]
+
+    def test_prompt_tokens_is_the_whole_conversation_not_the_uncached_remainder(
+        self, payload: dict, analysis: SessionAnalysis
+    ) -> None:
+        """A session showing 4K fresh input after hours of work is not a small session."""
+        for turn, record in zip(payload["turns"], analysis.timeline.turns, strict=True):
+            usage = record.usage
+            assert turn["prompt_tokens"] == (
+                usage.input_tokens + usage.cache_creation_tokens + usage.cache_read_tokens
+            )
+        assert any(t["prompt_tokens"] > t["components"]["fresh_input"] for t in payload["turns"])
+
+    def test_a_compaction_boundary_is_marked_with_what_it_dropped(self, tmp_path: Path) -> None:
+        builder = busy_session()
+        builder.add_compaction(pre_tokens=15_500, post_tokens=4_000, preserved_uuids=[])
+        builder.add_turn(input_tokens=8, cache_creation_5m=4_000, output_tokens=30)
+        payload = build_report_data([analyse(builder, tmp_path)], generated_at=FIXED_TIME)
+
+        compacted = [t for t in payload["turns"] if t["compaction"]]
+        assert len(compacted) == 1
+        assert compacted[0]["compaction"] == {
+            "occurred": True,
+            "pre_tokens": 15_500,
+            "post_tokens": 4_000,
+            "dropped_tokens": 11_500,
+        }
+
+    def test_a_turn_without_a_boundary_says_so_rather_than_omitting_the_key(
+        self, payload: dict
+    ) -> None:
+        assert all(turn["compaction"] is None for turn in payload["turns"])
+
+
+class TestResidency:
+    """FR-036 — how long each item stayed, and what it was charged at while it did."""
+
+    def test_there_is_one_row_per_span(self, payload: dict, analysis: SessionAnalysis) -> None:
+        assert len(payload["residency"]) == len(analysis.timeline.spans)
+
+    def test_a_span_still_resident_at_the_end_says_so_with_null(self, payload: dict) -> None:
+        open_spans = [row for row in payload["residency"] if row["last_turn"] is None]
+        assert open_spans
+        assert all(row["end_reason"] == "session_end" for row in open_spans)
+
+    def test_turns_are_one_based_and_inside_the_session(self, payload: dict) -> None:
+        last = len(payload["turns"])
+        for row in payload["residency"]:
+            assert 1 <= row["first_turn"] <= last
+            assert row["last_turn"] is None or row["first_turn"] <= row["last_turn"] <= last
+
+    def test_the_lane_breakdown_covers_every_turn_of_the_span_or_none_of_it(
+        self, payload: dict
+    ) -> None:
+        """A filler lane would be a price claim: the three lanes differ by 10x."""
+        last = len(payload["turns"])
+        for row in payload["residency"]:
+            if not row["lane_by_turn"]:
+                continue
+            end = last if row["last_turn"] is None else row["last_turn"]
+            assert len(row["lane_by_turn"]) == end - row["first_turn"] + 1
+            assert set(row["lane_by_turn"]) <= {"cached", "uncached", "loading"}
+
+    def test_it_names_items_exactly_as_the_item_rows_do(self, analysis: SessionAnalysis) -> None:
+        for redact in (False, True):
+            payload = build_report_data([analysis], redact=redact, generated_at=FIXED_TIME)
+            named = {item["item_id"] for item in payload["items"]}
+            assert {row["item_id"] for row in payload["residency"]} <= named
+
+    def test_no_path_survives_redaction(self, analysis: SessionAnalysis) -> None:
+        redacted = build_report_data([analysis], redact=True, generated_at=FIXED_TIME)
+        for row in redacted["residency"]:
+            assert "/repo" not in row["display"]
+            assert "/repo" not in row["item_id"]
+
+
+class TestComparison:
+    """FR-037 — the question the tool was commissioned to settle, on one scale."""
+
+    def test_the_two_sides_account_for_every_item(self, payload: dict) -> None:
+        comparison = payload["comparison"]
+        covered = sum(
+            entry["cost_micros"]
+            for key, series in comparison.items()
+            if key != "note"
+            for entry in series
+        )
+        assert covered == sum(item["total_micros"] for item in payload["items"])
+
+    def test_an_instruction_file_is_not_counted_as_a_work_driven_read(self, payload: dict) -> None:
+        """The disputed claim is about instruction content, not about every `.md`."""
+        instruction = payload["comparison"]["resident_instruction"]
+        assert any(entry["label"] == "Instruction files" for entry in instruction)
+        assert all(
+            entry["label"] != "Instruction files"
+            for entry in payload["comparison"]["work_driven_reads"]
+        )
+
+    def test_read_documentation_stays_on_the_reads_side(self, payload: dict) -> None:
+        assert any(entry["label"] == "docs" for entry in payload["comparison"]["work_driven_reads"])
+
+    def test_every_entry_carries_both_measures_and_a_share(self, payload: dict) -> None:
+        for key in ("resident_instruction", "work_driven_reads"):
+            for entry in payload["comparison"][key]:
+                assert entry["tokens"] > 0
+                assert entry["cost_micros"] >= 0
+                assert 0.0 <= entry["share"] <= 1.0
+
+    def test_entries_are_ranked_most_expensive_first(self, payload: dict) -> None:
+        for key in ("resident_instruction", "work_driven_reads"):
+            costs = [entry["cost_micros"] for entry in payload["comparison"][key]]
+            assert costs == sorted(costs, reverse=True)
+
+    def test_the_note_says_what_makes_the_two_series_different(self, payload: dict) -> None:
+        note = payload["comparison"]["note"].lower()
+        assert "every turn" in note
+        assert "read" in note
+
+    def test_it_is_empty_rather_than_invented_when_nothing_was_attributed(
+        self, tmp_path: Path
+    ) -> None:
+        builder = TranscriptBuilder()
+        builder.add_ui_noise(6)
+        payload = build_report_data([analyse(builder, tmp_path)], generated_at=FIXED_TIME)
         assert payload["comparison"] == {}
+
+
+def edited_instruction_session() -> TranscriptBuilder:
+    """A session where an instruction file is edited mid-flight, forcing a re-write."""
+    builder = TranscriptBuilder()
+    builder.add_turn(input_tokens=50, cache_creation_5m=9_000, output_tokens=20)
+    builder.add_attachment(
+        "edited_text_file",
+        {
+            "displayPath": "/repo/docs/CLAUDE.md",
+            "filename": "CLAUDE.md",
+            "content": {"file": {"filePath": "/repo/docs/CLAUDE.md", "content": "# Rules\n" * 80}},
+        },
+    )
+    builder.add_turn(input_tokens=9, cache_creation_5m=9_000, cache_read=400, output_tokens=25)
+    return builder
+
+
+class TestInvalidations:
+    def test_a_forced_reload_names_the_change_that_caused_it(self, tmp_path: Path) -> None:
+        payload = build_report_data(
+            [analyse(edited_instruction_session(), tmp_path)], generated_at=FIXED_TIME
+        )
+        assert payload["invalidations"]
+        assert any("CLAUDE.md" in event["detail"] for event in payload["invalidations"])
+
+    def test_a_forced_reload_detail_does_not_leak_a_path_under_redaction(
+        self, tmp_path: Path
+    ) -> None:
+        """The sentence names the file that changed, so it is pseudonymised like any other."""
+        analysis = analyse(edited_instruction_session(), tmp_path)
+        redacted = build_report_data([analysis], redact=True, generated_at=FIXED_TIME)
+        assert redacted["invalidations"]
+        for event in redacted["invalidations"]:
+            assert "/repo" not in event["detail"]
+            # The shape of the finding survives: it still says an instruction file changed.
+            assert "instruction file" in event["detail"]
 
 
 def _occurrences(text: str, needle: str) -> list[int]:

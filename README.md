@@ -24,6 +24,9 @@ ccaudit sessions                  # what is available to analyse
 ccaudit --json                    # machine-readable, same figures
 ccaudit --redact                  # obscure paths, keep the cost structure
 ccaudit explain <figure>          # how one number was derived, down to the records
+ccaudit report --out audit.html   # one self-contained file, opens offline anywhere
+ccaudit ui                        # explore it in a browser; leaves nothing running
+ccaudit footprint                 # what ccaudit itself cost this session
 ```
 
 ## What it tells you that a token counter does not
@@ -41,6 +44,21 @@ So the two questions a ranking has to separate are:
 
 They can produce identical totals and have opposite remedies. `ccaudit` reports them as
 separate columns, and `explain` shows the derivation of either.
+
+## Sharing it
+
+```sh
+ccaudit report --redact --out audit.html
+```
+
+One file. No network, no tooling, no install on the other end — it renders completely offline,
+in light and dark, with every distinction carried by more than colour. `--redact` replaces
+paths with stable pseudonyms while preserving the cost structure, so the argument is still
+checkable by someone who should not see your directory tree.
+
+`ccaudit ui` is the other half: the same renderer over the same data, served on loopback only,
+started by one command and gone when you stop it. Nothing it shows is browser-exclusive —
+every figure in it is obtainable from the terminal.
 
 ## Honest numbers
 

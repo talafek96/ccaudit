@@ -19,7 +19,7 @@ import time
 import webbrowser
 from collections.abc import Sequence
 from pathlib import Path
-from typing import NoReturn
+from typing import Any, NoReturn
 
 from ccaudit import __version__
 from ccaudit.analyse import SessionAnalysis, analyse_transcript
@@ -47,6 +47,7 @@ from ccaudit.render.explain import (
     explain_total,
 )
 from ccaudit.render.report import write_report
+from ccaudit.render.serve import Selection, serve_ui
 from ccaudit.render.terminal import build_console, render_report
 from ccaudit.store.db import connect
 from ccaudit.store.results import store_result
@@ -124,6 +125,18 @@ def build_parser() -> argparse.ArgumentParser:
     sessions.add_argument(
         "--all", action="store_true", help="Every session, not just this project."
     )
+
+    ui_parser = subparsers.add_parser(
+        "ui",
+        help="Explore the breakdown in a browser. Loopback only; leaves nothing running.",
+    )
+    ui_parser.add_argument(
+        "--no-open",
+        dest="open_browser",
+        action="store_false",
+        help="Print the URL instead of opening a browser.",
+    )
+    _add_analysis_options(ui_parser)
 
     footprint_parser = subparsers.add_parser(
         "footprint",
@@ -260,6 +273,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_process_queue()
         if args.command == "sessions":
             return _run_sessions(args)
+        if args.command == "ui":
+            return _run_ui(args)
         if args.command == "footprint":
             return _run_footprint(args)
         if args.command == "report":
@@ -510,6 +525,50 @@ def _run_sessions(args: argparse.Namespace) -> int:
             f"{ref.session_id}  {ref.modified_at:%Y-%m-%d %H:%M}  "
             f"{ref.record_count:>6,} records  {ref.byte_size / 1e6:>6.1f} MB  {project}{marker}"
         )
+    return EXIT_OK
+
+
+def _run_ui(args: argparse.Namespace) -> int:
+    """Serve the exploring surface on loopback, and leave nothing behind (FR-072, FR-073).
+
+    A command that happens to render in a browser, not a service: it blocks until stopped and
+    releases the port on every exit path. The browser computes no figure of its own — it
+    renders the same payload `--json` prints, which is what makes FR-074 structurally true.
+    """
+    refs = select_sessions(args)
+    pricing = load_pricing()
+    console = build_console()
+
+    def provider(selection: Selection) -> dict[str, Any]:
+        chosen = [ref for ref in refs if ref.session_id in selection.session_ids] or refs
+        analyses = [
+            analyse_transcript(
+                ref.path,
+                pricing=pricing,
+                policy=args.policy,
+                project_path=str(ref.project_path) if ref.project_path else None,
+                provisional=ref.in_progress,
+            )
+            for ref in chosen
+        ]
+        return build_report_data(
+            analyses,
+            redact=selection.redact,
+            sessions_excluded_count=len(getattr(args, "exclude", None) or ()),
+            group_by=selection.group_by,
+        )
+
+    serve_ui(
+        provider,
+        refs,
+        Selection(
+            session_ids=tuple(ref.session_id for ref in refs),
+            group_by=args.group_by,
+            redact=args.redact,
+        ),
+        open_browser=args.open_browser,
+        announce=console.print,
+    )
     return EXIT_OK
 
 

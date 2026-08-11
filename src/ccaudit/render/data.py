@@ -21,12 +21,13 @@ SC-009). Every list is sorted explicitly; nothing is emitted in set or dict-inse
 The one exception is ``generated_at``, which is a clock reading and can be pinned by the
 caller.
 
-Sections deferred to later milestones — ``tree``, ``turns``, ``residency``,
-``invalidations``, ``comparison`` — are emitted as empty containers rather than invented. An
-absent section is honest; a fabricated one is not.
+A section is emitted empty only where the analysis genuinely cannot support it — an absent
+section is honest, a fabricated one is not. ``diagnostics.anchor_reconciliation`` is the one
+that remains so.
 """
 
-from collections.abc import Sequence
+import re
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from hashlib import sha256
@@ -38,13 +39,12 @@ from ccaudit.analyse import SessionAnalysis
 from ccaudit.config import (
     ATTRIBUTION_COMPONENTS,
     CHARGE_COMPONENTS,
-    MissingThresholdError,
-    Pricing,
     sig_figs_for,
 )
-from ccaudit.config.components import BASIS_VALUES, CONFIDENCE_VALUES
+from ccaudit.config.components import BASIS_VALUES, CONFIDENCE_VALUES, attribution_component
 from ccaudit.model.policy import describe as describe_policy
 from ccaudit.model.reconcile import ReconciliationError
+from ccaudit.money import allocate
 
 SCHEMA_VERSION = "1.0"
 
@@ -60,6 +60,42 @@ TOTALS_CONFIDENCE = "high"
 
 PSEUDONYM_PREFIX = "redacted-"
 PSEUDONYM_HEX_DIGITS = 8
+
+# The node a consumer keys on to draw the remainder as "not one of the named things" rather
+# than as a folder (FR-040). The value is part of the payload contract, not a chart detail.
+UNATTRIBUTED_PATH = "unattributed"
+TREE_ROOT_PATH = "/"
+
+# Which field of a priced turn each charge component reads. A component added to the registry
+# with no field here raises a `KeyError` naming it, rather than being silently omitted.
+CHARGE_FIELDS: dict[str, str] = {
+    "fresh_input": "fresh_input_micros",
+    "cache_write": "cache_write_micros",
+    "cache_read": "cache_read_micros",
+    "output": "output_micros",
+}
+
+# Item kinds that are resident instruction content — present from the start of the session and
+# charged on every turn — as opposed to a file that was read while doing work (FR-037, §6).
+INSTRUCTION_KINDS: dict[str, str] = {
+    "instruction_file": "Instruction files",
+    "system_prompt": "Base instructions",
+    "skill": "Skills",
+    "tool_schema": "Tool and MCP schemas",
+    "mcp_schema": "Tool and MCP schemas",
+}
+
+# The file names Claude Code loads as instruction content on every session. The category
+# registry classifies these as `docs`, which is the right answer for a per-category table and
+# the wrong one here: the whole point of the comparison is to separate an instruction file from
+# any other `.md`, a distinction finer than the category registry draws. Kept deliberately
+# narrow so it cannot drift into a second file-classification scheme.
+INSTRUCTION_FILE_NAMES: frozenset[str] = frozenset({"claude.md", "agents.md"})
+SKILL_CATEGORY = "skill"
+
+# A path embedded in a sentence: a run of non-space, non-quote characters containing a
+# separator. Used only to pseudonymise one, never to interpret one.
+_PATH_IN_TEXT = re.compile(r"[^\s'\"]*/[^\s'\"]*")
 
 
 @dataclass
@@ -79,6 +115,11 @@ class _ItemRollup:
     confidence: str = CONFIDENCE_VALUES[0]
     per_session: dict[str, int] = field(default_factory=dict)
     never_cacheable_on: set[str] = field(default_factory=set)
+    # Token-turns this item spent in each of the two lanes that carry cost is charged in. They
+    # are the weights the carry figure is divided by to say how much of it was paid at the 0.1x
+    # cache rate and how much at full rate (see `_lane_micros`).
+    cached_token_turns: int = 0
+    uncached_token_turns: int = 0
 
     @property
     def total_micros(self) -> int:
@@ -138,11 +179,18 @@ def build_report_data(
 
     totals = _totals(analyses)
     rollups, threshold_gaps = _rollups(analyses)
-    limitations = _limitations(analyses, threshold_gaps, rollups)
 
     grouped = _regroup(rollups, group_by)
     _assert_grouping_conserves(rollups, grouped, group_by)
     items = [_item_payload(rollup, totals["cost_micros"], redact=redact) for rollup in grouped]
+
+    # Turn ordinals and residency spans share one axis across a multi-session selection, so the
+    # sessions are ordered once, by id, and every turn index is offset from there.
+    ordered = _ordered_sessions(analyses)
+    attribution = _attribution(analyses, totals["cost_micros"])
+    invalidations = _invalidations(analyses, redact=redact)
+    residency, unbroken_spans = _residency(ordered, redact=redact)
+    limitations = _limitations(analyses, threshold_gaps, rollups, unbroken_spans)
 
     payload: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
@@ -160,17 +208,17 @@ def build_report_data(
         # It carries the two conclusions that are never charged to a file — the conversation
         # itself and what the model wrote back — without which a per-item table plus the
         # remainder does not reach the total, and a reader is left with a silent gap.
-        "attribution": _attribution(analyses, totals["cost_micros"]),
+        "attribution": attribution,
         "items": items,
         # Forced reloads, charged to the change that caused them rather than to the content
         # they re-wrote (FR-081). This is what answers "what did adding that server cost me?"
-        "invalidations": _invalidations(analyses),
-        # Deferred to later milestones. Emitted empty so a consumer can branch on "not yet
-        # computed" rather than on a missing key, and so nothing is invented here.
-        "tree": {},
-        "turns": [],
-        "residency": [],
-        "comparison": {},
+        "invalidations": invalidations,
+        # The same money as `attribution`, arranged by where in the tree it landed. Built from
+        # the ungrouped rollups so the hierarchy is over files whatever `--by` was asked for.
+        "tree": _tree(rollups, attribution, invalidations, totals, redact=redact),
+        "turns": _turns(ordered),
+        "residency": residency,
+        "comparison": _comparison(rollups, totals["cost_micros"]),
         "diagnostics": {
             "unparseable_records": sum(a.parsed.unparseable_count for a in analyses),
             # Anchor reconciliation is parsed (ingest/anchors.py) but not yet wired into
@@ -231,6 +279,73 @@ def _assert_adds_up(payload: dict[str, Any]) -> None:
             f"per-item figures do not partition the item-level conclusions: direct "
             f"{item_direct} vs {concluded_by_id['direct']}, carry {item_carry} vs "
             f"{concluded_by_id['carry']}"
+        )
+    _assert_turns_add_up(payload)
+    _assert_tree_adds_up(payload["tree"], totals["cost_micros"])
+    _assert_comparison_adds_up(payload)
+
+
+def _assert_turns_add_up(payload: dict[str, Any]) -> None:
+    """Every charge belongs to a turn, so the per-turn figures are the session total.
+
+    A cumulative curve whose last point is not 100% of the total it is drawn against is a
+    figure contradicting its own total, in the surface where that is hardest to notice.
+    """
+    charged = sum(turn["cost_micros"] for turn in payload["turns"])
+    total = payload["totals"]["cost_micros"]
+    if charged != total:
+        raise ReconciliationError(
+            f"per-turn figures sum to {charged} against a session total of {total}. Every "
+            f"charge belongs to exactly one turn."
+        )
+
+
+def _assert_tree_adds_up(node: Mapping[str, Any], total_micros: int) -> None:
+    """A node's children plus its own cost are the whole of it, at every level (FR-034).
+
+    The same promise as the flat table, one dimension further in. A hierarchy that does not
+    partition is read as structure rather than as arithmetic, so nobody checks it by eye.
+    """
+    if node["total_micros"] != total_micros:
+        raise ReconciliationError(
+            f"the cost tree covers {node['total_micros']} against a session total of "
+            f"{total_micros}. A part-to-whole view must be the whole."
+        )
+    _assert_node_adds_up(node)
+
+
+def _assert_node_adds_up(node: Mapping[str, Any]) -> None:
+    children: Sequence[Mapping[str, Any]] = node["children"]
+    covered = node["flat_micros"] + sum(child["total_micros"] for child in children)
+    if covered != node["total_micros"]:
+        raise ReconciliationError(
+            f"tree node {node['path']!r} does not add up: {node['flat_micros']} of its own "
+            f"plus {covered - node['flat_micros']} below it != {node['total_micros']}"
+        )
+    for child in children:
+        _assert_node_adds_up(child)
+
+
+def _assert_comparison_adds_up(payload: dict[str, Any]) -> None:
+    """The two series plus anything unassignable are exactly the per-item figures (FR-037).
+
+    The comparison is a re-arrangement of the item rows, never a re-measurement: if the sides
+    do not sum back to the items, one side has silently absorbed or dropped a file — which is
+    precisely the error the chart exists to rule out.
+    """
+    comparison = payload["comparison"]
+    covered = sum(
+        entry["cost_micros"]
+        for series in comparison.values()
+        if isinstance(series, list)
+        for entry in series
+    )
+    items_total = sum(item["total_micros"] for item in payload["items"])
+    if covered != items_total:
+        raise ReconciliationError(
+            f"the instruction-versus-reads comparison covers {covered} against {items_total} "
+            f"attributed to items. Every item belongs to exactly one side, or to neither "
+            f"explicitly."
         )
 
 
@@ -310,7 +425,7 @@ def _components(analyses: Sequence[SessionAnalysis], total_micros: int) -> list[
     ]
 
 
-def _invalidations(analyses: Sequence[SessionAnalysis]) -> list[dict[str, Any]]:
+def _invalidations(analyses: Sequence[SessionAnalysis], *, redact: bool) -> list[dict[str, Any]]:
     """Prefix changes that forced content back into the cache, and what each cost.
 
     The `detail` is deliberately user-facing ("MCP server 'playwright' added") rather than a
@@ -323,7 +438,7 @@ def _invalidations(analyses: Sequence[SessionAnalysis]) -> list[dict[str, Any]]:
             "turn": event.turn_index,
             "tier": event.tier,
             "trigger": event.trigger,
-            "detail": event.detail,
+            "detail": _redact_paths(event.detail) if redact else event.detail,
             "forced_reload_micros": event.forced_reload_micros,
             "items_reloaded": event.items_reloaded,
             "basis": event.basis,
@@ -333,6 +448,20 @@ def _invalidations(analyses: Sequence[SessionAnalysis]) -> list[dict[str, Any]]:
         for event in analysis.attribution.invalidations
     ]
     return sorted(rows, key=lambda row: (row["session_id"], row["turn"]))
+
+
+def _redact_paths(detail: str) -> str:
+    """Pseudonymise any path inside a user-facing sentence (FR-043).
+
+    An invalidation detail names the thing that changed, and for the ``system`` tier that thing
+    is a file — so the sentence carries a path that the rest of the payload has already been
+    careful to remove. The sentence keeps its shape and its extension, for the same reason an
+    item's pseudonym does: the finding must stay checkable once the path is gone.
+    """
+    return _PATH_IN_TEXT.sub(
+        lambda match: f"{_pseudonym(match.group(0))}{PurePosixPath(match.group(0)).suffix}",
+        detail,
+    )
 
 
 def _attribution(analyses: Sequence[SessionAnalysis], total_micros: int) -> list[dict[str, Any]]:
@@ -368,6 +497,147 @@ def _attribution(analyses: Sequence[SessionAnalysis], total_micros: int) -> list
         }
         for component in ATTRIBUTION_COMPONENTS
     ]
+
+
+def _ordered_sessions(analyses: Sequence[SessionAnalysis]) -> list[tuple[SessionAnalysis, int]]:
+    """The sessions in a fixed order, each with the turn ordinal it starts at.
+
+    A multi-session selection is drawn on one turn axis, so the ordinals have to be assigned
+    once and shared by every section that names a turn. Ordering by session id rather than by
+    argument order is what keeps the axis identical between two runs (FR-017).
+    """
+    ordered: list[tuple[SessionAnalysis, int]] = []
+    offset = 0
+    for analysis in sorted(analyses, key=lambda analysis: analysis.session_id):
+        ordered.append((analysis, offset))
+        offset += len(analysis.timeline.turns)
+    return ordered
+
+
+def _turns(ordered: Sequence[tuple[SessionAnalysis, int]]) -> list[dict[str, Any]]:
+    """What each turn cost, in order, with compaction boundaries marked (FR-039).
+
+    ``prompt_tokens`` is all three input measures, never ``input_tokens`` alone (FR-083): a
+    session showing 4K fresh input after hours of work is not a small session, and reporting
+    the uncached remainder as the conversation size is the trap that hides the carry cost this
+    tool exists to price.
+    """
+    rows: list[dict[str, Any]] = []
+    for analysis, offset in ordered:
+        charges = analysis.attribution.charges
+        turns = analysis.timeline.turns
+        if len(charges) != len(turns):
+            raise ReconciliationError(
+                f"session {analysis.session_id}: {len(charges)} priced turns against "
+                f"{len(turns)} in the timeline. A per-turn figure would name the wrong turn."
+            )
+        compactions = _compaction_by_turn(analysis)
+        for turn_index, turn in enumerate(turns):
+            charge = charges[turn_index]
+            rows.append(
+                {
+                    "ordinal": offset + turn_index + 1,
+                    "session_id": analysis.session_id,
+                    "model": charge.model,
+                    "cost_micros": charge.total_micros,
+                    "components": {
+                        component.id: getattr(charge, CHARGE_FIELDS[component.id])
+                        for component in CHARGE_COMPONENTS
+                    },
+                    "prompt_tokens": turn.usage.prompt_tokens,
+                    "compaction": compactions.get(turn_index),
+                }
+            )
+    return rows
+
+
+def _compaction_by_turn(analysis: SessionAnalysis) -> dict[int, dict[str, Any]]:
+    """The compaction boundaries, keyed by the turn they landed on.
+
+    Measured, not inferred: the boundary record states the conversation size before and after
+    itself, so what a compaction dropped is read off the record (pass-2 §2.1) rather than
+    estimated from what stopped appearing.
+    """
+    turns = analysis.timeline.compaction_turns
+    if not analysis.timeline.turns:
+        return {}
+    records = analysis.parsed.compactions
+    if len(records) != len(turns):
+        raise ReconciliationError(
+            f"session {analysis.session_id}: {len(records)} compaction records against "
+            f"{len(turns)} boundaries placed on the timeline; a boundary would be reported on "
+            f"the wrong turn."
+        )
+
+    boundaries: dict[int, dict[str, Any]] = {}
+    for record, turn_index in zip(records, turns, strict=True):
+        existing = boundaries.get(turn_index)
+        if existing is None:
+            boundaries[turn_index] = {
+                "occurred": True,
+                "pre_tokens": record.pre_tokens,
+                "post_tokens": record.post_tokens,
+                "dropped_tokens": record.dropped_tokens,
+            }
+            continue
+        # Two boundaries between the same pair of turns are one event as far as a per-turn
+        # figure can tell: the interval starts at the first size and ends at the last.
+        existing["post_tokens"] = record.post_tokens
+        existing["dropped_tokens"] += record.dropped_tokens
+    return boundaries
+
+
+def _residency(
+    ordered: Sequence[tuple[SessionAnalysis, int]], *, redact: bool
+) -> tuple[list[dict[str, Any]], int]:
+    """One row per residency span, with its per-turn lane (FR-036).
+
+    Returns the rows and the number of spans left without a per-turn breakdown. A file read
+    once looks cheap in a leaderboard; the same file sitting in context for ninety turns is
+    charged on every one of them, and the span is what makes that length legible.
+    """
+    rows: list[dict[str, Any]] = []
+    unbroken = 0
+    for analysis, offset in ordered:
+        timeline = analysis.timeline
+        if not timeline.turns:
+            continue
+        lanes = _lanes_by_item(analysis)
+        for span in sorted(timeline.spans, key=lambda span: (span.first_turn, span.item_id)):
+            item = timeline.items[span.item_id]
+            end_turn = timeline.final_turn_index if span.last_turn is None else span.last_turn
+            by_turn = lanes.get(span.item_id, {})
+            classified = [by_turn.get(index) for index in range(span.first_turn, end_turn + 1)]
+            if any(lane is None for lane in classified):
+                # A turn whose records support no lane cannot be drawn as one: every lane is a
+                # different rate, so a filler value would be a price claim. The span keeps its
+                # length and loses its breakdown, and the count is stated in the limitations.
+                unbroken += 1
+                classified = []
+            display = _display_for(item.item_id, item.identity, redact=redact)
+            rows.append(
+                {
+                    "session_id": analysis.session_id,
+                    "item_id": f"{item.kind}:{display}" if redact else item.item_id,
+                    "display": display,
+                    # Turn ordinals, one-based and on the shared axis, so a span lines up with
+                    # the turn rows that priced it.
+                    "first_turn": offset + span.first_turn + 1,
+                    "last_turn": None if span.last_turn is None else offset + span.last_turn + 1,
+                    "weight_tokens": item.size_tokens,
+                    "end_reason": span.end_reason,
+                    "lane_by_turn": classified,
+                }
+            )
+    return rows, unbroken
+
+
+def _lanes_by_item(analysis: SessionAnalysis) -> dict[str, dict[int, str]]:
+    """Every lane verdict, indexed by item and turn — one pass instead of a scan per span."""
+    lanes: dict[str, dict[int, str]] = {}
+    for assignment in analysis.attribution.lanes.assignments:
+        lanes.setdefault(assignment.item_id, {})[assignment.turn_index] = assignment.lane
+    return lanes
 
 
 def _rollups(analyses: Sequence[SessionAnalysis]) -> tuple[list[_ItemRollup], list[str]]:
@@ -431,11 +701,270 @@ def _rollups(analyses: Sequence[SessionAnalysis]) -> tuple[list[_ItemRollup], li
                 rollup.confidence, attribution.confidence, CONFIDENCE_VALUES
             )
 
-    _mark_never_cacheable(analyses, rollups, threshold_gaps)
+        _fold_lanes(analysis, rollups)
+        threshold_gaps.update(analysis.attribution.lanes.threshold_unknown_models)
+
     return (
         sorted(rollups.values(), key=lambda r: (-r.total_micros, r.item_id)),
         sorted(threshold_gaps),
     )
+
+
+@dataclass
+class _TreeNode:
+    """One node while the hierarchy is being built, before it is priced and sorted."""
+
+    name: str
+    path: str
+    flat_micros: int = 0
+    # The precision this node's own figure supports; ``None`` until it has one of its own.
+    sig_figs: int | None = None
+    children: dict[str, "_TreeNode"] = field(default_factory=dict)
+
+    def child(self, key: str, *, name: str, path: str) -> "_TreeNode":
+        node = self.children.get(key)
+        if node is None:
+            node = _TreeNode(name=name, path=path)
+            self.children[key] = node
+        return node
+
+
+def _tree(
+    rollups: Sequence[_ItemRollup],
+    attribution: Sequence[dict[str, Any]],
+    invalidations: Sequence[dict[str, Any]],
+    totals: Mapping[str, Any],
+    *,
+    redact: bool,
+) -> dict[str, Any]:
+    """Cost over the folder tree, rooted at the session total (FR-034, FR-040).
+
+    Two decisions are worth stating, because both are visible in the picture:
+
+    **The root is the whole session, not just the files.** A part-to-whole view whose whole is
+    only the attributed part shows a full-width root bar that silently stands for a fraction of
+    the money. So the conclusions that are never charged to a file — the conversation itself,
+    what the model wrote back, the reloads charged to the change that forced them — sit at the
+    root as named siblings of the folders, alongside the unattributed remainder.
+
+    **Items with no path get a named bucket, not a folder.** A skill listing or a tool-schema
+    delta is not in a directory, and inventing one for it would put a fabricated folder in a
+    hierarchy the reader is meant to recognise. They are collected under ``(skill)``,
+    ``(tool_schema)`` and so on at the root — the same convention the flat per-folder grouping
+    already uses for them (`_group_key`), so the two views name them identically.
+    """
+    root = _TreeNode(name=TREE_ROOT_PATH, path=TREE_ROOT_PATH)
+    for rollup in rollups:
+        parent = root
+        for segment, real_path in _folder_chain(rollup):
+            name = _pseudonym(real_path) if redact else segment
+            parent = parent.child(real_path, name=name, path=_join(parent.path, name))
+        display = _display_for(rollup.item_id, rollup.identity, redact=redact)
+        leaf_name = PurePosixPath(display).name or display
+        leaf = parent.child(rollup.item_id, name=leaf_name, path=_join(parent.path, leaf_name))
+        leaf.flat_micros += rollup.total_micros
+        leaf.sig_figs = sig_figs_for(rollup.confidence)
+
+    root.children = {key: _compress(child) for key, child in root.children.items()}
+    for node in _non_item_nodes(attribution, invalidations, totals):
+        root.children[node.path] = node
+    return _emit(root, int(totals["cost_micros"]))
+
+
+def _folder_chain(rollup: _ItemRollup) -> list[tuple[str, str]]:
+    """The directories an item hangs under, each with the real path that identifies it.
+
+    The real path is the merge key even under redaction, so two files in the same directory
+    still land in the same node when the node's *name* is a pseudonym.
+    """
+    parts = PurePosixPath(rollup.identity).parts
+    if len(parts) <= 1:
+        return [(f"({rollup.kind})", f"kind:{rollup.kind}")]
+
+    chain: list[tuple[str, str]] = []
+    cumulative = ""
+    for segment in parts[:-1]:
+        if segment == TREE_ROOT_PATH:
+            # The filesystem root is the tree root; it is not a level of its own.
+            continue
+        cumulative = f"{cumulative}/{segment}"
+        chain.append((segment, cumulative))
+    return chain
+
+
+def _non_item_nodes(
+    attribution: Sequence[dict[str, Any]],
+    invalidations: Sequence[dict[str, Any]],
+    totals: Mapping[str, Any],
+) -> list[_TreeNode]:
+    """The root-level nodes for money that belongs to no file, remainder included."""
+    concluded = {component["id"]: component for component in attribution}
+    reload_micros = sum(event["forced_reload_micros"] for event in invalidations)
+    candidates = [
+        _TreeNode(
+            # Charged to the change that forced the reload, never to the content re-written
+            # (FR-081) — so it is a sibling of the folders, not a cost inside one.
+            name="Forced reloads",
+            path="(forced-reloads)",
+            flat_micros=reload_micros,
+            sig_figs=min(
+                (sig_figs_for(event["confidence"]) for event in invalidations),
+                default=sig_figs_for(CONFIDENCE_VALUES[-1]),
+            ),
+        ),
+        _TreeNode(
+            name=attribution_component("overhead").plain_name,
+            path="(overhead)",
+            flat_micros=concluded["overhead"]["cost_micros"],
+            sig_figs=concluded["overhead"]["display_sig_figs"],
+        ),
+        _TreeNode(
+            name=attribution_component("output").plain_name,
+            path="(output)",
+            flat_micros=concluded["output"]["cost_micros"],
+            sig_figs=concluded["output"]["display_sig_figs"],
+        ),
+        _TreeNode(
+            # Named in the glossary's plain language; the path is what a consumer keys on to
+            # draw it as the remainder rather than as a folder (FR-040).
+            name="Couldn't attribute",
+            path=UNATTRIBUTED_PATH,
+            flat_micros=int(totals["unattributed_micros"]),
+            sig_figs=int(totals["display_sig_figs"]),
+        ),
+    ]
+    return [node for node in candidates if node.flat_micros]
+
+
+def _compress(node: _TreeNode) -> _TreeNode:
+    """Fold a directory that has one child directory and no cost of its own into that child.
+
+    ``/Users/me/projects/repo/src`` is five levels that branch nowhere and cost nothing by
+    themselves; spending five of a reader's six visible levels on them buries the level that
+    actually divides the money. No figure moves — only the number of rows it takes to show it.
+    """
+    node.children = {key: _compress(child) for key, child in node.children.items()}
+    if len(node.children) != 1 or node.flat_micros:
+        return node
+    ((_, only),) = node.children.items()
+    if not only.children:
+        # A directory holding a single file still names the directory: that is the level the
+        # reader asked for, and the file is already named on the row below.
+        return node
+    return _TreeNode(
+        name=f"{node.name}/{only.name}",
+        path=only.path,
+        flat_micros=only.flat_micros,
+        sig_figs=only.sig_figs,
+        children=only.children,
+    )
+
+
+def _emit(node: _TreeNode, total_micros: int) -> dict[str, Any]:
+    """Price a node bottom-up: its own cost plus everything below it, ranked and shared."""
+    children = [_emit(child, total_micros) for child in node.children.values()]
+    children.sort(key=lambda child: (-child["total_micros"], child["path"]))
+    total = node.flat_micros + sum(child["total_micros"] for child in children)
+    # A node is no more precise than the least precise figure inside it (FR-095).
+    sig_figs = min(
+        [node.sig_figs or sig_figs_for(CONFIDENCE_VALUES[0])]
+        + [child["display_sig_figs"] for child in children]
+    )
+    return {
+        "name": node.name,
+        "path": node.path,
+        "flat_micros": node.flat_micros,
+        "total_micros": total,
+        "share": _share(total, total_micros),
+        "display_sig_figs": sig_figs,
+        "children": children,
+    }
+
+
+def _join(parent_path: str, name: str) -> str:
+    return f"{parent_path}{name}" if parent_path == TREE_ROOT_PATH else f"{parent_path}/{name}"
+
+
+def _comparison(rollups: Sequence[_ItemRollup], total_micros: int) -> dict[str, Any]:
+    """Always-resident instruction content against work-driven file reads (FR-037, §6).
+
+    The question the tool was commissioned to settle splits in two, and the two halves have
+    different answers, which is why they are drawn as two series on **one** axis rather than as
+    two pie charts: instruction content is a fixed block charged on every turn from the start,
+    while file reads accumulate as work happens. Only a common scale says which is bigger.
+
+    Both series carry the same two measures — the tokens the content occupies and its
+    API-equivalent cost — so they are directly comparable. What differs is *how* the cost is
+    incurred, and the note says so rather than leaving the reader to assume the two are alike.
+    """
+    if not rollups:
+        return {}
+
+    buckets: dict[str, dict[str, list[int]]] = {
+        "resident_instruction": {},
+        "work_driven_reads": {},
+        "unassigned": {},
+    }
+    for rollup in rollups:
+        side, label = _comparison_side(rollup)
+        entry = buckets[side].setdefault(label, [0, 0])
+        entry[0] += rollup.size_tokens
+        entry[1] += rollup.total_micros
+
+    comparison: dict[str, Any] = {
+        side: _comparison_entries(buckets[side], total_micros)
+        for side in ("resident_instruction", "work_driven_reads")
+    }
+    note = (
+        "Both series are tokens and API-equivalent cost on one scale. They are not charged the "
+        "same way: resident instruction content is charged on every turn of the session, while "
+        "a file read is charged once when it is read and then on every turn it stays in "
+        "context."
+    )
+    if buckets["unassigned"]:
+        # Naming what would not divide is the point of the section. Folding it into whichever
+        # side looked plausible is exactly the move that would make the answer unfalsifiable.
+        comparison["unassigned"] = _comparison_entries(buckets["unassigned"], total_micros)
+        note += (
+            " Content that is neither an instruction item nor a file read is listed separately "
+            "under 'unassigned' rather than counted on either side."
+        )
+    comparison["note"] = note
+    return comparison
+
+
+def _comparison_side(rollup: _ItemRollup) -> tuple[str, str]:
+    """Which side of the comparison an item belongs on, and under what label.
+
+    Decided by what the item *is*, not by how much it cost. Instruction files are separated
+    from other documentation deliberately: the disputed claim is about instruction content
+    specifically, and lumping every ``.md`` together would answer a different question.
+    """
+    label = INSTRUCTION_KINDS.get(rollup.kind)
+    if label is not None:
+        return "resident_instruction", label
+    if rollup.kind != "file":
+        return "unassigned", f"{rollup.kind} content"
+    if PurePosixPath(rollup.identity).name.lower() in INSTRUCTION_FILE_NAMES:
+        return "resident_instruction", INSTRUCTION_KINDS["instruction_file"]
+    if rollup.category == SKILL_CATEGORY:
+        return "resident_instruction", INSTRUCTION_KINDS["skill"]
+    return "work_driven_reads", rollup.category
+
+
+def _comparison_entries(
+    bucket: Mapping[str, Sequence[int]], total_micros: int
+) -> list[dict[str, Any]]:
+    ranked = sorted(bucket.items(), key=lambda pair: (-pair[1][1], pair[0]))
+    return [
+        {
+            "label": label,
+            "tokens": tokens,
+            "cost_micros": micros,
+            "share": _share(micros, total_micros),
+        }
+        for label, (tokens, micros) in ranked
+    ]
 
 
 def _regroup(rollups: list[_ItemRollup], group_by: str) -> list[_ItemRollup]:
@@ -462,6 +991,8 @@ def _regroup(rollups: list[_ItemRollup], group_by: str) -> list[_ItemRollup]:
                 confidence=rollup.confidence,
                 per_session=dict(rollup.per_session),
                 never_cacheable_on=set(rollup.never_cacheable_on),
+                cached_token_turns=rollup.cached_token_turns,
+                uncached_token_turns=rollup.uncached_token_turns,
             )
             continue
 
@@ -471,6 +1002,8 @@ def _regroup(rollups: list[_ItemRollup], group_by: str) -> list[_ItemRollup]:
         target.turns_resident += rollup.turns_resident
         target.size_tokens += rollup.size_tokens
         target.never_cacheable_on |= rollup.never_cacheable_on
+        target.cached_token_turns += rollup.cached_token_turns
+        target.uncached_token_turns += rollup.uncached_token_turns
         for session_id, cost in rollup.per_session.items():
             target.per_session[session_id] = target.per_session.get(session_id, 0) + cost
         # A merged row is only as trustworthy as its weakest member, and only as specific: two
@@ -518,49 +1051,27 @@ def _assert_grouping_conserves(
         )
 
 
-def _mark_never_cacheable(
-    analyses: Sequence[SessionAnalysis],
-    rollups: dict[str, _ItemRollup],
-    threshold_gaps: set[str],
-) -> None:
-    """Flag items too small to cache on a model the session used (FR-078).
+def _fold_lanes(analysis: SessionAnalysis, rollups: dict[str, _ItemRollup]) -> None:
+    """Fold one session's lane history into the item rollups (FR-078, SC-026).
 
-    First-class, not a footnote: the same file moves from the 0.1x lane to the 1x lane across
-    models, a ~10x per-turn difference, and a reader must not have to go looking for it
-    (docs/cost-model.md §2).
+    The lane classification names the models an item was **actually resident on and below the
+    minimum for**, turn by turn. That is a materially narrower claim than comparing every
+    item's size against every model the session used, which flags a file on a model it was
+    never in context with — an over-approximation in the direction that looks like a finding.
     """
-    for analysis in analyses:
-        models = sorted({charge.model for charge in analysis.attribution.charges})
-        for model in models:
-            threshold = _min_cacheable_tokens(analysis.pricing, model, threshold_gaps)
-            if threshold is None:
-                continue
-            # Only items this session actually carried: a model is evidence about the items
-            # that were resident alongside it, not about every item in the corpus.
-            for item_id in analysis.timeline.items:
-                rollup = rollups.get(item_id)
-                if rollup is not None and rollup.size_tokens < threshold:
-                    rollup.never_cacheable_on.add(model)
-
-
-def _min_cacheable_tokens(pricing: Pricing, model: str, gaps: set[str]) -> int | None:
-    """The model's minimum cacheable prefix, or ``None`` when the table does not record it.
-
-    A missing threshold is a genuine, recoverable gap in the rate table, not a broken
-    invariant: the rest of the breakdown is still correct, so the answer is to say the
-    cacheability check could not be run for this model rather than to refuse the whole report
-    or — far worse — to assume the content cached.
-    """
-    try:
-        return pricing.min_cacheable_tokens(model)
-    except MissingThresholdError:
-        gaps.add(model)
-        return None
+    for summary in analysis.attribution.lanes.summaries():
+        rollup = rollups.get(summary.item_id)
+        if rollup is None:
+            # Resident but never attributed any cost: it has no row to carry the finding.
+            continue
+        rollup.cached_token_turns += summary.token_turns_by_lane.get("cached", 0)
+        rollup.uncached_token_turns += summary.token_turns_by_lane.get("uncached", 0)
+        rollup.never_cacheable_on.update(summary.never_cacheable_on)
 
 
 def _item_payload(rollup: _ItemRollup, total_micros: int, *, redact: bool) -> dict[str, Any]:
     driver = _uncertainty_driver(rollup)
-    display = _display_name(rollup, redact=redact)
+    display = _display_for(rollup.item_id, rollup.identity, redact=redact)
     payload: dict[str, Any] = {
         # The item id embeds the path, so under redaction it becomes the pseudonym too.
         # Blanking `display` and `identity` while leaving the id intact would have published
@@ -577,15 +1088,7 @@ def _item_payload(rollup: _ItemRollup, total_micros: int, *, redact: bool) -> di
         "share": _share(rollup.total_micros, total_micros),
         "reads": rollup.reads,
         "turns_resident": rollup.turns_resident,
-        # Direct cost is the cache-write lane and carry cost is the cache-read lane, by
-        # construction of the attribution pass. The sub-threshold lane needs per-turn lane
-        # classification (US4); until it lands that cost sits in overhead, and is reported as
-        # zero here rather than guessed at.
-        "lanes": {
-            "cached_micros": rollup.carry_micros,
-            "uncached_micros": 0,
-            "loading_micros": rollup.direct_micros,
-        },
+        "lanes": _lane_micros(rollup),
         "never_cacheable_on": sorted(rollup.never_cacheable_on),
         "basis": rollup.basis,
         "confidence": rollup.confidence,
@@ -602,6 +1105,34 @@ def _item_payload(rollup: _ItemRollup, total_micros: int, *, redact: bool) -> di
     if not redact:
         payload["identity"] = rollup.identity
     return payload
+
+
+def _lane_micros(rollup: _ItemRollup) -> dict[str, int]:
+    """Split the item's cost across the three pricing lanes (cost-model §5.2).
+
+    Direct cost is the write lane by construction — an item is charged ``direct`` exactly when
+    it was being written into the cache. Carry cost spans **two** lanes: content served from
+    cache at 0.1x, and content below the model's minimum cacheable prefix, which never enters
+    the cache and is re-sent as fresh input at full rate every turn (``attribute.py`` charges
+    that as carry, because it is the recurring cost of keeping the content there).
+
+    The only observable weight to divide carry by is the token-turns the item spent in each
+    lane, so that is what it is divided by — with a largest-remainder allocation, so the two
+    lanes sum back to the carry figure exactly rather than to a rounded approximation of it.
+    """
+    weights = [rollup.cached_token_turns, rollup.uncached_token_turns]
+    if rollup.carry_micros and not sum(weights):
+        raise ReconciliationError(
+            f"item {rollup.item_id!r} was charged {rollup.carry_micros} micro-dollars of carry "
+            f"cost with no classified lane to explain it. Carry is only ever charged to an item "
+            f"in the cached or the sub-threshold lane, so the two records disagree."
+        )
+    cached, uncached = allocate(rollup.carry_micros, weights)
+    return {
+        "cached_micros": cached,
+        "uncached_micros": uncached,
+        "loading_micros": rollup.direct_micros,
+    }
 
 
 def _uncertainty_driver(rollup: _ItemRollup) -> str:
@@ -638,19 +1169,25 @@ def _uncertainty_range(rollup: _ItemRollup, driver: str) -> dict[str, int]:
     return {"low_micros": max(0, total - width), "high_micros": total + width}
 
 
-def _display_name(rollup: _ItemRollup, *, redact: bool) -> str:
+def _display_for(item_id: str, identity: str, *, redact: bool) -> str:
     """The name shown for an item, pseudonymised under ``--redact`` (FR-043).
 
     The pseudonym is a hash of the identity, so it is stable across runs and machines and the
     same file lines up between two reports. The **extension is preserved on purpose**: the
     claim under dispute is about `.md` files specifically, so redacting it away would destroy
     the argument the report exists to settle, while leaking nothing about the path.
+
+    The single place a name is pseudonymised — the tree and the residency timeline name the
+    same items, and two hashing rules would put the same file under two names.
     """
     if not redact:
-        return rollup.identity
-    digest = sha256(rollup.item_id.encode("utf-8")).hexdigest()[:PSEUDONYM_HEX_DIGITS]
-    suffix = PurePosixPath(rollup.identity).suffix
-    return f"{PSEUDONYM_PREFIX}{digest}{suffix}"
+        return identity
+    return f"{_pseudonym(item_id)}{PurePosixPath(identity).suffix}"
+
+
+def _pseudonym(text: str) -> str:
+    """A stable, path-free stand-in for one identity or one path segment."""
+    return f"{PSEUDONYM_PREFIX}{sha256(text.encode('utf-8')).hexdigest()[:PSEUDONYM_HEX_DIGITS]}"
 
 
 def _uncertainty_notes(analyses: Sequence[SessionAnalysis], policy: str) -> list[str]:
@@ -676,15 +1213,20 @@ def _limitations(
     analyses: Sequence[SessionAnalysis],
     threshold_gaps: Sequence[str],
     rollups: Sequence[_ItemRollup],
+    unbroken_spans: int,
 ) -> list[str]:
     """Required output, not optional garnish (FR-018)."""
     notes = [note for analysis in analyses for note in analysis.limitations]
     notes.append(
-        "Content too small to cache is charged as fresh input at full rate every turn; "
-        "that cost is reported as conversation overhead rather than charged to an item, "
-        "because "
-        "separating it needs per-turn cache-lane classification."
+        "Content too small to cache is charged as fresh input at full rate every turn. That "
+        "cost is charged to the item as carry cost and shown in its sub-threshold lane; the "
+        "split between the two carry lanes is by token-turns, not separately measured."
     )
+    if unbroken_spans:
+        notes.append(
+            f"{unbroken_spans} residency span(s) include turns whose records support no cache "
+            f"lane, so those spans carry no per-turn lane breakdown rather than a guessed one."
+        )
     if threshold_gaps:
         notes.append(
             f"The minimum cacheable size is not recorded for "
