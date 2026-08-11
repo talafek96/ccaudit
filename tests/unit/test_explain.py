@@ -11,12 +11,14 @@ import pytest
 
 from ccaudit.analyse import SessionAnalysis, analyse_transcript
 from ccaudit.config import BUNDLED_PRICING_PATH, load_pricing
+from ccaudit.money import format_micros
 from ccaudit.render.explain import (
     UnknownFigureError,
     available_figures,
     explain,
     explain_total,
 )
+from tests.fixtures.builder import TranscriptBuilder
 
 PRICING = load_pricing(BUNDLED_PRICING_PATH)
 GOLDEN = Path(__file__).resolve().parents[1] / "golden" / "fixtures" / "session_basic"
@@ -25,6 +27,31 @@ GOLDEN = Path(__file__).resolve().parents[1] / "golden" / "fixtures" / "session_
 @pytest.fixture(scope="module")
 def analysis() -> SessionAnalysis:
     return analyse_transcript(GOLDEN / "transcript.jsonl", pricing=PRICING)
+
+
+@pytest.fixture(scope="module")
+def unexplained_analysis(tmp_path_factory: pytest.TempPathFactory) -> SessionAnalysis:
+    """A session whose cache write is far larger than the content that arrived to cause it.
+
+    This is the ordinary shape of a real session, not a corner case: the first write pays for
+    the system prompt and every tool schema, none of which appears in the transcript. The
+    golden fixture is deliberately the opposite — small and fully explained — so the gap
+    needs its own session to be exercised at all.
+    """
+    builder = TranscriptBuilder()
+    builder.add_user_text("start")
+    builder.add_turn(
+        input_tokens=5, cache_creation_5m=60_000, output_tokens=40, tool_use_ids=("t1",)
+    )
+    builder.add_tool_result(tool_use_id="t1", file_path="/repo/small.py", text="x = 1\n" * 20)
+    builder.add_turn(input_tokens=5, cache_read=60_000, output_tokens=40)
+    path = tmp_path_factory.mktemp("unexplained") / "s.jsonl"
+    return analyse_transcript(builder.write(path), pricing=PRICING)
+
+
+@pytest.fixture(scope="module")
+def unexplained_write(unexplained_analysis: SessionAnalysis) -> str:
+    return explain_total(unexplained_analysis).render()
 
 
 class TestFigureLookup:
@@ -133,6 +160,40 @@ class TestSessionTotal:
     def test_it_lists_the_limitations(self, total_text: str) -> None:
         assert "Limitations" in total_text
         assert "stripped before the transcript" in total_text
+
+    def test_it_says_which_charge_the_remainder_sits_in(self, unexplained_write: str) -> None:
+        """A bare "33% could not be attributed" is indistinguishable from a broken tool.
+
+        The remainder is overwhelmingly cache-write cost, because a write also pays for the
+        resident instruction block that never reaches the transcript. Saying so is what
+        makes a large remainder readable as an honest refusal rather than a defect.
+        """
+        prose = " ".join(unexplained_write.split())
+        assert "charged for cache writes" in prose
+        assert "was tied to a named item" in prose
+        assert "resident instruction block" in prose
+        assert "More tools or MCP servers make this block" in prose
+
+    def test_the_breakdown_is_absent_when_every_write_is_explained(self, total_text: str) -> None:
+        """It reports a gap; it does not manufacture one. The golden fixture has none."""
+        assert "charged for cache writes" not in total_text
+
+    def test_the_remainder_breakdown_is_arithmetic_the_reader_can_redo(
+        self, unexplained_analysis: SessionAnalysis
+    ) -> None:
+        """SC-008: the two parts must be stated, and must account for the write charge."""
+        analysis = unexplained_analysis
+        charges = analysis.attribution.charges
+        write = sum(charge.cache_write_micros for charge in charges)
+        direct = sum(
+            row.cost_micros
+            for row in analysis.attribution.attributions
+            if row.component == "direct"
+        )
+        prose = " ".join(explain_total(analysis).render().split())
+        assert format_micros(write, 2) in prose
+        assert format_micros(direct, 2) in prose
+        assert format_micros(write - direct, 2) in prose
 
 
 class TestReproducibility:

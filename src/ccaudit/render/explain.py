@@ -83,6 +83,45 @@ def explain(analysis: SessionAnalysis, wanted: str) -> Trace:
     return _trace(analysis, key, rows)
 
 
+def _remainder_lines(analysis: SessionAnalysis) -> list[str]:
+    """Say which charge the remainder sits in, so a large one reads as a limit, not a bug.
+
+    A reader who sees "33.7% couldn't be attributed" has no way to tell a broken tool from an
+    honest refusal. Almost always it is the latter, and the evidence is which side it falls
+    on: cache reads are re-shows of content already seen and named, so carry attributes
+    nearly in full, while a cache write also pays for the resident instruction block — system
+    prompt, tool and MCP schemas — that is stripped before the transcript is written. Cost we
+    can see charged but whose content is provably absent cannot be tied to an item, and
+    guessing would be the actual defect (FR-019).
+    """
+    charges = analysis.attribution.charges
+    write_charged = sum(charge.cache_write_micros for charge in charges)
+    if not write_charged:
+        return []
+    # 'direct' is exactly the per-item share of the write charge; the gap is the rest of it.
+    direct_attributed = sum(
+        row.cost_micros for row in analysis.attribution.attributions if row.component == "direct"
+    )
+    gap = write_charged - direct_attributed
+    if gap <= 0:
+        return []
+    return [
+        (
+            f"Nearly all of that sits in loading into context: of the "
+            f"{format_micros(write_charged, 2)} charged for cache writes,"
+        ),
+        (
+            f"{format_micros(direct_attributed, 2)} was tied to a named item and "
+            f"{format_micros(gap, 2)} ({format_share(gap / write_charged)} of the write charge)"
+        ),
+        "was not. A cache write also pays for the resident instruction block — system prompt,",
+        "tool and MCP schemas — which is stripped before the transcript is written. That cost",
+        "is visible as a charge but its content is absent, so it is reported here rather than",
+        "guessed onto a file. More tools or MCP servers make this block, and this line, bigger.",
+        "",
+    ]
+
+
 def explain_total(analysis: SessionAnalysis) -> Trace:
     """Explain the session total — the figure a reader challenges first."""
     reconciliation = analysis.reconciliation
@@ -109,6 +148,7 @@ def explain_total(analysis: SessionAnalysis) -> Trace:
             f"({format_share(reconciliation.unattributed_share)}) could not be attributed."
         ),
         "",
+        *_remainder_lines(analysis),
         f"Rates: {analysis.pricing.provenance}.",
         "This is an estimate of API-equivalent cost. It is not a bill.",
     ]
