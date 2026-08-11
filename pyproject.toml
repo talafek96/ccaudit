@@ -23,6 +23,8 @@ dev = [
 [tool.ruff]
 line-length = 100
 src = ["src", "tests"]
+# Vendored agent tooling, not project code — linted upstream, not here.
+extend-exclude = [".claude", ".specify"]
 
 [tool.mypy]
 files = ["src", "tests"]
