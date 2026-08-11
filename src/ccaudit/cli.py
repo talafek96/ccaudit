@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import sys
+import time
 from collections.abc import Sequence
 from pathlib import Path
 from typing import NoReturn
@@ -203,6 +204,17 @@ def _add_analysis_options(parser: argparse.ArgumentParser) -> None:
         "--top", type=int, default=20, help="Item rows to show; cost is never hidden."
     )
     parser.add_argument("--json", action="store_true", help="Machine-readable output.")
+    parser.add_argument(
+        "--watch",
+        action="store_true",
+        help="Redraw as the session progresses. Exits on interrupt or when the session ends.",
+    )
+    parser.add_argument(
+        "--interval",
+        type=float,
+        default=2.0,
+        help="Seconds between coverage checks while watching.",
+    )
     parser.add_argument("--redact", action="store_true", help="Obscure paths, keep the structure.")
 
 
@@ -342,6 +354,8 @@ def _analyse_selection(args: argparse.Namespace) -> tuple[list[SessionAnalysis],
 
 
 def _run_analyse(args: argparse.Namespace) -> int:
+    if getattr(args, "watch", False):
+        return _run_watch(args)
     analyses, excluded = _analyse_selection(args)
     payload = build_report_data(
         analyses,
@@ -406,6 +420,43 @@ def _run_process_queue() -> int:
     finally:
         release_worker_lock()
     return EXIT_OK
+
+
+def _run_watch(args: argparse.Namespace) -> int:
+    """Re-analyse and redraw as a session progresses, without the user re-invoking (FR-068).
+
+    Polls the **coverage fingerprint**, not a timer, and redraws only when it actually changes
+    — acting on observed state rather than on sleeps is the constitution's rule (Principle VI),
+    and it also means a quiet session costs nothing but a stat call.
+    """
+    if args.json:
+        raise UsageError("--watch redraws a terminal view; it cannot be combined with --json.")
+
+    console = build_console()
+    seen: str | None = None
+    try:
+        while True:
+            refs = select_sessions(args)
+            coverage = "|".join(f"{ref.session_id}:{ref.fingerprint}" for ref in refs)
+            if coverage != seen:
+                seen = coverage
+                analyses, excluded = _analyse_selection(args)
+                payload = build_report_data(
+                    analyses,
+                    redact=args.redact,
+                    sessions_excluded_count=excluded,
+                    group_by=args.group_by,
+                )
+                console.clear()
+                render_report(payload, console=console, top=args.top)
+                console.print("\n[watching — press Ctrl-C to stop]")
+            if not any(ref.in_progress for ref in refs):
+                console.print("\nThe session has ended; this result is final.")
+                return EXIT_OK
+            time.sleep(args.interval)
+    except KeyboardInterrupt:
+        console.print("\nStopped watching.")
+        return EXIT_OK
 
 
 def _run_sessions(args: argparse.Namespace) -> int:
