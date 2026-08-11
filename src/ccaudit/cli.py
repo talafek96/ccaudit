@@ -52,6 +52,7 @@ from ccaudit.model.policy import DEFAULT_POLICY, POLICIES
 # Raised in the model layer, where the invariant lives; re-exported here because this is where
 # it becomes exit code 3 (Principle I, Principle X, SC-001).
 from ccaudit.model.reconcile import ReconciliationError
+from ccaudit.notebook import DEFAULT_NOTEBOOK, write_notebook
 from ccaudit.render.data import (
     DEFAULT_GROUPING,
     DEFAULT_SORT,
@@ -186,6 +187,24 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_analysis_options(report_parser)
 
+    notebook_parser = subparsers.add_parser(
+        "notebook",
+        help="Write a marimo notebook for exploring the data interactively.",
+        description=(
+            "Writes a marimo notebook — a plain Python file — that explores this data "
+            "interactively. ccaudit does not depend on marimo: the notebook declares what it "
+            "needs inline, so `uvx marimo edit --sandbox <file>` builds a throwaway "
+            "environment for it and installs nothing on your machine. Its cells call ccaudit "
+            "for every figure, so the notebook and the terminal cannot disagree."
+        ),
+    )
+    notebook_parser.add_argument(
+        "--out",
+        type=Path,
+        default=DEFAULT_NOTEBOOK,
+        help="Where to write the notebook.",
+    )
+
     explain_parser = subparsers.add_parser(
         "explain",
         help="Show how one figure was derived, down to the records that produced it.",
@@ -310,6 +329,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_footprint(args)
         if args.command == "report":
             return _run_report(args)
+        if args.command == "notebook":
+            return _run_notebook(args)
         if args.command == "explain":
             return _run_explain(args)
         # Everything else — including the bare, zero-argument invocation — is an analysis.
@@ -748,6 +769,23 @@ def _run_report(args: argparse.Namespace) -> int:
         )
     if args.open_report:
         webbrowser.open(path.resolve().as_uri())
+    return EXIT_OK
+
+
+def _run_notebook(args: argparse.Namespace) -> int:
+    """Write the notebook and say how to run it. Analyses nothing — the notebook does that."""
+    path = write_notebook(args.out)
+    console = build_console()
+    console.print(f"Wrote {path}")
+    console.print(
+        f"Run it with:  uvx marimo edit --sandbox {path}\n"
+        f"It installs marimo into a throwaway environment for that file only — ccaudit itself "
+        f"gains no dependency, and neither does your machine."
+    )
+    console.print(
+        "Its cells call ccaudit for every figure, so the notebook cannot show a number the "
+        "terminal would not."
+    )
     return EXIT_OK
 
 

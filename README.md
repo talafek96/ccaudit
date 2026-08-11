@@ -48,6 +48,7 @@ ccaudit --sort carry       # what's expensive because it's being carried
 ccaudit explain <figure>   # how one number was derived, down to the records
 ccaudit report --redact    # one self-contained HTML file, safe to share
 ccaudit ui                 # explore in a browser; leaves nothing running
+ccaudit notebook           # write a marimo notebook for open-ended exploration
 ccaudit --watch            # live, while the session is still going
 ```
 

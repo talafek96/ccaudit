@@ -8,6 +8,16 @@ dependencies = [
     "rich>=13.7",
 ]
 
+# Convenience only. `ccaudit notebook` writes a notebook that declares its own dependencies
+# inline (PEP 723), so `uvx marimo edit --sandbox <file>` needs none of this — the extra exists
+# for someone who would rather have marimo installed than sandboxed.
+[project.optional-dependencies]
+notebook = [
+    "marimo>=0.9",
+    "altair>=5",
+    "pandas>=2",
+]
+
 [project.scripts]
 ccaudit = "ccaudit.cli:main"
 
