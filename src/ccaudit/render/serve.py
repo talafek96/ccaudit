@@ -157,14 +157,26 @@ def _controls(sessions: Sequence[SessionRef], selection: Selection) -> str:
         [
             '<nav class="ui-controls" aria-label="Explore this session">',
             '<form method="get" action="/" class="ui-form">',
-            f'<fieldset class="ui-sessions"><legend>Sessions</legend>{options}</fieldset>',
+            (
+                f'<fieldset class="ui-sessions"><legend>Sessions in this analysis</legend>'
+                f'<p class="meta">Tick a session to add it to the aggregation, untick it to '
+                f"take it out. Every figure on the page is recomputed for the selection you "
+                f"leave — the totals always describe exactly the sessions ticked here.</p>"
+                f'<p class="ui-row js-only ui-bulk">'
+                f'<button type="button" id="ui-all">Select all</button>'
+                f'<button type="button" id="ui-none">Select none</button>'
+                f'<span id="ui-selected" class="meta"></span></p>'
+                f"{options}</fieldset>"
+            ),
             '<p class="ui-row">',
             f'<label>Group by <select name="by">{groupings}</select></label>',
             (
                 '<label><input type="checkbox" name="redact" value="1"'
                 f"{' checked' if selection.redact else ''}> Redact paths</label>"
             ),
-            '<button type="submit">Apply</button>',
+            # Kept even when scripting is on: it is the control that says a selection is a
+            # navigation, and the script only saves the click, it does not replace the button.
+            '<button type="submit" id="ui-apply">Apply</button>',
             "</p>",
             "</form>",
             '<p class="ui-row js-only">',

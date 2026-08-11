@@ -283,6 +283,10 @@ def build_report_data(
         "turns": _turns(ordered),
         "residency": residency,
         "comparison": _comparison(rollups, totals["cost_micros"]),
+        # Per session, so a multi-session selection can be read as "which sessions cost what"
+        # rather than only as one merged total. Empty for a single session, where the section
+        # would restate the headline.
+        "sessions": _sessions(ordered, totals["cost_micros"]),
         "diagnostics": {
             "unparseable_records": sum(a.parsed.unparseable_count for a in analyses),
             # Anchor reconciliation is parsed (ingest/anchors.py) but not yet wired into
@@ -952,6 +956,48 @@ def _emit(node: _TreeNode, total_micros: int) -> dict[str, Any]:
 
 def _join(parent_path: str, name: str) -> str:
     return f"{parent_path}{name}" if parent_path == TREE_ROOT_PATH else f"{parent_path}/{name}"
+
+
+def _sessions(
+    ordered: Sequence[tuple[ReportInput, int]], total_micros: int
+) -> list[dict[str, Any]]:
+    """One row per session in the selection: what it cost, and why it cost that.
+
+    The split into loading and keeping is carried per session because it is the finding that
+    differs between them — a short session that read a lot and a long one that held a little
+    can reach the same total for opposite reasons, and the fix for each is the opposite too.
+
+    Ordered by cost so the chart built from it ranks without the renderer having to sort, and
+    so two runs over the same selection draw the same picture (FR-017).
+    """
+    rows: list[dict[str, Any]] = []
+    for analysis, _offset in ordered:
+        direct = sum(
+            row.cost_micros
+            for row in analysis.attribution.attributions
+            if row.component == "direct"
+        )
+        carry = sum(
+            row.cost_micros for row in analysis.attribution.attributions if row.component == "carry"
+        )
+        cost = analysis.reconciliation.total_micros
+        rows.append(
+            {
+                "session_id": analysis.session_id,
+                "cost_micros": cost,
+                "direct_micros": direct,
+                "carry_micros": carry,
+                # Whatever is neither: output, the conversation itself, and the remainder. Named
+                # so the three parts add to the session total and the bar can be read as a whole.
+                "other_micros": cost - direct - carry,
+                "turns": len(analysis.timeline.turns),
+                "share": _share(cost, total_micros),
+                "provisional": analysis.provisional,
+                "display_sig_figs": sig_figs_for(TOTALS_CONFIDENCE),
+            }
+        )
+    rows.sort(key=lambda row: (-row["cost_micros"], row["session_id"]))
+    return rows
 
 
 def _comparison(rollups: Sequence[_ItemRollup], total_micros: int) -> dict[str, Any]:

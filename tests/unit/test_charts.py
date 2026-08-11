@@ -18,6 +18,7 @@ import pytest
 
 from ccaudit.config.components import ATTRIBUTION_COMPONENTS, CHARGE_COMPONENTS, sig_figs_for
 from ccaudit.model.reconcile import UNATTRIBUTED_DISPLAY
+from ccaudit.money import format_micros
 from ccaudit.render.charts import (
     SERIES_SLOT_COUNT,
     UNATTRIBUTED_SWATCH,
@@ -31,6 +32,7 @@ from ccaudit.render.charts import (
 )
 from ccaudit.render.charts.bars import composition_bar, cumulative_sparkline, stacked_bars
 from ccaudit.render.charts.hierarchy import icicle
+from ccaudit.render.charts.scatter import _cause, _money_ticks, cause_scatter, session_bars
 from ccaudit.render.charts.timeline import (
     LABEL_GUTTER,
     MAX_SPANS,
@@ -39,6 +41,8 @@ from ccaudit.render.charts.timeline import (
     residency_timeline,
 )
 
+TAGS = re.compile(r"<[^>]+>")
+SVG_TITLE = re.compile(r"<title>(.*?)</title>", re.DOTALL)
 RECT = re.compile(r'<rect class="slice[^"]*"[^>]*?width="(\d+)"')
 NODE = re.compile(r'<rect class="node(?: [^"]*)?" x="(\d+)" y="(\d+)" width="(\d+)"')
 
@@ -610,3 +614,111 @@ class TestLabelsStayIdentifiable:
     def test_an_untruncated_label_needs_no_tooltip(self) -> None:
         """A tooltip repeating what is already on screen is noise, not help."""
         assert "<title>" not in row_label(x=0, y=0, text="a.py", title="a.py")
+
+
+class TestCausePlot:
+    """The plot that carries the project's claim, so its distortions must be declared.
+
+    A log axis is a real distortion — a step is a multiplication — and one that is not stated is
+    a way to make any shape look like any other. These tests pin that it is stated, that the
+    ticks carry real values rather than log positions, and that nothing is dropped in silence.
+    """
+
+    @pytest.fixture
+    def plot(self) -> str:
+        return cause_scatter(report_payload()["items"])
+
+    def test_every_priced_item_gets_a_point(self, plot: str) -> None:
+        priced = [item for item in report_payload()["items"] if item["total_micros"] > 0]
+        assert plot.count('class="point') == len(priced)
+
+    def test_it_says_the_axes_are_logarithmic(self, plot: str) -> None:
+        prose = " ".join(TAGS.sub(" ", plot).split())
+        assert "logarithmic" in prose
+        assert "multiplication rather than an addition" in prose
+
+    def test_the_ticks_carry_real_values_not_log_positions(self, plot: str) -> None:
+        """A reader must never have to undo a scale in their head."""
+        assert "$" in TAGS.sub(" ", plot)
+
+    def test_no_axis_label_is_repeated(self) -> None:
+        """Ticks below a cent all render as '<$0.01'; four identical labels say nothing."""
+        labels = _money_ticks(1, 50_000_000)
+        rendered = [format_micros(value, 2) for value in labels]
+        assert len(rendered) == len(set(rendered))
+
+    def test_each_point_carries_its_figure_and_share(self, plot: str) -> None:
+        for title in SVG_TITLE.findall(plot):
+            if "—" in title:
+                assert "%" in title, title
+
+    def test_the_fill_is_explained_in_words(self, plot: str) -> None:
+        """Colour never carries a distinction alone (FR-042)."""
+        prose = " ".join(TAGS.sub(" ", plot).split())
+        assert "Mostly the keeping" in prose
+        assert "Mostly the loading" in prose
+
+    def test_an_item_held_a_long_time_reads_as_the_keeping(self) -> None:
+        held = {"total_micros": 100, "carry_micros": 95}
+        assert _cause(held)[1] == "mostly the keeping"
+
+    def test_an_item_read_repeatedly_reads_as_the_loading(self) -> None:
+        loaded = {"total_micros": 100, "carry_micros": 5}
+        assert _cause(loaded)[1] == "mostly the loading"
+
+    def test_a_truncated_plot_says_what_it_left_out(self) -> None:
+        items = report_payload()["items"]
+        many = [
+            dict(item, item_id=f"{item['item_id']}-{index}")
+            for index in range(200)
+            for item in items
+        ]
+        prose = " ".join(TAGS.sub(" ", cause_scatter(many)).split())
+        assert "not plotted" in prose
+        assert "in every total on this page" in prose
+
+    def test_an_empty_selection_is_named_as_missing_rather_than_faked(self) -> None:
+        assert "Not yet available" in cause_scatter([])
+
+
+class TestSessionBars:
+    def test_a_single_session_draws_nothing(self) -> None:
+        """It would restate the headline as a picture of one bar."""
+        assert session_bars([_session_row("only", 100)]) == ""
+
+    def test_each_bar_partitions_its_own_session_total(self) -> None:
+        """The three segments are the session total, so the bar reads as a whole."""
+        rows = [_session_row("a", 900), _session_row("b", 300)]
+        for row in rows:
+            assert (
+                row["direct_micros"] + row["carry_micros"] + row["other_micros"]
+                == (row["cost_micros"])
+            )
+        assert session_bars(rows)
+
+    def test_every_row_pairs_its_figure_with_a_share(self) -> None:
+        chart = session_bars([_session_row("a", 900), _session_row("b", 300)])
+        for line in TAGS.sub("\n", chart).splitlines():
+            if "$" in line:
+                assert "%" in line, line
+
+    def test_the_full_session_id_is_a_hover_away(self) -> None:
+        """The label is truncated to eight characters; the id must not be lost."""
+        chart = session_bars([_session_row("abcdef0123456789", 900), _session_row("b", 300)])
+        assert "abcdef0123456789" in chart
+
+
+def _session_row(session_id: str, cost: int) -> dict:
+    direct = cost // 10
+    carry = cost // 2
+    return {
+        "session_id": session_id,
+        "cost_micros": cost,
+        "direct_micros": direct,
+        "carry_micros": carry,
+        "other_micros": cost - direct - carry,
+        "turns": 12,
+        "share": 0.5,
+        "provisional": False,
+        "display_sig_figs": 6,
+    }

@@ -44,6 +44,7 @@ from ccaudit.render.charts import (
 )
 from ccaudit.render.charts.bars import composition_bar, cumulative_sparkline, stacked_bars
 from ccaudit.render.charts.hierarchy import icicle
+from ccaudit.render.charts.scatter import cause_scatter, session_bars
 from ccaudit.render.charts.timeline import residency_timeline
 from ccaudit.render.data import (
     forced_reload_micros,
@@ -109,6 +110,8 @@ def render_report_html(data: Mapping[str, Any]) -> str:
             _headline(data),
             _components_section(data),
             _items_section(data),
+            _cause_section(data),
+            _sessions_section(data),
             _hierarchy_section(data),
             _residency_section(data),
             _accumulation_section(data),
@@ -398,6 +401,24 @@ def _items_section(data: Mapping[str, Any]) -> str:
             _cacheability(shown),
         ]
     )
+
+
+def _cause_section(data: Mapping[str, Any]) -> str:
+    """The plot that shows why a read counter names the wrong files."""
+    return (
+        "<h2>Cost against read count</h2>"
+        '<p class="lede">Two files can cost the same for opposite reasons. Ranking by cost and '
+        "ranking by how often something was read do not produce the same list, and this is "
+        "where that becomes visible rather than merely stated.</p>" + cause_scatter(data["items"])
+    )
+
+
+def _sessions_section(data: Mapping[str, Any]) -> str:
+    """Per-session bars — only where there is more than one session to compare."""
+    chart = session_bars(data.get("sessions", ()))
+    if not chart:
+        return ""
+    return "<h2>Session by session</h2>" + chart
 
 
 def _items_table(

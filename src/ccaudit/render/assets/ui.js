@@ -108,4 +108,63 @@
       if (form) form.submit();
     });
   }
+
+  // Session selection. Ticking a box changes which sessions are aggregated, and the figures
+  // for a new selection are computed *by the server*, in Python, by the same code the terminal
+  // uses. This handler therefore does exactly one thing: submit the form. It does not add up
+  // per-session figures in the browser, which would be a second implementation of the
+  // arithmetic and could disagree with the first.
+  var form = document.querySelector("form.ui-form");
+  var boxes = Array.prototype.slice.call(
+    document.querySelectorAll('.ui-sessions input[name="session"]')
+  );
+  var selectedCount = document.getElementById("ui-selected");
+
+  function describeSelection() {
+    if (!selectedCount) return;
+    var chosen = boxes.filter(function (box) { return box.checked; }).length;
+    selectedCount.textContent = chosen === boxes.length
+      ? "all " + boxes.length + " sessions selected"
+      : chosen + " of " + boxes.length + " sessions selected";
+  }
+
+  function setAll(checked) {
+    boxes.forEach(function (box) { box.checked = checked; });
+    describeSelection();
+  }
+
+  if (form && boxes.length) {
+    describeSelection();
+    boxes.forEach(function (box) {
+      box.addEventListener("change", function () {
+        describeSelection();
+        // Unticking the last box would ask the server for an empty selection, which is not a
+        // question it can answer. The box springs back and says so rather than navigating to
+        // an error page.
+        if (!boxes.some(function (other) { return other.checked; })) {
+          box.checked = true;
+          describeSelection();
+          if (selectedCount) {
+            selectedCount.textContent = "at least one session has to stay selected";
+          }
+          return;
+        }
+        form.submit();
+      });
+    });
+    var all = document.getElementById("ui-all");
+    var none = document.getElementById("ui-none");
+    if (all) all.addEventListener("click", function () { setAll(true); form.submit(); });
+    if (none) {
+      // "Select none" leaves the first one ticked for the same reason as above: the smallest
+      // answerable selection is one session, not zero.
+      none.addEventListener("click", function () {
+        setAll(false);
+        if (boxes.length) boxes[0].checked = true;
+        describeSelection();
+        form.submit();
+      });
+    }
+  }
+
 })();

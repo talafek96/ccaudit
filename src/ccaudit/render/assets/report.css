@@ -296,6 +296,21 @@ p { margin: 0.5rem 0; }
 .mark:hover .slice,
 .mark:hover .node { stroke: var(--text-primary); stroke-width: 2; }
 
+/* Cause plot. Points overlap by nature — a fill alone would read as one blob — so each carries
+   a surface-coloured rim that separates it from its neighbours in both themes, and the fill is
+   translucent enough that a dense cluster reads as dense rather than as one large point. */
+.point {
+  fill-opacity: 0.62;
+  stroke: var(--surface-1);
+  stroke-width: 1.5;
+}
+
+.mark:hover .point {
+  fill-opacity: 0.95;
+  stroke: var(--text-primary);
+  stroke-width: 2;
+}
+
 .legend {
   list-style: none;
   margin: 0.75rem 0 0;
