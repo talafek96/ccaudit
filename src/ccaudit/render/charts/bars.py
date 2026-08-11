@@ -150,6 +150,19 @@ def composition_bar(
     return figure(chart_id=chart_id, title=title, svg=svg, legend=legend_list(slices), note=note)
 
 
+def _segment_title(label: str, part: Slice, *, single: bool) -> str:
+    """What one segment of a row is, and what it cost.
+
+    A row with one segment *is* that segment, so naming it twice produces "100 other items —
+    see table — other items — see table: $200". The component name earns its place only where
+    the bar is actually divided into components.
+    """
+    figure_text = money_share_text(part.micros, part.share, part.sig_figs)
+    if single or part.label == label:
+        return f"{label}: {figure_text}"
+    return f"{label} — {part.label}: {figure_text}"
+
+
 def _cut_mark(*, x: int, y: int) -> str:
     """A broken-axis mark: this bar is longer than the scale, and its length is not to be read."""
     top, bottom = y, y + ROW_BAR_HEIGHT
@@ -230,10 +243,7 @@ def stacked_bars(
                         height=ROW_BAR_HEIGHT,
                         fill=swatch_fill(chart_id, part.swatch),
                         css_class="slice",
-                        title=(
-                            f"{label} — {part.label}: "
-                            f"{money_share_text(part.micros, part.share, part.sig_figs)}"
-                        ),
+                        title=_segment_title(label, part, single=len(parts) == 1),
                         extra=f'data-label="{escape(part.label)}"',
                     )
                 )

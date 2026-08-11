@@ -771,3 +771,28 @@ class TestNothingCollides:
 
     def test_the_columns_account_for_the_whole_chart(self) -> None:
         assert ROW_LABEL_GUTTER + ROW_BAR_WIDTH + VALUE_GUTTER == CHART_WIDTH
+
+
+class TestTooltipsReadLikeSentences:
+    def test_a_single_segment_row_is_not_named_twice(self) -> None:
+        """ "100 other items — see table — other items — see table: $200" was the real output.
+
+        A row with one segment *is* that segment, so the component name has nothing to add;
+        it earns its place only where the bar is actually divided.
+        """
+        rows = [("100 other items — see table", slices(200, total=200))]
+        chart = stacked_bars(
+            chart_id="t", title="t", rows=rows, legend=(), total_micros=200, ranked=0
+        )
+        for title in SVG_TITLE.findall(chart):
+            assert title.count("other items") <= 1, title
+
+    def test_a_divided_row_still_names_its_parts(self) -> None:
+        """The other half: where a bar has components, the tooltip must say which one."""
+        rows = [("spec.md", slices(70, 30, total=100))]
+        chart = stacked_bars(
+            chart_id="t", title="t", rows=rows, legend=(), total_micros=100, ranked=1
+        )
+        titles = SVG_TITLE.findall(chart)
+        assert any("part 0" in t for t in titles), titles
+        assert all(t.startswith("spec.md") for t in titles), titles

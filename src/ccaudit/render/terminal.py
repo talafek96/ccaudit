@@ -300,9 +300,16 @@ def _render_items(
         f"Every row above plus '{UNATTRIBUTED_DISPLAY}' ({_UNATTRIBUTED_NOTE}) adds up to the "
         f"total. Nothing is dropped or spread around."
     )
-    # What these rows *are*, and how to ask for different ones. The tool has grouped by folder,
-    # extension, and category since the first release and said so nowhere but `--help`, so the
-    # question "how do I see this by folder?" had no answer on the surface that raises it.
+    # What these rows *are*, and how to ask for different ones. Every option named here has
+    # worked since the first release and was reachable only from `--help`, so "how do I see
+    # this by folder?" and "how do I see the rows it hid?" had no answer on the surface that
+    # raises them. A truncation line that cannot say how to un-truncate itself is a dead end.
+    if omitted:
+        console.print(
+            f"{len(omitted)} item row(s) are summed into one line above rather than listed. "
+            f"Show more of them with --top {len(shown) + len(omitted)} (currently "
+            f"{len(shown)})."
+        )
     console.print(
         f"Rows are grouped by {data['group_by']}. Group them differently with "
         f"--by {{{','.join(GROUPINGS)}}}, and rank them differently with "
