@@ -1,5 +1,8 @@
 -- ccaudit store schema, version 1.
 --
+-- v1 is corrected in place rather than migrated: no released build has ever written this
+-- database, so there is no store on disk for a migration to carry forward.
+--
 -- Derived from specs/001-per-file-cost-attribution/data-model.md. The spine of the model is
 -- the split between Charge (observed, never adjusted) and Attribution (derived, must sum back
 -- to the observed total). Constraints below encode the data-model invariants by their names
@@ -82,9 +85,14 @@ CREATE TABLE IF NOT EXISTS injection (
     injection_id TEXT PRIMARY KEY,
     turn_id      TEXT NOT NULL REFERENCES turn (turn_id) ON DELETE CASCADE,
     item_id      TEXT NOT NULL REFERENCES context_item (item_id) ON DELETE CASCADE,
+    -- Must stay in sync with ccaudit.model.residency — INJECTION_CAUSES plus the attachment
+    -- types in _INSTRUCTION_ATTACHMENTS, which are emitted as causes verbatim. That is where
+    -- 'agent_listing_delta' comes from. A cause the model emits but this list omits is a
+    -- failed write, not a caught error.
     cause        TEXT NOT NULL CHECK (cause IN (
                      'tool_result', 'attachment', 'skill_listing', 'deferred_tools_delta',
-                     'at_mention', 'session_start', 'compact_reinjection')),
+                     'agent_listing_delta', 'at_mention', 'session_start',
+                     'compact_reinjection')),
     tool_use_id  TEXT,
     size_tokens  INTEGER NOT NULL CHECK (size_tokens >= 0)
 );
@@ -100,11 +108,13 @@ CREATE TABLE IF NOT EXISTS residency_span (
     injection_id TEXT NOT NULL REFERENCES injection (injection_id) ON DELETE CASCADE,
     item_id      TEXT NOT NULL REFERENCES context_item (item_id) ON DELETE CASCADE,
     first_turn   INTEGER NOT NULL CHECK (first_turn >= 0),
+    -- NULL `last_turn` means the item was still resident when the records ran out, which is
+    -- compatible with a stated reason: 'session_end' *is* why such a span closed. The two
+    -- columns are therefore independent — pairing them would force a wrong last turn onto
+    -- every item that survived to the end of the session.
     last_turn    INTEGER CHECK (last_turn IS NULL OR last_turn >= first_turn),
     end_reason   TEXT CHECK (end_reason IS NULL OR end_reason IN (
-                     'evicted', 'invalidated', 'session_end', 'unknown')),
-    -- A span that has ended says why; an open span has neither a last turn nor a reason.
-    CHECK ((last_turn IS NULL) = (end_reason IS NULL))
+                     'evicted', 'invalidated', 'session_end', 'unknown'))
 );
 
 CREATE INDEX IF NOT EXISTS residency_span_by_item ON residency_span (item_id, first_turn);
@@ -154,14 +164,24 @@ CREATE TABLE IF NOT EXISTS attribution (
                    CHECK (target_kind IN ('item', 'invalidation_event', 'prompt',
                                           'unattributed')),
     target_id      TEXT,
-    component      TEXT NOT NULL
-                   CHECK (component IN ('direct', 'carry', 'overhead', 'output')),
+    -- NULL exactly for the unattributed remainder. The remainder is not a fifth component and
+    -- must never be one: a `GROUP BY component` that folded it into overhead would report a
+    -- confidently wrong figure, which is the failure this project exists to prevent. NULL
+    -- keeps it out of every component aggregate and visible only as its own target kind.
+    -- The component list must stay in sync with ccaudit.config.components (Principle IX).
+    component      TEXT CHECK (component IS NULL
+                              OR component IN ('direct', 'carry', 'overhead', 'output')),
     cost_micros    INTEGER NOT NULL,
     basis          TEXT NOT NULL CHECK (basis IN ('exact', 'measured', 'estimated')),
     confidence     TEXT NOT NULL CHECK (confidence IN ('high', 'medium', 'low')),
     source_refs    TEXT NOT NULL,
-    -- A target is named unless the row *is* the unattributed remainder.
-    CHECK ((target_kind = 'unattributed') = (target_id IS NULL)),
+    -- The remainder, and only the remainder, has no component.
+    CHECK ((target_kind = 'unattributed') = (component IS NULL)),
+    -- The remainder names no target either.
+    CHECK (NOT (target_kind = 'unattributed' AND target_id IS NOT NULL)),
+    -- A target that exists as a row must be named. 'prompt' is exempt: output and overhead
+    -- belong to the exchange itself, which is not an entity with an id (invariant A2).
+    CHECK (NOT (target_kind IN ('item', 'invalidation_event') AND target_id IS NULL)),
     -- Invariant A2: output is never charged to a context item (FR-005).
     CHECK (NOT (component = 'output' AND target_kind = 'item'))
 );
@@ -211,8 +231,11 @@ CREATE INDEX IF NOT EXISTS claim_by_expiry ON claim (expires_at);
 -- (FR-026, FR-027). Surfaced in the run summary.
 CREATE TABLE IF NOT EXISTS ingest_diagnostic (
     session_id TEXT NOT NULL REFERENCES session (session_id) ON DELETE CASCADE,
-    kind       TEXT NOT NULL CHECK (kind IN (
-                   'unparseable', 'unrecognised_version', 'anchor_mismatch')),
+    -- Deliberately unconstrained. Kinds are descriptive and are minted where the problem is
+    -- detected (ccaudit.ingest.records and ccaudit.ingest.dedup call `note(kind, sample)`).
+    -- A CHECK here would turn "we found a new kind of bad record" into a failed write and
+    -- lose the very thing the row exists to record.
+    kind       TEXT NOT NULL,
     count      INTEGER NOT NULL CHECK (count >= 0),
     sample     TEXT,
     PRIMARY KEY (session_id, kind)

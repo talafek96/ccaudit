@@ -62,7 +62,7 @@ def insert_attribution(
     confidence: str | None = "high",
     target_kind: str = "prompt",
     target_id: str | None = "p1",
-    component: str = "overhead",
+    component: str | None = "overhead",
 ) -> None:
     conn.execute(
         "INSERT INTO attribution (attribution_id, session_id, turn_id, target_kind, target_id, "
@@ -260,14 +260,59 @@ class TestAttributionProvenance:
         with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
             insert_attribution(conn, target_kind="item", target_id="i1", component="output")
 
-    def test_only_the_unattributed_remainder_may_have_no_target(
+    def test_the_remainder_has_neither_a_target_nor_a_component(
         self, conn: sqlite3.Connection
     ) -> None:
+        """CHANGED INVARIANT — reviewed and accepted 2026-08-11.
+
+        This test previously required a target on everything except the unattributed
+        remainder. That was wrong in two ways, and both showed up the first time a real
+        analysis was stored:
+
+        1. **`prompt` legitimately has no target.** Output and overhead are charged to the
+           exchange, never to a file — that is invariant A2 (FR-005), not an edge case. The old
+           CHECK forced the store to invent a stand-in target id, which would have made a
+           per-item query silently attribute conversation cost to something.
+        2. **The remainder is not a cost component.** It was being stored as `overhead`, so a
+           `GROUP BY component` folded "we could not attribute this" into "the conversation
+           itself" — precisely the quietly-wrong number Principle X exists to prevent.
+
+        The schema now pairs them: the remainder has no target *and* no component, and nothing
+        else may omit either. The rule is narrower and matches what the model layer actually
+        emits, rather than what the schema author assumed it would.
+        """
         with transaction(conn):
             insert_session(conn)
-            insert_attribution(conn, "a1", target_kind="unattributed", target_id=None)
-        with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
+            insert_attribution(
+                conn, "a1", target_kind="unattributed", target_id=None, component=None
+            )
+
+        # A prompt-targeted attribution with no target is now accepted, because output and
+        # overhead belong to the exchange.
+        with transaction(conn):
             insert_attribution(conn, "a2", target_kind="prompt", target_id=None)
+
+    def test_an_item_attribution_must_name_its_item(self, conn: sqlite3.Connection) -> None:
+        """The relaxation above must not have opened the door for items too."""
+        with transaction(conn):
+            insert_session(conn)
+        with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
+            insert_attribution(conn, "a3", target_kind="item", target_id=None, component="carry")
+
+    def test_the_remainder_may_not_carry_a_component(self, conn: sqlite3.Connection) -> None:
+        """Otherwise it hides inside a per-component breakdown."""
+        with transaction(conn):
+            insert_session(conn)
+        with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
+            insert_attribution(
+                conn, "a4", target_kind="unattributed", target_id=None, component="overhead"
+            )
+
+    def test_an_ordinary_attribution_must_carry_a_component(self, conn: sqlite3.Connection) -> None:
+        with transaction(conn):
+            insert_session(conn)
+        with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
+            insert_attribution(conn, "a5", target_kind="prompt", target_id=None, component=None)
 
 
 class TestClaim:
