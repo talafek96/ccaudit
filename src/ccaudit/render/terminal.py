@@ -180,6 +180,12 @@ def _render_components(console: Console, data: Mapping[str, Any], *, plain: bool
             _bar(component["share"]),
         )
     console.print(table)
+    # A section title alone does not tell a first-time reader what the four rows are, and
+    # this is the table that explains the whole bill.
+    console.print(
+        "The same total, split by what you were charged for rather than by which file caused "
+        "it. These four rows are the only ways a Claude Code session spends money."
+    )
     console.print()
 
 
@@ -261,6 +267,15 @@ def _render_items(
     console.print(
         f"Every row above plus '{UNATTRIBUTED_DISPLAY}' ({_UNATTRIBUTED_NOTE}) adds up to the "
         f"total. Nothing is dropped or spread around."
+    )
+    # The columns were legible to their author and to nobody else. A reader who has to guess
+    # what "3 / 420" means is reading a defect, not a table (Principle X: name things as they are).
+    console.print(
+        f"Columns: '{direct.plain_name}' is what you paid to put the item into context. "
+        f"'{carry.plain_name}' is what you paid on every later turn to keep it there — it is "
+        f"charged per turn, so it grows with size x turns, not with how often you read it. "
+        f"'Reads / turns' is how many times the item was read, then how many turns it stayed "
+        f"in context."
     )
     console.print()
     _render_cacheability(console, shown)

@@ -250,6 +250,39 @@ class TestAccessibility:
                 assert "%" in line, line
 
 
+class TestLegibility:
+    """A column a reader has to guess at is a defect (Principle X: name things as they are).
+
+    Every column heading here is a compression of something the reader has no way to expand
+    on their own — 'carry' is a term of art, and '3 / 420' is two unlabelled numbers. The
+    output has to say what they mean, in the output, without a manual.
+    """
+
+    @staticmethod
+    def prose(payload: dict, tty: bool) -> str:
+        """Rendered text with the console's line wrapping undone, so a sentence is one string."""
+        return " ".join(ANSI.sub("", render(payload, tty=tty)).split())
+
+    @pytest.mark.parametrize("tty", [False, True])
+    def test_the_component_table_says_what_its_rows_are(self, payload: dict, tty: bool) -> None:
+        assert "split by what you were charged for" in self.prose(payload, tty)
+
+    @pytest.mark.parametrize("tty", [False, True])
+    def test_carry_is_explained_as_charged_per_turn_not_per_read(
+        self, payload: dict, tty: bool
+    ) -> None:
+        """The single most misread figure: it grows with turns, not with read count."""
+        text = self.prose(payload, tty)
+        assert "on every later turn to keep it there" in text
+        assert "not with how often you read it" in text
+
+    @pytest.mark.parametrize("tty", [False, True])
+    def test_the_reads_over_turns_column_is_expanded(self, payload: dict, tty: bool) -> None:
+        text = self.prose(payload, tty)
+        assert "how many times the item was read" in text
+        assert "how many turns it stayed in context" in text
+
+
 class TestRefusal:
     def test_it_refuses_to_render_a_breakdown_that_does_not_add_up(self, payload: dict) -> None:
         payload["totals"]["unattributed_micros"] += 1
