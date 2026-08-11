@@ -61,6 +61,12 @@ file layout, which belongs in the plan. FR-055 (no persistent resident content) 
 (measure its own footprint) are the load-bearing ones: they encode the constraint that a
 cost-observability tool must not inflate the context it measures.
 
+**Release pipeline recorded as planned, not required** (2026-08-11, REL-001 to REL-007). Kept in
+its own numbering series and its own section, deliberately outside `## Requirements`, so it
+cannot be mistaken for v1 acceptance criteria: v1 ships from source, and publication happens only
+once the tool works. Separate numbering also keeps the "all functional requirements have clear
+acceptance criteria" check honest — deferred intent is not mixed in with what must be built.
+
 **Zero [NEEDS CLARIFICATION] markers, by design not by omission.** Every open question in the
 source description had a defensible default backed by the research in `docs/research/`, and each
 is recorded in Assumptions with its rationale rather than deferred. The two that came closest to

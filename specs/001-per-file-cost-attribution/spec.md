@@ -685,6 +685,16 @@ item's residency shortened.
 - Reports are shared deliberately and by hand. Path redaction is available but off by default,
   since the common case is local use where paths are the most useful identifier (FR-043).
 - Single-user, single-machine operation. No multi-user access control is required.
+- **The tool reads local session records; it never transmits them.** Publishing the tool
+  distributes its *source code* and nothing else — no user data is involved in distribution,
+  in either direction. The privacy requirements in this spec (FR-030, FR-043) exist for a
+  different reason: session records contain whatever file paths, commands, and source appeared
+  in the sessions that produced them, so on a work machine they may contain proprietary
+  material. That is why the tool never transmits anything and why redaction exists for shared
+  *reports* — not because distributing the tool could leak anything.
+- Development happens on a personal machine against personal sessions. Records containing
+  employer material only arise if the tool is later run on a work machine, which is precisely
+  the case FR-043 (path redaction for sharing) is there to cover.
 
 ## Dependencies
 
@@ -704,3 +714,34 @@ item's residency shortened.
 - Reporting true billed amounts, which are not available locally.
 - Registering persistent always-resident capabilities in the user's sessions (see Assumptions,
   *Invocation*).
+- Publishing to a public package index as part of v1 (see *Release & Distribution* below).
+
+## Release & Distribution *(planned — not in v1)*
+
+This section records the intended release path so the packaging work is designed for it from
+the start. **None of it is v1 scope, and none of it is implemented until the tool actually
+works and is properly implemented.** Publishing a half-built tool under a name people can
+install is worse than not publishing at all.
+
+### v1 distribution
+
+- **REL-001**: v1 is distributed from source — run from a clone, or installed directly from a
+  git reference. No package-index publication is required for the tool to be fully usable, and
+  FR-049 (runnable without a prior install step) is satisfied by the git path alone.
+
+### Planned release pipeline
+
+- **REL-002**: A dedicated release branch, `rel/stable`, is the sole publication trigger.
+  Pushing to it is the deliberate act of cutting a release; no other branch publishes.
+- **REL-003**: The pipeline MUST run the full verification suite — tests, linting, and type
+  checking — and MUST publish only if every check passes. A red build publishes nothing.
+- **REL-004**: Publication MUST authenticate via OIDC trusted publishing, so no long-lived
+  registry token exists to leak. No publishing credential is stored in the repository, in CI
+  secrets, or on a developer machine.
+- **REL-005**: Each published release MUST correspond to an identifiable commit, so an
+  installed artifact can be traced back to the source that produced it.
+- **REL-006**: Published documentation MUST show version-pinned invocation as the recommended
+  form, since an unpinned invocation resolves to whatever the latest published version is at
+  the moment it runs.
+- **REL-007**: The package name MUST be reserved on the index before first real publication, so
+  the name users are told to run cannot be occupied by anyone else.
