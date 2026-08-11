@@ -21,6 +21,10 @@ from ccaudit import __version__
 from ccaudit.config import ccaudit_home, load_pricing, resolve_pricing_path
 from ccaudit.config.refresh import DEFAULT_SOURCE_URL, RefreshError, refresh
 
+# Raised in the model layer, where the invariant lives; re-exported here because this is where
+# it becomes exit code 3 (Principle I, Principle X, SC-001).
+from ccaudit.model.reconcile import ReconciliationError
+
 # The exit-code contract from contracts/cli.md. These are part of the interface: a script that
 # branches on them must keep working, so they are named constants, not literals at call sites.
 EXIT_OK = 0
@@ -40,14 +44,6 @@ class UsageError(ValueError):
 
 class NoSessionsFound(LookupError):
     """The selection matched nothing analysable. Exits 2 — not an error, just empty."""
-
-
-class ReconciliationError(AssertionError):
-    """The breakdown does not add up. Exits 3.
-
-    A show-stopper, never a warning: the tool refuses to present the numbers rather than
-    print a total that its own parts contradict (Principle I, Principle X, SC-001).
-    """
 
 
 class DataError(RuntimeError):

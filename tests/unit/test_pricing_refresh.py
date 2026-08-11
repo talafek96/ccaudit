@@ -50,6 +50,13 @@ def source_payload(**overrides: dict[str, object]) -> dict[str, object]:
     return payload
 
 
+def set_rate(payload: dict[str, object], model: str, key: str, value: float) -> None:
+    """Adjust one rate in a source payload without reaching through an untyped index."""
+    entry = payload[model]
+    assert isinstance(entry, dict), f"{model} entry is not an object"
+    entry[key] = value
+
+
 def build(payload: dict[str, object], today: str = "2026-09-01") -> tuple[str, RefreshReport]:
     return build_table(payload, BUNDLED, source_name="test-source", today=today)
 
@@ -62,7 +69,7 @@ class TestBuildTable:
 
     def test_a_price_change_is_applied_and_named(self) -> None:
         payload = source_payload()
-        payload["claude-opus-5"]["input_cost_per_token"] = 6e-06  # type: ignore[index]
+        set_rate(payload, "claude-opus-5", "input_cost_per_token", 6e-06)
         text, report = build(payload)
         assert any("claude-opus-5" in line for line in report.updated)
         assert "input_usd_per_mtok = 6.0" in text
@@ -131,7 +138,7 @@ class TestBuildTable:
         """The multipliers are a documented API property. A source that disagrees is a
         finding for a human, not a number to silently overwrite the table with."""
         payload = source_payload()
-        payload["claude-opus-5"]["cache_read_input_token_cost"] = 1e-06  # type: ignore[index]
+        set_rate(payload, "claude-opus-5", "cache_read_input_token_cost", 1e-06)
         text, report = build(payload)
         assert any("cache read multiplier" in note for note in report.multiplier_notes)
         assert "read_multiplier = 0.1" in text
@@ -179,7 +186,7 @@ class TestRefreshCommand:
         refresh(destination=destination, source_file=source, today="2026-09-01")
 
         payload = source_payload()
-        payload["claude-opus-5"]["input_cost_per_token"] = 7e-06  # type: ignore[index]
+        set_rate(payload, "claude-opus-5", "input_cost_per_token", 7e-06)
         source.write_text(json.dumps(payload), encoding="utf-8")
         refresh(destination=destination, source_file=source, today="2026-09-02")
 
@@ -206,7 +213,7 @@ class TestRefreshCommand:
     def test_report_lines_name_what_changed(self, tmp_path: Path) -> None:
         source = tmp_path / "rates.json"
         payload = source_payload()
-        payload["claude-opus-5"]["input_cost_per_token"] = 6e-06  # type: ignore[index]
+        set_rate(payload, "claude-opus-5", "input_cost_per_token", 6e-06)
         source.write_text(json.dumps(payload), encoding="utf-8")
 
         report = refresh(destination=tmp_path / "p.toml", source_file=source, dry_run=True)
