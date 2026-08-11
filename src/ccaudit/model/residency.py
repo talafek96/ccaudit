@@ -19,6 +19,7 @@ resident item must therefore surface in the unattributed remainder rather than b
 across the items that happen to still be there (pass-2 §2.4, FR-013).
 """
 
+import posixpath
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 
@@ -213,6 +214,7 @@ def _apply_injection(
     identity, kind, cause = _identify(record)
     if identity is None:
         return
+    identity = absolute_identity(identity, kind, getattr(record, "cwd", None), project_path)
     sized = sizer(record)
     if sized.tokens is None or sized.tokens <= 0:
         # A withheld size (an image whose header we could not read) is not an item with a
@@ -327,6 +329,39 @@ def _tool_result_identity(record: ToolResultRecord) -> str | None:
             if isinstance(value, str) and value:
                 return value
     return None
+
+
+def absolute_identity(identity: str, kind: str, cwd: str | None, project_path: str | None) -> str:
+    """Resolve a relative file path against the directory the turn ran in.
+
+    A tool result names its file however the caller wrote it, so the *same file* arrives as
+    ``tests/unit/test_money.py`` in one turn and
+    ``/Users/me/projects/ccaudit/tests/unit/test_money.py`` in another. Left alone those are two
+    identities, so one file becomes two rows holding half its cost each, and neither appears
+    under its folder in the tree — which is how a project folder ends up understated.
+
+    ``cwd`` is recorded on every transcript record and is the *observed* base, not an assumed
+    one: it changes within a session, so resolving against the project path instead would be a
+    guess that is sometimes wrong. The project path is the fallback, and where neither is known
+    the path is left exactly as it was recorded rather than being rooted at "/" — inventing a
+    location is worse than admitting there is none (Principle X).
+
+    Only files are resolved. ``skill_listing`` and the tool-schema deltas are not paths.
+    """
+    if kind != "file" or _is_absolute(identity):
+        return identity
+    base = cwd or project_path
+    if not base:
+        return identity
+    # `PurePosixPath` cannot fold "..", and a transcript is full of them, so this goes through
+    # `posixpath.normpath` — lexical, which is right here: the file may no longer exist, and a
+    # figure must not depend on what happens to be on this disk today.
+    return posixpath.normpath(posixpath.join(base.replace("\\", "/"), identity.replace("\\", "/")))
+
+
+def _is_absolute(path: str) -> bool:
+    """POSIX roots, Windows drive letters, and UNC shares all count as already-located."""
+    return path.startswith(("/", "\\")) or (len(path) > 2 and path[1] == ":")
 
 
 def _item_id(identity: str, kind: str, project_path: str | None) -> str:

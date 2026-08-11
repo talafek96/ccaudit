@@ -66,6 +66,9 @@ ROW_LABEL_LIMIT = int((ROW_LABEL_GUTTER - COLUMN_GAP) / CHARACTER_WIDTH)
 # broken here", which is exactly what has happened.
 CUT_WIDTH = 12
 
+# Clearance between two tick labels before they read as one word.
+LABEL_SPACING = 8
+
 SPARK_HEIGHT = 170
 # Wide enough for a money figure and its share: the y-axis label is a figure like any
 # other, so it is paired with a share and must not be clipped to make room.
@@ -335,10 +338,19 @@ def cumulative_sparkline(
         marks.append(f'<path class="spark-area" d="{area}"></path>')
     marks.append(f'<path class="spark-line" d="{line}"></path>')
 
+    # Every compaction used to draw "compacted (turn 1116)" at the same height, so nine of them
+    # in one session overprinted into an unreadable smear that also hid the axis. The rule, the
+    # marker, and the tooltip carry the event; the label only has to say *which turn*, and only
+    # where there is room. The count of any it could not place goes in the note, so a skipped
+    # label is a stated omission rather than a silent one.
+    compactions = 0
+    labelled = 0
+    last_label_right = float("-inf")
     for x, y, turn, running_total in points:
         compaction = turn.get("compaction") or {}
         if not compaction.get("occurred"):
             continue
+        compactions += 1
         share = running_total / total_micros if total_micros else 0.0
         marks.append(
             f'<line class="spark-event" x1="{x}" y1="{SPARK_PAD_TOP}" x2="{x}" '
@@ -350,9 +362,12 @@ def cumulative_sparkline(
             f"<title>Turn {escape(str(turn['ordinal']))}: conversation compacted. Cost so far "
             f"{escape(money_share_text(running_total, share, sig_figs))}</title></g>"
         )
-        marks.append(
-            tick_label(x=round(x), y=SPARK_PAD_TOP - 4, text=f"compacted (turn {turn['ordinal']})")
-        )
+        label = f"turn {turn['ordinal']}"
+        half = len(label) * CHARACTER_WIDTH / 2
+        if x - half >= last_label_right + LABEL_SPACING:
+            marks.append(tick_label(x=round(x), y=SPARK_PAD_TOP - 4, text=label))
+            last_label_right = x + half
+            labelled += 1
 
     axis = "".join(
         [
@@ -386,4 +401,14 @@ def cumulative_sparkline(
             "</svg>",
         ]
     )
+    if compactions:
+        note = (
+            f"{note} {compactions} compaction(s) are marked. "
+            + (
+                f"{compactions - labelled} of the marks are too close together to label; hover "
+                f"any of them for its turn and the cost so far."
+                if labelled < compactions
+                else "Hover a mark for the cost so far."
+            )
+        ).strip()
     return figure(chart_id=chart_id, title=title, svg=svg, note=note)

@@ -560,7 +560,12 @@ class TestAccumulation:
         html = cumulative_sparkline(
             chart_id="a", title="t", turns=turns, total_micros=1_000, sig_figs=2
         )
-        assert "compacted (turn 2)" in html
+        # The event is marked, named, and explained — the invariant. The wording moved: nine
+        # copies of "compacted (turn N)" overprinted into a smear, so the label carries the
+        # turn, the note carries the word and the count, and the tooltip carries both.
+        assert "turn 2" in html
+        assert "compaction(s) are marked" in html
+        assert "conversation compacted" in html
         assert "spark-event" in html
 
     def test_turns_that_do_not_reach_the_total_are_refused(self) -> None:

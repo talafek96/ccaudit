@@ -185,6 +185,11 @@ class ToolResultRecord:
     # silently drops the single largest contributor to tool-result volume.
     content: Any = None
     text_length: int = 0
+    # The working directory the turn ran in. A tool result can name a file *relatively*
+    # ("tests/unit/test_money.py"), and without this there is nothing to resolve it against —
+    # so the same file read once by relative path and once absolutely becomes two items, each
+    # holding half its cost.
+    cwd: str | None = None
 
 
 @dataclass(frozen=True)
@@ -206,6 +211,8 @@ class AttachmentRecord:
     identity: str | None = None
     text_length: int = 0
     payload: dict[str, Any] = field(default_factory=dict)
+    # As on a tool result: an @-mention can name a file relatively too.
+    cwd: str | None = None
 
 
 @dataclass(frozen=True)
@@ -501,6 +508,7 @@ def _parse_user(record: dict[str, Any], line: int) -> ToolResultRecord | None:
         payload=payload,
         content=result_content,
         text_length=text_length,
+        cwd=_as_str(record.get("cwd")),
     )
 
 
@@ -523,6 +531,7 @@ def _parse_attachment(record: dict[str, Any], line: int) -> AttachmentRecord | N
         identity=_attachment_identity(attachment),
         text_length=_attachment_text_length(attachment),
         payload=attachment,
+        cwd=_as_str(record.get("cwd")),
     )
 
 

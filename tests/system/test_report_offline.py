@@ -212,7 +212,8 @@ class TestDegenerateInput:
             ],
         )
         html = render_report_html(payload)
-        assert "compacted (turn 2)" in html
+        assert "turn 2" in html
+        assert "compaction(s) are marked" in html
         assert "node--remainder" in html
         assert "still in context when the session ended" in html
 

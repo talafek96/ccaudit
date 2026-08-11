@@ -11,7 +11,7 @@ import pytest
 
 from ccaudit.ingest.records import AttachmentRecord, ToolResultRecord, parse_transcript
 from ccaudit.ingest.tokens import TokenQuantity
-from ccaudit.model.residency import Sizer, Timeline, build_timeline
+from ccaudit.model.residency import Sizer, Timeline, absolute_identity, build_timeline
 from tests.fixtures.builder import TranscriptBuilder
 
 
@@ -261,3 +261,47 @@ def test_an_unnamed_item_is_evicted(tmp_path: Path, preserved: list[str]) -> Non
     builder.add_turn(cache_read=100, output_tokens=10)
     timeline = timeline_from(builder, tmp_path)
     assert timeline.resident_at(2) == []
+
+
+class TestOneFileIsOneItem:
+    """A tool result names its file however the caller wrote it.
+
+    So the same file arrives as `tests/unit/test_money.py` in one turn and as
+    `/repo/tests/unit/test_money.py` in another. Left alone those are two identities: the file
+    becomes two rows holding half its cost each, neither appears under its folder in the tree,
+    and the project folder is understated by the difference. On a real corpus that was 25 items,
+    16 of them duplicates, and $13.59 missing from one project's subtotal.
+    """
+
+    def test_a_relative_path_resolves_against_the_recorded_cwd(self) -> None:
+        assert (
+            absolute_identity("tests/unit/test_money.py", "file", "/repo", None)
+            == "/repo/tests/unit/test_money.py"
+        )
+
+    def test_it_folds_parent_segments(self) -> None:
+        """Transcripts are full of `../`, and a path that keeps them matches nothing."""
+        assert absolute_identity("../other/x.py", "file", "/repo/pkg", None) == "/repo/other/x.py"
+
+    def test_an_absolute_path_is_left_alone(self) -> None:
+        assert absolute_identity("/repo/a.py", "file", "/elsewhere", None) == "/repo/a.py"
+
+    @pytest.mark.parametrize("path", ["C:\\repo\\a.py", "\\\\share\\a.py"])
+    def test_windows_paths_are_already_located(self, path: str) -> None:
+        assert absolute_identity(path, "file", "/repo", None) == path
+
+    def test_the_project_path_is_the_fallback(self) -> None:
+        assert absolute_identity("a.py", "file", None, "/repo") == "/repo/a.py"
+
+    def test_with_no_base_the_path_is_left_as_recorded(self) -> None:
+        """Rooting it at "/" would invent a location. Admitting there is none is the honest
+        answer, and it keeps the item out of the wrong folder's subtotal (Principle X)."""
+        assert absolute_identity("a.py", "file", None, None) == "a.py"
+
+    def test_only_files_are_resolved(self) -> None:
+        """`skill_listing` and the schema deltas are identities, not paths."""
+        assert absolute_identity("skill_listing", "skill", "/repo", None) == "skill_listing"
+
+    def test_the_cwd_wins_over_the_project_path(self) -> None:
+        """cwd is observed per record and moves within a session; the project path is a guess."""
+        assert absolute_identity("a.py", "file", "/cwd", "/project") == "/cwd/a.py"
