@@ -107,6 +107,7 @@ specs/001-per-file-cost-attribution/
 src/ccaudit/
 ├── __main__.py             # `python -m ccaudit`
 ├── cli.py                  # Argument parsing, zero-argument default, exit codes
+├── analyse.py              # The pipeline: parse → dedup → size → timeline → attribute → reconcile
 ├── money.py                # Integer micro-dollars: rates → cost, largest-remainder, sig figs
 ├── config/
 │   ├── __init__.py         # Loader; the single authoritative registry (Principle IX)
@@ -150,11 +151,17 @@ tests/
 **Structure Decision**: Single Python package, four layers in dependency order —
 `config` → `ingest` → `model` → `render`, with `store` beside `model`. The layering is the point:
 `ingest` produces facts, `model` produces attributions, `render` produces surfaces, and nothing
-reaches backward. `money.py` sits outside the layering on purpose: it is a leaf primitive with no
-imports of its own, and all three of `config` (rates to cost), `model` (largest-remainder splits),
-and `render` (significant figures at the presentation edge) depend on it. Placing it inside any one
-layer would force the other two to reach sideways or duplicate it — and duplicated money arithmetic
-is precisely how Invariant A1 breaks. The three presentation surfaces share one data contract
+reaches backward.
+
+Two modules sit outside the layering, at opposite ends of it, and both do so deliberately.
+`money.py` is a **leaf**: no imports of its own, depended on by `config` (rates to cost), `model`
+(largest-remainder splits), and `render` (significant figures at the presentation edge). Placing it
+inside any one layer would force the other two to reach sideways or duplicate it — and duplicated
+money arithmetic is precisely how Invariant A1 breaks. `analyse.py` is the **composition root**: it
+runs parse → dedup → size → timeline → attribute → reconcile in order. Something has to join the
+layers, and putting the join inside any one of them would invert a dependency. It is also the
+seam the component tests exercise, since what they test is the composition rather than any single
+stage. The three presentation surfaces share one data contract
 (`contracts/report-data.md`) and the same SVG chart code, so the interactive UI and the shareable
 report differ only in whether data is inlined or fetched — which is what keeps FR-074 (every
 figure obtainable from the terminal) cheap to honour instead of a second implementation.

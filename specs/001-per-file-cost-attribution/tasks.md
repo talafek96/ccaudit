@@ -56,7 +56,7 @@ turns transcripts into facts. Every user story consumes these.
 - [X] T007 [P] Create `src/ccaudit/config/categories.py` — file-category rules mapping a path to `docs | source | spec | skill | schema | other`
 - [X] T008 Create `src/ccaudit/config/__init__.py` — the loader: parse the table once, resolve it `$CCAUDIT_PRICING` → `$CCAUDIT_HOME/pricing.toml` → bundled seed (FR-099), and **raise** on an unknown model or a missing threshold rather than defaulting (Principle I, research §7)
 - [X] T008a Create `src/ccaudit/config/refresh.py` — `ccaudit pricing refresh`: fetch a public rate table, **merge** it onto the current one, and write to `$CCAUDIT_HOME` so the result survives upgrades (FR-099, FR-100). Preserves hand-verified thresholds, keeps models the source omits, and reports multiplier divergence rather than applying it (FR-101, FR-102)
-- [ ] T008b Implement the `pricing` command in `src/ccaudit/cli.py` — `pricing show` (which table, which rates, how old) and `pricing refresh [--source-url URL | --from FILE] [--dry-run]`, printing the full change report
+- [X] T008b Implement the `pricing` command in `src/ccaudit/cli.py` — `pricing show` (which table, which rates, how old) and `pricing refresh [--source-url URL | --from FILE] [--dry-run]`, printing the full change report
 - [X] T009 [P] Unit-test the config registry in `tests/unit/test_config.py` — unknown model raises, thresholds are read per model and never derived from ordering, plain names have exactly one definition site
 - [X] T009a [P] Unit-test the refresh in `tests/unit/test_pricing_refresh.py` — a new model arrives without a threshold and raises on use; existing thresholds and omitted models survive; an empty source refuses to overwrite a working table. No test in this file touches the network
 - [X] T010 Create `src/ccaudit/money.py` — integer micro-dollars: `cost_micros(tokens, rate, multiplier)`, largest-remainder allocation across a resident set, and confidence-driven significant-figure formatting for the presentation edge (research §8, FR-095)
@@ -64,32 +64,32 @@ turns transcripts into facts. Every user story consumes these.
 
 ### Store
 
-- [ ] T012 Create `src/ccaudit/store/schema.sql` — tables for Session, Turn, Charge, ContextItem, Injection, ResidencySpan, CacheLane, InvalidationEvent, Attribution, AnalysisResult, Claim, IngestDiagnostic, with `UNIQUE(message_id, request_id)` and `UNIQUE(session_id, fingerprint, policy)` per data-model invariants F2/K1
-- [ ] T013 Create `src/ccaudit/store/db.py` — connection with WAL, schema creation on demand under `CCAUDIT_HOME`, migration hook, and a single-transaction write context (invariant K2)
-- [ ] T014 [P] Unit-test the store in `tests/unit/test_store_db.py` — state directory created on first use with no setup step (FR-050), dedup and result uniqueness constraints enforced, a failed transaction leaves nothing readable
+- [X] T012 Create `src/ccaudit/store/schema.sql` — tables for Session, Turn, Charge, ContextItem, Injection, ResidencySpan, CacheLane, InvalidationEvent, Attribution, AnalysisResult, Claim, IngestDiagnostic, with `UNIQUE(message_id, request_id)` and `UNIQUE(session_id, fingerprint, policy)` per data-model invariants F2/K1
+- [X] T013 Create `src/ccaudit/store/db.py` — connection with WAL, schema creation on demand under `CCAUDIT_HOME`, migration hook, and a single-transaction write context (invariant K2)
+- [X] T014 [P] Unit-test the store in `tests/unit/test_store_db.py` — state directory created on first use with no setup step (FR-050), dedup and result uniqueness constraints enforced, a failed transaction leaves nothing readable
 
 ### Ingest — facts, never conclusions
 
-- [ ] T015 Create `src/ccaudit/ingest/records.py` — transcript record types and parsing, the `usage` block (all three input measures, FR-083), per-turn `model` and `cache_ttl`, `producing_version` stamp (FR-028), `is_sidechain`/`parent_turn_id`, and `compactMetadata` (FR-025); unparseable records are counted and carried, never skipped silently (FR-027)
-- [ ] T016 [P] Create `src/ccaudit/ingest/dedup.py` — deduplicate on `(message.id, requestId)` across resume, fork, and compaction before any arithmetic (FR-021, PITFALLS)
-- [ ] T017 [P] Create `src/ccaudit/ingest/discover.py` — locate sessions under `~/.claude/` (honouring `CLAUDE_CONFIG_DIR`) read-only, and compute the coverage fingerprint `(record_count, last_record_uuid, byte_size)` without a full parse (research §3, FR-085)
-- [ ] T018 [P] Create `src/ccaudit/ingest/tokens.py` — the exact → measured → declared ladder, recording the tier as `basis`; image tokens from decoded PNG/JPEG/WebP header dimensions via the published area formula capped at the per-image maximum. **`chars // 4` is never applied to images** and is marked estimated wherever used at all (research §6)
-- [ ] T019 [P] Create `src/ccaudit/ingest/anchors.py` — parse `/context` ground-truth tables and reconcile computed totals against them, reporting disagreement rather than adjusting either side (FR-026)
+- [X] T015 Create `src/ccaudit/ingest/records.py` — transcript record types and parsing, the `usage` block (all three input measures, FR-083), per-turn `model` and `cache_ttl`, `producing_version` stamp (FR-028), `is_sidechain`/`parent_turn_id`, and `compactMetadata` (FR-025); unparseable records are counted and carried, never skipped silently (FR-027)
+- [X] T016 [P] Create `src/ccaudit/ingest/dedup.py` — deduplicate on `(message.id, requestId)` across resume, fork, and compaction before any arithmetic (FR-021, PITFALLS)
+- [X] T017 [P] Create `src/ccaudit/ingest/discover.py` — locate sessions under `~/.claude/` (honouring `CLAUDE_CONFIG_DIR`) read-only, and compute the coverage fingerprint `(record_count, last_record_uuid, byte_size)` without a full parse (research §3, FR-085)
+- [X] T018 [P] Create `src/ccaudit/ingest/tokens.py` — the exact → measured → declared ladder, recording the tier as `basis`; image tokens from decoded PNG/JPEG/WebP header dimensions via the published area formula capped at the per-image maximum. **`chars // 4` is never applied to images** and is marked estimated wherever used at all (research §6)
+- [X] T019 [P] Create `src/ccaudit/ingest/anchors.py` — parse `/context` ground-truth tables and reconcile computed totals against them, reporting disagreement rather than adjusting either side (FR-026)
 - [ ] T020 Persist and surface `IngestDiagnostic` rows from `src/ccaudit/ingest/records.py` through `src/ccaudit/store/db.py` — unparseable counts, unrecognised versions, anchor mismatches, each with a sample record identifier
-- [ ] T021 [P] Unit-test record parsing in `tests/unit/test_records.py` — all three input measures summed for prompt size, version stamp captured, malformed record counted not dropped
-- [ ] T022 [P] Unit-test dedup in `tests/unit/test_dedup.py` — a resumed and a forked session counted exactly once; re-ingest does not double any figure
-- [ ] T023 [P] Unit-test discovery and fingerprinting in `tests/unit/test_discover.py` — fingerprint changes when the session advances, is stable when it does not, and no write ever touches `~/.claude/` (FR-020)
-- [ ] T024 [P] Unit-test token resolution in `tests/unit/test_tokens.py` — an image sized from its header, never from character count; the basis tier recorded on every quantity
-- [ ] T025 [P] Unit-test anchor reconciliation in `tests/unit/test_anchors.py` — a deliberate mismatch is reported, not silently absorbed
+- [X] T021 [P] Unit-test record parsing in `tests/unit/test_records.py` — all three input measures summed for prompt size, version stamp captured, malformed record counted not dropped
+- [X] T022 [P] Unit-test dedup in `tests/unit/test_dedup.py` — a resumed and a forked session counted exactly once; re-ingest does not double any figure
+- [X] T023 [P] Unit-test discovery and fingerprinting in `tests/unit/test_discover.py` — fingerprint changes when the session advances, is stable when it does not, and no write ever touches `~/.claude/` (FR-020)
+- [X] T024 [P] Unit-test token resolution in `tests/unit/test_tokens.py` — an image sized from its header, never from character count; the basis tier recorded on every quantity
+- [X] T025 [P] Unit-test anchor reconciliation in `tests/unit/test_anchors.py` — a deliberate mismatch is reported, not silently absorbed
 
 ### Fixtures and CLI skeleton
 
-- [ ] T026 Create `tests/fixtures/builder.py` — a synthetic transcript builder (turns, usage blocks, tool results, injections, models, TTLs, compaction, sidechains). **Synthetic only; never real user transcripts** (git-conventions)
+- [X] T026 Create `tests/fixtures/builder.py` — a synthetic transcript builder (turns, usage blocks, tool results, injections, models, TTLs, compaction, sidechains). **Synthetic only; never real user transcripts** (git-conventions)
 - [ ] T027 Create the baseline fixture session under `tests/fixtures/sessions/baseline/` — a small multi-turn session with file reads, resident instruction content, and a known token profile
 - [ ] T028 Component-test the ingest stage end-to-end over fixtures in `tests/component/test_ingest_pipeline.py` — transcript in, deduplicated facts and diagnostics out, idempotent across repeat runs (FR-094)
-- [ ] T029 Create `src/ccaudit/cli.py` and wire `src/ccaudit/__main__.py` — argument parsing for the command table in `contracts/cli.md`, and the exit-code contract (`0` success, `1` usage, `2` no sessions, `3` breakdown does not add up, `4` data error, `130` interrupted)
-- [ ] T030 Configure logging in `src/ccaudit/cli.py` — the constitution's four levels, with a file target under `CCAUDIT_HOME` so hook-path failures log rather than surface into a user's session (FR-054)
-- [ ] T031 [P] Unit-test the CLI surface in `tests/unit/test_cli_exit_codes.py` — each exit code reachable and distinct; exit `3` is never reachable from an ordinary warning path
+- [X] T029 Create `src/ccaudit/cli.py` and wire `src/ccaudit/__main__.py` — argument parsing for the command table in `contracts/cli.md`, and the exit-code contract (`0` success, `1` usage, `2` no sessions, `3` breakdown does not add up, `4` data error, `130` interrupted)
+- [X] T030 Configure logging in `src/ccaudit/cli.py` — the constitution's four levels, with a file target under `CCAUDIT_HOME` so hook-path failures log rather than surface into a user's session (FR-054)
+- [X] T031 [P] Unit-test the CLI surface in `tests/unit/test_cli_exit_codes.py` — each exit code reachable and distinct; exit `3` is never reachable from an ordinary warning path
 
 **Checkpoint**: Facts can be extracted from a transcript, stored, and re-extracted idempotently.
 
@@ -104,24 +104,24 @@ including an explicit unattributed line, reconciling to the session total by exa
 per-category breakdowns each sum to the session total, the unattributed remainder is shown
 explicitly, and repeat runs are byte-identical (SC-001, SC-002, SC-009).
 
-- [ ] T032 [US1] Create `src/ccaudit/model/residency.py` — the per-turn resident set: injections in, spans out, eviction and compaction survival applied so carry stops when content leaves (FR-003, FR-004)
-- [ ] T033 [P] [US1] Create `src/ccaudit/model/policy.py` — the proportional (default) and exclusive carry-splitting policies over integer weights, using largest-remainder allocation from `src/ccaudit/money.py` (FR-006, invariant A3)
-- [ ] T034 [US1] Create `src/ccaudit/model/attribute.py` — split each turn's observed charges into direct, carry, overhead, and output; output targets the exchange and **never** an item (invariant A2, FR-005)
-- [ ] T035 [US1] Roll subagent turns up to the parent exchange exactly once in `src/ccaudit/model/attribute.py`, asserting rather than warning on a double count (FR-009, data-model validation rule 5)
-- [ ] T036 [US1] Create `src/ccaudit/model/reconcile.py` — enforce `Σ attributions + unattributed == session total` by integer equality, emit the remainder as its own explicit entry, and raise on violation (invariant A1, FR-012, FR-013)
+- [X] T032 [US1] Create `src/ccaudit/model/residency.py` — the per-turn resident set: injections in, spans out, eviction and compaction survival applied so carry stops when content leaves (FR-003, FR-004)
+- [X] T033 [P] [US1] Create `src/ccaudit/model/policy.py` — the proportional (default) and exclusive carry-splitting policies over integer weights, using largest-remainder allocation from `src/ccaudit/money.py` (FR-006, invariant A3)
+- [X] T034 [US1] Create `src/ccaudit/model/attribute.py` — split each turn's observed charges into direct, carry, overhead, and output; output targets the exchange and **never** an item (invariant A2, FR-005)
+- [X] T035 [US1] Roll subagent turns up to the parent exchange exactly once in `src/ccaudit/model/attribute.py`, asserting rather than warning on a double count (FR-009, data-model validation rule 5)
+- [X] T036 [US1] Create `src/ccaudit/model/reconcile.py` — enforce `Σ attributions + unattributed == session total` by integer equality, emit the remainder as its own explicit entry, and raise on violation (invariant A1, FR-012, FR-013)
 - [ ] T037 [US1] Persist `AnalysisResult` and `Attribution` rows in one transaction via `src/ccaudit/store/db.py`, keyed `(session_id, fingerprint, policy)` so a repeat run creates no second entry (FR-047, FR-094)
 - [ ] T038 [US1] Create `src/ccaudit/render/data.py` — the report-data envelope from `contracts/report-data.md`: `scope`, `totals` (with `uncertainty_notes`), `components` sourced from `config/components.py`, and `items`. One contract, three consumers
 - [ ] T039 [US1] Create `src/ccaudit/render/terminal.py` — ranked table with proportion bars, every absolute paired with its share, every figure labelled an **API-equivalent cost estimate**, the unattributed line always present, and plain-text degradation when not a TTY (FR-010, FR-011, FR-033, FR-070, FR-071)
-- [ ] T040 [US1] Implement `analyse --session` and `--json` in `src/ccaudit/cli.py`, returning exit `3` when reconciliation fails rather than printing the numbers
-- [ ] T041 [P] [US1] Unit-test residency in `tests/unit/test_residency.py` — a span ends on eviction, on invalidation, and at session end; carry accrues only while resident
-- [ ] T042 [P] [US1] Unit-test splitting policies in `tests/unit/test_policy.py` — both policies conserve the pool exactly; policy choice changes per-item figures and never the total
-- [ ] T043 [P] [US1] Unit-test attribution in `tests/unit/test_attribute.py` — output never targets an item; subagent work counted once
-- [ ] T044 [P] [US1] Unit-test reconciliation in `tests/unit/test_reconcile.py` — a deliberately corrupted attribution raises; the remainder is never distributed across items
-- [ ] T045 [P] [US1] Unit-test the data contract in `tests/unit/test_report_data.py` — `attributed + unattributed == cost_micros` exactly; `unattributed_share` and `uncertainty_notes` are always present
-- [ ] T046 [US1] Create the golden fixture and its **hand-verified** expected breakdown under `tests/golden/fixtures/session_basic/` — every figure checked by hand and the derivation recorded alongside it
-- [ ] T047 [US1] Golden-test the attribution arithmetic in `tests/golden/test_attribution_basic.py` — a diff here is a red alert, never a rebaseline (constitution V)
-- [ ] T048 [US1] Component-test the analyse stage in `tests/component/test_analyse_pipeline.py` — fixture transcript to reconciled breakdown in one process, per-file, per-folder, and per-category each summing to the total
-- [ ] T049 [P] [US1] Determinism test in `tests/component/test_determinism.py` — the same input yields byte-identical figures across repeated runs (FR-017, SC-009)
+- [X] T040 [US1] Implement `analyse --session` and `--json` in `src/ccaudit/cli.py`, returning exit `3` when reconciliation fails rather than printing the numbers
+- [X] T041 [P] [US1] Unit-test residency in `tests/unit/test_residency.py` — a span ends on eviction, on invalidation, and at session end; carry accrues only while resident
+- [X] T042 [P] [US1] Unit-test splitting policies in `tests/unit/test_policy.py` — both policies conserve the pool exactly; policy choice changes per-item figures and never the total
+- [X] T043 [P] [US1] Unit-test attribution in `tests/unit/test_attribute.py` — output never targets an item; subagent work counted once
+- [X] T044 [P] [US1] Unit-test reconciliation in `tests/unit/test_reconcile.py` — a deliberately corrupted attribution raises; the remainder is never distributed across items
+- [X] T045 [P] [US1] Unit-test the data contract in `tests/unit/test_report_data.py` — `attributed + unattributed == cost_micros` exactly; `unattributed_share` and `uncertainty_notes` are always present
+- [X] T046 [US1] Create the golden fixture and its **hand-verified** expected breakdown under `tests/golden/fixtures/session_basic/` — every figure checked by hand and the derivation recorded alongside it
+- [X] T047 [US1] Golden-test the attribution arithmetic in `tests/golden/test_attribution_basic.py` — a diff here is a red alert, never a rebaseline (constitution V)
+- [X] T048 [US1] Component-test the analyse stage in `tests/component/test_analyse_pipeline.py` — fixture transcript to reconciled breakdown in one process, per-file, per-folder, and per-category each summing to the total
+- [X] T049 [P] [US1] Determinism test in `tests/component/test_determinism.py` — the same input yields byte-identical figures across repeated runs (FR-017, SC-009)
 
 **Checkpoint**: US1 is independently demonstrable — one session in, a breakdown that adds up out.
 
