@@ -115,8 +115,12 @@ class TestOneRendererTwoShells:
         )
         assert '<script type="application/json" id="ccaudit-data">' in html
         assert f"<title>{escape(REPORT_TITLE)}</title>" in html
-        assert '<nav class="ui-controls"' in html
-        assert html.index('<nav class="ui-controls"') < html.index("<main>")
+        # The shell, not its class name: this pins that the report document is *wrapped* by
+        # controls, which is the property. A previous version asserted `class="ui-controls"`
+        # and failed when the panel was restyled, which tested the stylesheet, not the shell.
+        assert '<nav class="ui"' in html
+        assert "</nav>" in html
+        assert html.index('<nav class="ui"') < html.index("<main>")
 
     def test_every_session_is_offered_and_the_current_one_is_marked(
         self, payload: dict, sessions: list[SessionRef]
@@ -124,7 +128,10 @@ class TestOneRendererTwoShells:
         html = render_ui_html(
             payload, sessions=sessions, selection=Selection(session_ids=("sess-two",))
         )
-        assert 'value="sess-one"> ' in html
+        # Offered, and its state is right. The trailing-space form this used to assert was a
+        # detail of one line of markup — the invariant is that every session appears with a
+        # checkbox, and that the selected one is the one checked.
+        assert 'value="sess-one"' in html
         assert 'value="sess-two" checked' in html
 
     def test_the_page_references_no_external_url(

@@ -62,7 +62,7 @@ def ccaudit_command() -> list[str]:
 # neither package.
 NOTEBOOK_SOURCE = '''# /// script
 # requires-python = ">=3.12"
-# dependencies = ["marimo", "altair", "pandas"]
+# dependencies = ["marimo", "altair", "pandas", "pyarrow"]
 # ///
 """ccaudit — interactive exploration.
 
@@ -92,8 +92,11 @@ def _():
     import marimo as mo
     import pandas as pd
 
-    # pandas rather than polars: altair consumes a pandas frame directly, while polars has to
-    # cross an Arrow bridge that needs pyarrow — a fourth dependency for no gain at this size.
+    # pandas because altair consumes a pandas frame directly. pyarrow is not imported here but
+    # is declared above: marimo hands chart data to the browser as Arrow and, without it, logs
+    # a fallback warning on every chart. Harmless on macOS — on Windows, writing that warning
+    # from marimo's spawned worker fails with `OSError: [WinError 1] Incorrect function` and
+    # prints a full traceback under a chart that rendered perfectly well.
     return alt, json, mo, pd, subprocess
 
 

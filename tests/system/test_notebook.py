@@ -289,3 +289,17 @@ class TestFindingCcauditAgain:
         monkeypatch.setattr("sys.argv", ["pytest"])
         monkeypatch.setattr("shutil.which", lambda name: None)
         assert Path(ccaudit_command()[0]).is_absolute()
+
+
+class TestChartsRenderWithoutWarnings:
+    def test_arrow_support_is_declared(self, notebook: str) -> None:
+        """marimo sends chart data to the browser as Arrow.
+
+        Without pyarrow it falls back to CSV and logs a warning per chart. That is harmless on
+        macOS and not on Windows: writing the warning from marimo's spawned worker fails with
+        `OSError: [WinError 1] Incorrect function`, and the reader gets a full traceback under a
+        chart that rendered perfectly well. Declaring the dependency removes the warning at its
+        source rather than muting the logger.
+        """
+        metadata = notebook.split("# ///")[1]
+        assert "pyarrow" in metadata, metadata

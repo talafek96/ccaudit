@@ -139,14 +139,10 @@ def _controls(sessions: Sequence[SessionRef], selection: Selection) -> str:
     chosen = set(selection.session_ids)
     if sessions:
         options = "".join(
-            f'<label class="ui-session"><input type="checkbox" name="session" '
-            f'value="{escape(reference.session_id)}"'
-            f"{' checked' if reference.session_id in chosen else ''}> "
-            f"{escape(_session_label(reference))}</label>"
-            for reference in sessions
+            _session_option(reference, reference.session_id in chosen) for reference in sessions
         )
     else:
-        options = '<p class="meta">No other local sessions were found.</p>'
+        options = '<p class="ui-empty">No other local sessions were found.</p>'
 
     groupings = "".join(
         f'<option value="{escape(name)}"'
@@ -155,55 +151,98 @@ def _controls(sessions: Sequence[SessionRef], selection: Selection) -> str:
     )
     return "".join(
         [
-            '<nav class="ui-controls" aria-label="Explore this session">',
-            '<form method="get" action="/" class="ui-form">',
-            (
-                f'<fieldset class="ui-sessions"><legend>Sessions in this analysis</legend>'
-                f'<p class="meta">Tick a session to add it to the aggregation, untick it to '
-                f"take it out. Every figure on the page is recomputed for the selection you "
-                f"leave — the totals always describe exactly the sessions ticked here.</p>"
-                f'<p class="ui-row js-only ui-bulk">'
-                f'<button type="button" id="ui-all">Select all</button>'
-                f'<button type="button" id="ui-none">Select none</button>'
-                f'<span id="ui-selected" class="meta"></span></p>'
-                f"{options}</fieldset>"
-            ),
-            '<p class="ui-row">',
-            f'<label>Group by <select name="by">{groupings}</select></label>',
-            (
-                '<label><input type="checkbox" name="redact" value="1"'
-                f"{' checked' if selection.redact else ''}> Redact paths</label>"
-            ),
-            # Kept even when scripting is on: it is the control that says a selection is a
-            # navigation, and the script only saves the click, it does not replace the button.
-            '<button type="submit" id="ui-apply">Apply</button>',
-            "</p>",
+            '<nav class="ui" aria-label="Explore this session">',
+            '<div class="ui-bar">',
+            '<span class="ui-brand">ccaudit</span>',
+            '<span class="ui-mode">exploring</span>',
+            '<span class="ui-spacer"></span>',
+            '<form method="post" action="/shutdown" class="ui-inline">',
+            '<button type="submit" class="ui-btn ui-btn--quiet">Stop the server</button>',
             "</form>",
-            '<p class="ui-row js-only">',
+            "</div>",
+            '<form method="get" action="/" class="ui-form">',
+            '<section class="ui-panel ui-panel--sessions">',
+            '<header class="ui-panel-head">',
+            "<h2>Sessions</h2>",
+            '<span id="ui-selected" class="ui-count"></span>',
+            '<span class="ui-spacer"></span>',
+            '<span class="ui-actions js-only">',
+            '<button type="button" id="ui-all" class="ui-btn ui-btn--quiet">All</button>',
+            '<button type="button" id="ui-none" class="ui-btn ui-btn--quiet">None</button>',
+            "</span>",
+            "</header>",
+            f'<div class="ui-sessions">{options}</div>',
             (
-                '<label>Filter rows <input type="search" id="ui-filter" '
+                '<p class="ui-hint">Every figure on the page is recomputed for the sessions '
+                "ticked here.</p>"
+            ),
+            "</section>",
+            '<section class="ui-panel">',
+            '<header class="ui-panel-head"><h2>View</h2></header>',
+            '<div class="ui-fields">',
+            (
+                '<label class="ui-field"><span class="ui-label">Group rows by</span>'
+                f'<select name="by" class="ui-input">{groupings}</select></label>'
+            ),
+            (
+                '<label class="ui-field js-only"><span class="ui-label">Filter rows</span>'
+                '<input type="search" id="ui-filter" class="ui-input" '
                 'placeholder="part of an item name"></label>'
             ),
-            '<span id="ui-filter-count" class="meta"></span>',
-            '<button type="button" id="ui-expand">Expand every drill-down</button>',
-            '<button type="button" id="ui-collapse">Collapse every drill-down</button>',
-            "</p>",
-            f'<p class="meta js-only">{escape(_FILTER_NOTE)}</p>',
             (
-                '<fieldset class="ui-views js-only" id="ui-views">'
-                "<legend>Views shown</legend></fieldset>"
+                '<label class="ui-check"><input type="checkbox" name="redact" value="1"'
+                f"{' checked' if selection.redact else ''}>"
+                "<span>Redact paths</span></label>"
             ),
-            '<form method="post" action="/shutdown" class="ui-stop">',
-            '<button type="submit">Stop the server</button>',
-            '<span class="meta">Leaves nothing running.</span>',
+            '<button type="submit" id="ui-apply" class="ui-btn ui-btn--primary">Apply</button>',
+            "</div>",
+            '<p class="ui-hint" id="ui-filter-count"></p>',
+            f'<p class="ui-hint js-only">{escape(_FILTER_NOTE)}</p>',
+            "</section>",
             "</form>",
-            f'<p class="meta">{escape(_EXPLORE_NOTE)}</p>',
+            '<section class="ui-panel js-only">',
+            '<header class="ui-panel-head"><h2>Sections</h2>',
+            '<span class="ui-spacer"></span>',
+            '<span class="ui-actions">',
             (
-                f'<p class="meta">{escape(_TERMINAL_NOTE)} '
-                f"<code>{escape(terminal_command(selection))}</code></p>"
+                '<button type="button" id="ui-expand" class="ui-btn ui-btn--quiet">'
+                "Expand drill-downs</button>"
             ),
+            '<button type="button" id="ui-collapse" class="ui-btn ui-btn--quiet">Collapse</button>',
+            "</span></header>",
+            '<div class="ui-views" id="ui-views"></div>',
+            "</section>",
+            '<details class="ui-details">',
+            "<summary>The same selection from the terminal</summary>",
+            f'<p class="ui-hint">{escape(_TERMINAL_NOTE)}</p>',
+            f"<code>{escape(terminal_command(selection))}</code>",
+            f'<p class="ui-hint">{escape(_EXPLORE_NOTE)}</p>',
+            "</details>",
             "</nav>",
         ]
+    )
+
+
+def _session_option(reference: SessionRef, checked: bool) -> str:
+    """One session in the picker: what it was about, then what identifies it.
+
+    Laid out rather than written as a sentence — the name, the id, and the size are three
+    different kinds of fact, and running them together into one line is what made the old
+    picker unreadable at twenty-six sessions.
+    """
+    project = str(reference.project_path) if reference.project_path else reference.project_dir
+    running = '<span class="ui-tag">running</span>' if reference.in_progress else ""
+    name = reference.title or "(unnamed session)"
+    return (
+        f'<label class="ui-session">'
+        f'<input type="checkbox" name="session" value="{escape(reference.session_id)}"'
+        f"{' checked' if checked else ''}>"
+        f'<span class="ui-session-body">'
+        f'<span class="ui-session-name">{escape(name)}{running}</span>'
+        f'<span class="ui-session-meta">{escape(reference.short_id)} · {escape(project)}</span>'
+        f'<span class="ui-session-meta">{reference.record_count:,} records · '
+        f"{reference.modified_at:%Y-%m-%d %H:%M}</span>"
+        f"</span></label>"
     )
 
 
