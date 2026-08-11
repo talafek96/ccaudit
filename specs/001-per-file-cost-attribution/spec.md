@@ -189,7 +189,67 @@ open it, and confirm every figure and visual renders with no network access.
 
 ---
 
-### User Story 6 - Know what a change cost (Priority: P3)
+### User Story 6 - Analyse many sessions at once (Priority: P2)
+
+A developer wants the accumulated picture, not one session's worth: which files have cost the
+most across a week, a project, or everything recorded. They pick a set of sessions, see the
+combined total, and can drop a session that skews the picture — an unusual spike, a session on
+an unrelated branch — and see the numbers recompute without it.
+
+**Why this priority**: One session is an anecdote. The manager-facing argument and the
+"which files are chronically expensive" question both need accumulation across sessions.
+It ranks below the single-session stories only because it consumes their output.
+
+**Independent Test**: Select several past sessions, verify the combined per-file totals equal
+the sum of the individual per-session figures, then exclude one session and verify the totals
+drop by exactly that session's contribution.
+
+**Acceptance Scenarios**:
+
+1. **Given** local records containing many past sessions, **When** the user lists what is
+   available, **Then** the system shows the sessions it can analyse, with enough detail to
+   identify them.
+2. **Given** a set of selected sessions, **When** the user analyses them together, **Then** the
+   system reports a combined total and per-item attribution accumulated across all of them.
+3. **Given** a multi-session result, **When** the user excludes one session, **Then** the
+   totals recompute to exclude exactly that session's contribution, without re-reading the
+   original records.
+4. **Given** a multi-session result, **When** the user inspects any item, **Then** the system
+   shows both its accumulated cost and its cost in each contributing session.
+5. **Given** a multi-session result, **When** the user reads it, **Then** it states which
+   sessions are included and how many were excluded.
+6. **Given** sessions spanning different versions of the producing tool, **When** they are
+   aggregated, **Then** the result identifies that it spans versions.
+
+---
+
+### User Story 7 - Watch a session as it runs (Priority: P2)
+
+A developer mid-session suspects something has gone expensive — a large file read, a runaway
+loop — and wants to see the cost breakdown now, without ending the session.
+
+**Why this priority**: Catching a problem while it is still accruing is worth more than
+diagnosing it afterwards, and it is what makes the tool part of the working loop. It ranks
+below single-session analysis because it is the same measurement applied to partial data.
+
+**Independent Test**: With a session in progress, run the tool and verify it produces a
+breakdown of activity so far, clearly labelled as provisional.
+
+**Acceptance Scenarios**:
+
+1. **Given** a session in progress, **When** the user analyses it, **Then** the system reports
+   the breakdown of activity recorded so far.
+2. **Given** an in-progress analysis, **When** the result is presented, **Then** it is labelled
+   provisional and notes that the most recent activity may not yet be included.
+3. **Given** an in-progress session, **When** the user enables the refreshing mode, **Then**
+   the breakdown updates as the session continues without re-invocation.
+4. **Given** the same session is analysed again after it ends, **When** the results are
+   compared, **Then** the final result supersedes the provisional one rather than being added
+   to it.
+
+---
+
+### User Story 8 - Know what a change cost (Priority: P3)
 
 A team adds a tool integration, a skill, or a section to an instruction file, and needs to know
 whether that change made their sessions more expensive.
@@ -213,7 +273,7 @@ configuration change and verify the tool reports a per-item delta identifying wh
 
 ---
 
-### User Story 7 - See what could be saved (Priority: P4)
+### User Story 9 - See what could be saved (Priority: P4)
 
 A developer wants the tool to quantify the opportunity, not just the cost: how much would have
 been saved if a specific expensive item had not been carried for so long.
@@ -388,13 +448,61 @@ item's residency shortened.
   when the session ends, requiring no user action.
 - **FR-054**: Automatic recording MUST NOT block, delay, or interrupt the user's session, and
   MUST fail silently to a log rather than surfacing errors into the user's workflow.
-- **FR-055**: System MUST NOT add persistent resident content to the user's sessions. Any
-  in-editor integration MUST consume context only when actively invoked.
+- **FR-055**: Installing the in-editor integration MUST NOT increase the size of the user's
+  conversations. Anything the integration adds to a conversation MUST appear only at the moment
+  the user invokes it, and MUST NOT be present in conversations where it is never used.
 - **FR-056**: System MUST be able to measure and report its own contribution to session cost.
 - **FR-057**: System MUST be removable such that no residue remains in the user's sessions,
   while previously recorded results are retained.
 - **FR-058**: System MUST be installable and updatable through the mechanism Claude Code
   provides for distributing such integrations, without manual file copying.
+
+**Session selection and multi-session analysis**
+
+- **FR-059**: System MUST analyse any past session, not only recent ones, for as far back as
+  local records exist.
+- **FR-060**: System MUST let the user choose which sessions to analyse — by project, by date
+  range, by explicit identifier, or by selecting from a browsable list of available sessions.
+- **FR-061**: System MUST support analysing several sessions together, reporting their combined
+  total and per-item attribution accumulated across all of them.
+- **FR-062**: System MUST let the user include or exclude individual sessions from a
+  multi-session analysis, and MUST recompute results from stored data without re-reading the
+  original records.
+- **FR-063**: System MUST state, for any multi-session result, exactly which sessions are
+  included and how many were excluded.
+- **FR-064**: System MUST, for an item appearing in several sessions, report both its
+  accumulated total and its contribution per session.
+- **FR-065**: System MUST keep sessions distinguishable after aggregation, so that a
+  multi-session figure can be decomposed back to the sessions that produced it.
+
+**In-progress sessions**
+
+- **FR-066**: System MUST analyse a session that is still running, covering activity recorded
+  so far.
+- **FR-067**: System MUST label results for an in-progress session as provisional and state
+  that the most recent activity may not yet be included.
+- **FR-068**: System MUST offer a mode that refreshes an in-progress session's analysis as the
+  session continues, without the user re-invoking it.
+- **FR-069**: System MUST NOT require a session to have ended before any of its cost can be
+  attributed.
+
+**Presentation surfaces**
+
+- **FR-070**: System MUST provide a rich terminal presentation — formatted tables, proportion
+  bars, and colour — that answers "what was most expensive and why" without leaving the
+  terminal.
+- **FR-071**: Terminal output MUST degrade to plain, parseable text when not attached to an
+  interactive terminal, so it can be piped or captured.
+- **FR-072**: System MUST provide an interactive local browser interface supporting drill-down,
+  sorting, filtering, session selection, and switching between views, offering materially
+  richer exploration than the terminal presentation.
+- **FR-073**: The browser interface MUST be started by a single command, MUST be reachable only
+  from the local machine, MUST make no external network requests, and MUST shut down cleanly on
+  request.
+- **FR-074**: The browser interface MUST NOT be required for any core result; every figure it
+  presents MUST also be obtainable from the terminal.
+- **FR-075**: System MUST distinguish the interactive interface from the exportable report
+  (FR-032): the former is for exploring, the latter is a frozen artifact for sharing.
 
 ### Key Entities
 
@@ -462,24 +570,45 @@ item's residency shortened.
   end, and a failure of the recording never surfaces as an error in their session.
 - **SC-019**: After the integration is removed, a subsequent session contains no trace of it,
   and every previously recorded result remains available.
+- **SC-020**: Combined per-item totals across a set of sessions equal the sum of those items'
+  per-session figures exactly; excluding a session reduces the totals by exactly that session's
+  contribution.
+- **SC-021**: Changing which sessions are included in an analysis produces updated results in
+  under 2 seconds for a corpus of 100 sessions, without re-reading the original records.
+- **SC-022**: A user can analyse a session from months earlier, provided its records still
+  exist locally, with no loss of detail relative to a recent one.
+- **SC-023**: Analysing a session that is still running returns a breakdown of activity so far,
+  labelled provisional, and never reports a figure that later proves to have been an
+  over-count.
+- **SC-024**: Every figure available in the interactive interface is also obtainable from the
+  terminal, so no capability is exclusive to the browser.
+- **SC-025**: The interactive interface starts from a single command in under 5 seconds, serves
+  only the local machine, makes no external requests, and leaves nothing running after it is
+  closed.
 
 ## Assumptions
 
 **Scope**
 
-- **Single-session analysis is the v1 boundary.** Stories 1–5 (per-file attribution, cause
-  analysis, frictionless invocation, the instruction-versus-reads comparison, and the shareable
-  report) constitute the first release. Cross-session aggregation and comparison (Story 6) and
-  the counterfactual panel (Story 7) follow once single-session numbers are demonstrably
-  trustworthy. Rationale:
-  the value and the risk both live in the per-file numbers being correct; aggregation is
-  mechanical once they are, and worthless if they are not. Requirements FR-044 to FR-047 are
-  specified now so the storage design does not have to be revisited, but only FR-044 and
-  FR-047 are required for v1.
-- Analysis is retrospective, over completed session records. Live monitoring during a session
-  is out of scope.
+- **v1 is Stories 1–7**: per-file attribution, cause analysis, frictionless invocation, the
+  instruction-versus-reads comparison, the shareable report, multi-session accumulation with
+  include/exclude, and in-progress analysis. **Story 8** (before/after comparison of a
+  configuration change) and **Story 9** (counterfactual savings) follow. Rationale: the value
+  and the risk both live in the per-file numbers being correct. Multi-session accumulation is
+  arithmetic over those numbers and is required for the manager-facing argument, so it is in.
+  Stories 8 and 9 are *interpretations* of the numbers — a delta needs two runs to be
+  comparable, and a counterfactual asserts what would have happened — so both are deferred
+  until the underlying figures are demonstrably trustworthy. A wrong counterfactual is worse
+  than none.
+- Analysis is retrospective over recorded activity, including the activity recorded so far in a
+  running session. It is not a live instrument reading the conversation as it is constructed:
+  the tool reads what has been written down, which lags the live conversation slightly.
 - The tool analyses one machine's local records. Combining records across a team's machines is
   out of scope.
+- Session records persist locally for as long as Claude Code retains them; the tool can analyse
+  any session still on disk, however old. It does not archive records to extend their life
+  (that would violate the read-only treatment of user data), though its own stored results
+  outlive the records they were derived from.
 
 **Cost model**
 
@@ -526,6 +655,28 @@ item's residency shortened.
 - Automatic recording is opt-in rather than default, because writing to a user's environment
   without being asked is a decision that belongs to the user (consistent with how this project
   treats the user's own directories elsewhere).
+- **Automatic recording must be near-instant, not merely fast.** Session-end handlers run
+  inside a shared time budget, and a handler supplied by an installed integration cannot raise
+  that budget for itself. The assumption is therefore that automatic recording records *that a
+  session needs analysing* and returns immediately, with the analysis itself happening on the
+  next invocation — never that the analysis runs inside the session-end handler. This also
+  keeps FR-054 satisfiable: a slow analysis can never delay the user.
+- Automatic recording is a convenience, not the system of record. Sessions that end in ways
+  that do not trigger a handler (a crash, a closed terminal, a killed process) are still fully
+  analysable afterwards from their records, so no data is lost by relying on it — or by not
+  using it at all.
+
+**Presentation surfaces**
+
+- Three distinct surfaces are assumed, and they are not substitutes for one another: the
+  **terminal** presentation (fast, always available, answers the question in place), the
+  **interactive local interface** (exploration — drill-down, filtering, session selection), and
+  the **exportable report** (a frozen artifact for someone who will not run anything). The
+  terminal surface is mandatory and complete on its own (FR-074); the other two are what make
+  the tool pleasant and shareable respectively.
+- The interactive interface is assumed to be started on demand and shut down when finished, not
+  left running. This keeps it consistent with the no-daemon constraint: it is a command that
+  happens to render in a browser, not a service.
 
 **Environment and users**
 
@@ -544,7 +695,9 @@ item's residency shortened.
 ## Out of Scope
 
 - Replacing, wrapping, or proxying Claude Code.
-- Real-time monitoring, background daemons, or long-running services.
+- Background daemons or long-running services. The interactive interface is started on demand
+  and stopped when finished; analysing an in-progress session is a repeated read of what has
+  been recorded, not a resident monitor.
 - Organisation-wide telemetry collection or centralised reporting infrastructure.
 - Modifying, moving, pruning, or optimising the user's session records or context.
 - Automatically acting on its own recommendations.

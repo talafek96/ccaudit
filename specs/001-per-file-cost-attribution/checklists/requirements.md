@@ -40,6 +40,19 @@ without additional software or network access, FR-032). The choice belongs in `/
 SQLite has since been chosen and is recorded in `HANDOFF.md` under locked decisions; the spec
 is intentionally left unchanged, since nothing observable to a user depends on it.
 
+**FR-055 rewritten for plain language** (2026-08-11). The original wording — "MUST NOT add
+persistent resident content to the user's sessions" — failed the "written for non-technical
+stakeholders" bar in practice: a reader asked what it meant. Restated in terms of the observable
+effect ("installing the integration must not increase the size of the user's conversations")
+rather than the mechanism. Worth noting as a pattern: a requirement a reader has to ask about is
+a defective requirement, regardless of whether it is technically precise.
+
+**Session selection, in-progress analysis, and presentation surfaces added**
+(FR-059 to FR-075, SC-020 to SC-025, Stories 6 and 7). Re-validated: still zero clarification
+markers. FR-074 is the load-bearing one among the presentation requirements — every figure in
+the browser interface must also be reachable from the terminal, which prevents the richer
+surface from quietly becoming mandatory.
+
 **Invocation surfaces added after initial validation** (User Story 3, FR-048 to FR-058,
 SC-015 to SC-019). Re-validated: still zero clarification markers, and the requirements remain
 observable rather than prescriptive — they state that the tool must be invocable from within a
@@ -53,9 +66,11 @@ source description had a defensible default backed by the research in `docs/rese
 is recorded in Assumptions with its rationale rather than deferred. The two that came closest to
 warranting a marker:
 
-1. *v1 scope.* The description asked for the proposed boundary to be validated. It is accepted
-   and stated in Assumptions, with Stories 5 and 6 kept in the spec but deferred, and FR-044 to
-   FR-047 specified now so the storage design need not be revisited later.
+1. *v1 scope.* Revised 2026-08-11 after user input: multi-session accumulation (Story 6) and
+   in-progress analysis (Story 7) moved **into** v1, since the manager-facing argument needs
+   accumulation and the working-loop value needs live insight. Stories 8 and 9 remain deferred,
+   now on a sharper rationale — they are *interpretations* of the numbers (a delta, a
+   counterfactual) rather than the numbers themselves.
 2. *Path redaction default.* Resolved to off-by-default (FR-043 available on request), on the
    grounds that the dominant use is local analysis where paths are the most useful identifier.
 
