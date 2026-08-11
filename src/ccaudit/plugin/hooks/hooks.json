@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ccaudit _enqueue",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

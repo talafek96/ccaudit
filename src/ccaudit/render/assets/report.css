@@ -1,0 +1,275 @@
+/* The report's whole stylesheet. Inlined into every report — there is no second file, no
+   font to fetch, and no URL of any kind: the report has to render on a machine with no
+   network, opened by someone who will not install anything (FR-032).
+
+   Both themes are selected rather than derived. The dark column is the same hues stepped for
+   the dark surface, declared under the OS preference *and* under the explicit toggle, so a
+   reader who prefers light on a dark machine still gets a legible page (FR-041). */
+
+:root {
+  color-scheme: light;
+  --surface-1: #fcfcfb;
+  --page: #f9f9f7;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --muted: #898781;
+  --grid: #e1e0d9;
+  --axis: #c3c2b7;
+  --border: rgba(11, 11, 11, 0.10);
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --series-5: #e87ba4;
+  --series-6: #008300;
+  --series-7: #4a3aa7;
+  --series-8: #e34948;
+  --unattributed: #c3c2b7;
+  --unattributed-ink: #52514e;
+  --hierarchy: #2a78d6;
+  --warning: #fab219;
+  --swatch-ink: #fcfcfb;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --surface-1: #1a1a19;
+    --page: #0d0d0d;
+    --text-primary: #ffffff;
+    --text-secondary: #c3c2b7;
+    --muted: #898781;
+    --grid: #2c2c2a;
+    --axis: #383835;
+    --border: rgba(255, 255, 255, 0.10);
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --series-4: #c98500;
+    --series-5: #d55181;
+    --series-6: #008300;
+    --series-7: #9085e9;
+    --series-8: #e66767;
+    --unattributed: #383835;
+    --unattributed-ink: #c3c2b7;
+    --hierarchy: #3987e5;
+    --swatch-ink: #0d0d0d;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface-1: #1a1a19;
+  --page: #0d0d0d;
+  --text-primary: #ffffff;
+  --text-secondary: #c3c2b7;
+  --muted: #898781;
+  --grid: #2c2c2a;
+  --axis: #383835;
+  --border: rgba(255, 255, 255, 0.10);
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --series-5: #d55181;
+  --series-6: #008300;
+  --series-7: #9085e9;
+  --series-8: #e66767;
+  --unattributed: #383835;
+  --unattributed-ink: #c3c2b7;
+  --hierarchy: #3987e5;
+  --swatch-ink: #0d0d0d;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 0 1.25rem 4rem;
+  background: var(--page);
+  color: var(--text-primary);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+main { max-width: 60rem; margin: 0 auto; }
+
+h1 { font-size: 1.6rem; margin: 1.5rem 0 0.25rem; }
+h2 { font-size: 1.15rem; margin: 2.5rem 0 0.5rem; }
+h3 { font-size: 1rem; margin: 1.25rem 0 0.25rem; }
+
+p { margin: 0.4rem 0; }
+
+.lede { color: var(--text-secondary); max-width: 46rem; }
+.meta { color: var(--text-secondary); font-size: 0.9rem; }
+
+.banner {
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--warning);
+  background: var(--surface-1);
+  padding: 0.6rem 0.85rem;
+  margin: 0.75rem 0;
+  border-radius: 6px;
+}
+
+.panel {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem 1.1rem;
+  margin: 1rem 0;
+}
+
+.hero { font-size: 2.4rem; font-weight: 650; line-height: 1.1; }
+.hero .share { font-size: 1rem; font-weight: 400; }
+
+.money { font-variant-numeric: tabular-nums; }
+.share { color: var(--text-secondary); }
+
+.reconciles { color: var(--text-secondary); font-size: 0.9rem; }
+
+/* Charts ------------------------------------------------------------------ */
+
+.chart { margin: 1rem 0 1.5rem; }
+.chart-title { font-weight: 600; margin-bottom: 0.35rem; }
+.chart-note { color: var(--text-secondary); font-size: 0.88rem; max-width: 46rem; }
+.chart-svg { display: block; max-width: 100%; height: auto; overflow: visible; }
+
+.chart--placeholder .placeholder-body {
+  border: 1px dashed var(--axis);
+  border-radius: 6px;
+  padding: 0.75rem 0.9rem;
+  color: var(--text-secondary);
+}
+
+.separator { fill: var(--surface-1); }
+.axis { stroke: var(--axis); stroke-width: 1; }
+.tick { fill: var(--text-secondary); font-size: 11px; }
+.row-label { fill: var(--text-primary); font-size: 12px; }
+.row-value { fill: var(--text-secondary); font-size: 12px; font-variant-numeric: tabular-nums; }
+/* What a truncated chart left out, stated in the drawing itself. */
+.omission { fill: var(--text-primary); font-size: 12px; font-weight: 600; }
+.node { fill: var(--hierarchy); stroke: var(--hierarchy); stroke-width: 1; }
+.node--own { fill: var(--muted); fill-opacity: 0.28; stroke: var(--muted); stroke-width: 1; }
+.node-label { fill: var(--text-primary); font-size: 11px; dominant-baseline: middle; }
+.spark-line { fill: none; stroke: var(--series-1); stroke-width: 2; }
+.spark-area { fill: var(--series-1); fill-opacity: 0.14; stroke: none; }
+.spark-event { stroke: var(--text-secondary); stroke-width: 1; stroke-dasharray: 3 3; }
+.spark-point { fill: var(--surface-1); stroke: var(--series-1); stroke-width: 2; }
+
+.mark:hover .slice,
+.mark:hover .node { stroke: var(--text-primary); stroke-width: 2; }
+
+.legend {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.15rem 0.75rem;
+}
+
+.legend-item { display: flex; align-items: baseline; gap: 0.4rem; flex-wrap: wrap; }
+.legend-label { min-width: 16rem; }
+.legend-detail { color: var(--text-secondary); font-size: 0.88rem; }
+
+.swatch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 3px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--swatch-ink);
+  border: 1px solid var(--border);
+  flex: none;
+}
+
+.swatch--series-1 { background: var(--series-1); }
+.swatch--series-2 { background: var(--series-2); }
+.swatch--series-3 { background: var(--series-3); }
+.swatch--series-4 { background: var(--series-4); }
+.swatch--series-5 { background: var(--series-5); }
+.swatch--series-6 { background: var(--series-6); }
+.swatch--series-7 { background: var(--series-7); }
+.swatch--series-8 { background: var(--series-8); }
+
+/* The remainder wears the same 45° texture it wears in the marks. */
+.swatch--unattributed {
+  color: var(--unattributed-ink);
+  background-color: var(--unattributed);
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--unattributed-ink) 0 2px,
+    transparent 2px 6px
+  );
+}
+
+/* Tables ------------------------------------------------------------------ */
+
+.table-wrap { overflow-x: auto; }
+
+table { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
+caption { text-align: left; color: var(--text-secondary); padding-bottom: 0.35rem; }
+th, td { padding: 0.35rem 0.5rem; border-bottom: 1px solid var(--grid); text-align: right; }
+th:first-child, td:first-child { text-align: left; }
+thead th { color: var(--text-secondary); font-weight: 600; white-space: nowrap; }
+td.num { font-variant-numeric: tabular-nums; }
+tr.summary td { font-style: italic; }
+tr.summary td:first-child { font-style: normal; font-weight: 600; }
+tr.remainder td { background: color-mix(in srgb, var(--unattributed) 22%, transparent); }
+
+.flag {
+  display: inline-block;
+  border: 1px solid var(--axis);
+  border-radius: 999px;
+  padding: 0 0.45rem;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+details.drill { margin-top: 0.2rem; }
+details.drill summary { cursor: pointer; color: var(--text-secondary); font-size: 0.85rem; }
+details.drill ul { margin: 0.3rem 0 0.5rem; padding-left: 1.1rem; }
+
+/* Controls exist only where they work: without JavaScript the page is complete and static,
+   so a control that would do nothing is never shown (FR-032 — it must open anywhere). */
+.js-only { display: none; }
+.js .js-only { display: inline-flex; }
+
+.sort-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: inherit;
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 0 0.3rem;
+  cursor: pointer;
+  margin-left: 0.25rem;
+}
+
+.sort-btn[aria-pressed="true"] { border-color: var(--text-secondary); font-weight: 700; }
+
+.toolbar { display: flex; gap: 0.5rem; align-items: center; margin: 0.5rem 0; }
+
+.theme-toggle {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: inherit;
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.2rem 0.6rem;
+  cursor: pointer;
+}
+
+footer { margin-top: 3rem; color: var(--text-secondary); font-size: 0.85rem; }
+
+@media print {
+  body { background: #ffffff; }
+  .js-only { display: none !important; }
+  details.drill { display: none; }
+}

@@ -1,0 +1,21 @@
+{
+  "_": "Hand-verified. See expected.md for the derivation of every figure. A diff here is a red alert, never a rebaseline.",
+  "session_id": "golden-basic-0001",
+  "policy": "proportional",
+  "model": "claude-opus-5",
+  "total_micros": 39250,
+  "attributed_micros": 38250,
+  "unattributed_micros": 1000,
+  "items": {
+    "file:-:/repo/src/a.py": {"size_tokens": 1000, "category": "source", "direct": 6250, "carry": 667, "loads": 1, "turns_resident": 3},
+    "file:-:/repo/docs/b.md": {"size_tokens": 2000, "category": "docs", "direct": 12500, "carry": 333, "loads": 1, "turns_resident": 2}
+  },
+  "charges_by_turn": [
+    {"turn": 0, "fresh_input": 5000, "cache_write": 0, "cache_read": 0, "output": 5000, "total": 10000},
+    {"turn": 1, "fresh_input": 0, "cache_write": 6250, "cache_read": 0, "output": 2500, "total": 8750},
+    {"turn": 2, "fresh_input": 0, "cache_write": 12500, "cache_read": 500, "output": 2500, "total": 15500},
+    {"turn": 3, "fresh_input": 0, "cache_write": 0, "cache_read": 500, "output": 2500, "total": 3000},
+    {"turn": 4, "fresh_input": 0, "cache_write": 0, "cache_read": 1000, "output": 1000, "total": 2000}
+  ],
+  "by_component": {"overhead": 5000, "output": 13500, "direct": 18750, "carry": 1000}
+}
