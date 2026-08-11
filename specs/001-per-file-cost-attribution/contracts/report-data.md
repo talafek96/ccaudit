@@ -47,9 +47,20 @@ Versioned by `schema_version`; consumers reject an unknown major.
   "attributed_micros": 1500000000,
   "unattributed_micros": 149000000,
   "unattributed_share": 0.0904,               // always present, never hidden — FR-012/013
-  "tokens": { "fresh_input": 0, "cache_write": 0, "cache_read": 0, "output": 0 }
+  "tokens": { "fresh_input": 0, "cache_write": 0, "cache_read": 0, "output": 0 },
+
+  "uncertainty_notes": [                      // FR-097 — required wherever totals appear
+    "Prices are imputed from published list rates, not billed amounts.",
+    "Shared carry cost is divided by the 'proportional' policy; a different policy changes per-item figures without changing the total.",
+    "Some resident instruction content is stripped before the transcript is written and is therefore absent from these figures."
+  ]
 }
 ```
+
+> **Exactness is not accuracy.** The arithmetic conserves exactly — integer micro-dollars, no
+> epsilon — but the inputs are imputed prices and a splitting policy. Consumers MUST render figures
+> at `display_sig_figs`, not at full stored precision (FR-095, FR-098). A carry figure that rests
+> on a policy choice is never shown to the cent.
 
 > **Consumer invariant.** `attributed + unattributed == cost_micros`, exact integer equality. A
 > consumer that receives a payload failing this must refuse to render it rather than display
@@ -102,6 +113,12 @@ One row per context item. Powers the leaderboard, the direct-vs-carry bars, and 
 
   "basis": "measured",
   "confidence": "medium",
+  "display_sig_figs": 2,                      // FR-095 — precision the confidence supports
+  "uncertainty": {                            // FR-096 — express it, don't just label it
+    "low_micros": 0,
+    "high_micros": 0,
+    "driver": "carry_split_policy"            // what dominates the range for this figure
+  },
   "per_session": [ { "session_id": "…", "total_micros": 0 } ]   // FR-064
 }]
 ```

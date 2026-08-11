@@ -56,6 +56,7 @@ Shared by `analyse`, `report`, `ui`. Combining them is an intersection.
 | `--redact` | Obscure file paths, preserve cost structure (FR-043) |
 | `--open` | Open the produced report/UI |
 | `--refresh` | Recompute even if a current stored result exists |
+| `--watch` | Re-analyse and redraw as the session progresses, without re-invoking (FR-068). Polls the coverage fingerprint; redraws only when it changes. Exits on interrupt, or automatically once the session ends |
 | `--wait SECONDS` | Bound the wait on an in-progress analysis (FR-091) |
 | `--explain FIGURE` | Emit the derivation trace for a figure |
 
