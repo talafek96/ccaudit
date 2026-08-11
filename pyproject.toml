@@ -37,6 +37,9 @@ python_version = "3.12"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Import the test tree as a package so fixtures (tests/fixtures/builder.py) are shared
+# rather than copy-pasted across test modules.
+pythonpath = ["."]
 markers = [
     "golden: golden-file regression tests pinning attribution arithmetic (a diff is a red alert)",
     "system: merge-gate tests running the real CLI over a transcript corpus",
