@@ -234,11 +234,15 @@ def _session_option(reference: SessionRef, checked: bool) -> str:
     running = '<span class="ui-tag">running</span>' if reference.in_progress else ""
     name = reference.title or "(unnamed session)"
     return (
-        f'<label class="ui-session">'
+        f'<label class="ui-session" title="{escape(reference.session_id)}">'
         f'<input type="checkbox" name="session" value="{escape(reference.session_id)}"'
         f"{' checked' if checked else ''}>"
         f'<span class="ui-session-body">'
-        f'<span class="ui-session-name">{escape(name)}{running}</span>'
+        # The tag is a sibling of the name, not a child. Inside it, the name's ellipsis would
+        # eat it — a long name would silently hide the fact that a session is still running,
+        # which is the one thing on this row that changes what its figures mean.
+        f'<span class="ui-session-title">'
+        f'<span class="ui-session-name">{escape(name)}</span>{running}</span>'
         f'<span class="ui-session-meta">{escape(reference.short_id)} · {escape(project)}</span>'
         f'<span class="ui-session-meta">{reference.record_count:,} records · '
         f"{reference.modified_at:%Y-%m-%d %H:%M}</span>"
@@ -320,6 +324,11 @@ class _Handler(BaseHTTPRequestHandler):
                     "application/json; charset=utf-8",
                     payload_json(self.ui.payload_for(selection)),
                 )
+            elif route.path == "/favicon.ico":
+                # Browsers ask for this unprompted. Answering "no content" is the honest reply
+                # and keeps the console clean; a 404 there reads as something being broken, on
+                # a page whose whole claim is that nothing is fetched from off the machine.
+                self._respond(HTTPStatus.NO_CONTENT, "image/x-icon", "")
             elif route.path == "/sessions":
                 self._respond(
                     HTTPStatus.OK,

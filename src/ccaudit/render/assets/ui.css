@@ -167,7 +167,21 @@
 
 .ui-session-body { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
 
+/* The name shrinks; the tag hugs its own text. Flex rather than grid: a grid track sized
+   `auto` takes the leftover space, which stretched the pill into a banner. `flex: none` on the
+   tag and `min-width: 0` on the name is the pair that makes the name the only thing that
+   gives — with the tag inside the ellipsised span, a long name would swallow it entirely, and
+   whether a session is still running is the one thing on this row that changes what its
+   figures mean. */
+.ui-session-title {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
 .ui-session-name {
+  min-width: 0;
   font-family: var(--font-ui);
   font-size: 0.88rem;
   font-weight: 600;
@@ -191,7 +205,7 @@
 
 .ui-tag {
   display: inline-block;
-  margin-left: 0.4rem;
+  flex: none;
   padding: 0 0.35rem;
   border: 1px solid var(--warning);
   border-radius: 999px;
