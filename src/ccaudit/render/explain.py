@@ -100,10 +100,14 @@ def explain_total(analysis: SessionAnalysis) -> Trace:
         "",
         f"  total: {format_micros(reconciliation.total_micros, 6)}",
         "",
-        f"Of that, {format_micros(reconciliation.attributed_micros, 4)} "
-        f"({format_share(1 - reconciliation.unattributed_share)}) is attributed to specific",
-        f"items, and {format_micros(reconciliation.unattributed_micros, 2)} "
-        f"({format_share(reconciliation.unattributed_share)}) could not be attributed.",
+        (
+            f"Of that, {format_micros(reconciliation.attributed_micros, 4)} "
+            f"({format_share(1 - reconciliation.unattributed_share)}) is attributed to specific"
+        ),
+        (
+            f"items, and {format_micros(reconciliation.unattributed_micros, 2)} "
+            f"({format_share(reconciliation.unattributed_share)}) could not be attributed."
+        ),
         "",
         f"Rates: {analysis.pricing.provenance}.",
         "This is an estimate of API-equivalent cost. It is not a bill.",
@@ -146,10 +150,14 @@ def _trace(analysis: SessionAnalysis, key: str, rows: list[Attribution]) -> Trac
         lines.extend(
             [
                 f"Item:       {item.identity}",
-                f"            category {item.category}, measured at {item.size_tokens:,} tokens "
-                f"({item.basis})",
-                f"            loaded {analysis.timeline.load_count(item.item_id)} time(s), "
-                f"resident for {analysis.timeline.turns_resident(item.item_id)} turn(s)",
+                (
+                    f"            category {item.category}, measured at "
+                    f"{item.size_tokens:,} tokens ({item.basis})"
+                ),
+                (
+                    f"            loaded {analysis.timeline.load_count(item.item_id)} time(s), "
+                    f"resident for {analysis.timeline.turns_resident(item.item_id)} turn(s)"
+                ),
                 "",
             ]
         )
