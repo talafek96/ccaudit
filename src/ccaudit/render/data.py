@@ -136,11 +136,28 @@ class _ItemRollup:
 GROUPINGS: tuple[str, ...] = ("item", "file", "folder", "ext", "category")
 DEFAULT_GROUPING = "item"
 
+# Ranking measures (contracts/cli.md). Sorting only reorders rows — it can never change what
+# is in the table or what it sums to, which is why no reconciliation assertion depends on it.
+SORTS: tuple[str, ...] = ("cost", "carry", "direct", "reads", "share")
+DEFAULT_SORT = "cost"
+
+_SORT_KEYS = {
+    "cost": lambda r: r.total_micros,
+    "share": lambda r: r.total_micros,  # a share is the total over a constant; same ordering
+    "carry": lambda r: r.carry_micros,
+    "direct": lambda r: r.direct_micros,
+    "reads": lambda r: r.reads,
+}
+
 _MIXED = "(mixed)"
 
 
 class UnknownGroupingError(ValueError):
     """An unsupported `--by` dimension. Never silently falls back to the default."""
+
+
+class UnknownSortError(ValueError):
+    """An unsupported `--sort` measure. Never silently falls back to the default."""
 
 
 def build_report_data(
@@ -150,6 +167,7 @@ def build_report_data(
     sessions_excluded_count: int = 0,
     generated_at: str | None = None,
     group_by: str = DEFAULT_GROUPING,
+    sort_by: str = DEFAULT_SORT,
 ) -> dict[str, Any]:
     """Build the report-data payload for one or more analysed sessions.
 
@@ -163,6 +181,8 @@ def build_report_data(
     """
     if group_by not in GROUPINGS:
         raise UnknownGroupingError(f"unknown grouping {group_by!r}; known: {list(GROUPINGS)}")
+    if sort_by not in SORTS:
+        raise UnknownSortError(f"unknown sort measure {sort_by!r}; known: {list(SORTS)}")
     if not analyses:
         raise ValueError(
             "cannot build report data from zero analyses; an empty selection is the caller's "
@@ -182,6 +202,9 @@ def build_report_data(
 
     grouped = _regroup(rollups, group_by)
     _assert_grouping_conserves(rollups, grouped, group_by)
+    # Item id breaks ties so the order is total, not merely sorted — two rows with equal cost
+    # must not swap between runs (FR-017, SC-009).
+    grouped = sorted(grouped, key=lambda r: (-_SORT_KEYS[sort_by](r), r.item_id))
     items = [_item_payload(rollup, totals["cost_micros"], redact=redact) for rollup in grouped]
 
     # Turn ordinals and residency spans share one axis across a multi-session selection, so the
@@ -200,6 +223,7 @@ def build_report_data(
         "currency": CURRENCY,
         "policy": policy,
         "group_by": group_by,
+        "sort_by": sort_by,
         "redacted": redact,
         "scope": _scope(analyses, sessions_excluded_count),
         "totals": {**totals, "uncertainty_notes": _uncertainty_notes(analyses, policy)},

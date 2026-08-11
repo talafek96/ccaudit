@@ -27,7 +27,13 @@ from ccaudit.render.charts import (
 )
 from ccaudit.render.charts.bars import composition_bar, cumulative_sparkline, stacked_bars
 from ccaudit.render.charts.hierarchy import icicle
-from ccaudit.render.charts.timeline import residency_timeline
+from ccaudit.render.charts.timeline import (
+    LABEL_GUTTER,
+    MAX_SPANS,
+    TRACK_WIDTH,
+    _runs,
+    residency_timeline,
+)
 
 RECT = re.compile(r'<rect class="slice[^"]*"[^>]*?width="(\d+)"')
 NODE = re.compile(r'<rect class="node(?: [^"]*)?" x="(\d+)" y="(\d+)" width="(\d+)"')
@@ -200,6 +206,51 @@ def report_payload(
     return payload
 
 
+def busy_payload(*, turn_count: int = 300, span_count: int = 50) -> dict[str, Any]:
+    """A payload the size of a long real session — every section populated.
+
+    Shared with the system test that pins the report's byte budget, so the budget is measured
+    against a shape the tool actually produces rather than a toy.
+    """
+    total = report_payload()["totals"]["cost_micros"]
+    per_turn = total // turn_count
+    turns = [
+        {
+            "ordinal": ordinal,
+            "cost_micros": per_turn,
+            "compaction": {"occurred": ordinal % 90 == 0},
+        }
+        for ordinal in range(1, turn_count + 1)
+    ]
+    turns[-1]["cost_micros"] = total - per_turn * (turn_count - 1)
+
+    residency = []
+    for index in range(span_count):
+        first_turn = 1 + (index * 3) % (turn_count // 4)
+        still_resident = index % 5 == 0
+        last_turn = None if still_resident else min(turn_count, first_turn + 40 + index)
+        end_turn = turn_count if last_turn is None else last_turn
+        held = end_turn - first_turn + 1
+        residency.append(
+            {
+                "item_id": f"item-{index}",
+                "display": f"/repo/docs/file{index}.md",
+                "first_turn": first_turn,
+                "last_turn": last_turn,
+                "weight_tokens": 900,
+                "end_reason": None if still_resident else "evicted",
+                "lane_by_turn": ["loading"] + ["cached"] * (held - 1),
+            }
+        )
+
+    return report_payload(
+        tree=sample_tree(total),
+        turns=turns,
+        residency=residency,
+        covered_through_turn=turn_count,
+    )
+
+
 def sample_tree(total: int) -> dict[str, Any]:
     """A folder tree with a remainder node at the root, as the contract specifies."""
     return {
@@ -370,6 +421,45 @@ class TestResidency:
         html = residency_timeline(chart_id="r", title="t", spans=spans, turn_count=10)
         assert "still in context when the session ended" in html
         assert sum(int(width) for width in RECT.findall(html)) == 720 - 210 - 130
+
+    def test_runs_collapse_only_neighbours_in_the_same_lane(self) -> None:
+        assert _runs(["a", "a", "b", "a"]) == [("a", 0, 2), ("b", 2, 3), ("a", 3, 4)]
+        assert _runs([]) == []
+
+    def test_too_many_spans_says_what_it_left_out(self) -> None:
+        """Silent truncation reads as 'this is everything', which would be a lie (FR-040)."""
+        spans = [
+            {
+                "item_id": f"i{index}",
+                "display": f"file{index}.md",
+                "first_turn": 1,
+                "last_turn": 2 + index,
+                "lane_by_turn": ["cached"] * (2 + index),
+            }
+            for index in range(MAX_SPANS + 5)
+        ]
+        html = residency_timeline(chart_id="r", title="t", spans=spans, turn_count=200)
+        assert f"Showing the {MAX_SPANS} longest-resident of {MAX_SPANS + 5} items" in html
+        assert "The other 5 are in the table above" in html
+        # The longest-resident spans are the ones kept, and the shortest are the ones dropped.
+        assert f"file{MAX_SPANS + 4}.md" in html
+        assert "file0.md" not in html
+
+    def test_at_the_cap_the_payload_order_is_untouched(self) -> None:
+        spans = [
+            {
+                "item_id": f"i{index}",
+                "display": f"file{index}.md",
+                "first_turn": 1,
+                "last_turn": 2 + index,
+                "lane_by_turn": ["cached"] * (2 + index),
+            }
+            for index in range(MAX_SPANS)
+        ]
+        html = residency_timeline(chart_id="r", title="t", spans=spans, turn_count=200)
+        assert "Showing the" not in html
+        labels = re.findall(r'<text class="row-label"[^>]*>([^<]+)</text>', html)
+        assert labels == [f"file{index}.md" for index in range(MAX_SPANS)]
 
     def test_a_backwards_span_is_a_broken_invariant(self) -> None:
         spans = [{"item_id": "x", "display": "x", "first_turn": 5, "last_turn": 2}]

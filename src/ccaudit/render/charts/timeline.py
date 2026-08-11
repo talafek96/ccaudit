@@ -12,6 +12,14 @@ carries a texture as well as a colour.
 
 Spans that were still resident when the session ended are drawn to the axis end and labelled;
 they are not extended past it, and not guessed at.
+
+**Runs, not turns.** A span's ``lane_by_turn`` is overwhelmingly contiguous — an item sits in
+the cached lane for two hundred turns, it does not alternate — so consecutive turns in the same
+lane are emitted as *one* rectangle covering exactly the same pixels the individual turns
+covered. This is a serialisation change and not a visual one: the run's edges are the first
+turn's left edge and the last turn's right edge, both computed by the identical formula. On a
+361-turn session with 67 spans it is the difference between a 3.5 MB report and a 300 KB one,
+and a report nobody can email is a report that failed FR-032 however correct its figures are.
 """
 
 from collections.abc import Mapping, Sequence
@@ -38,6 +46,14 @@ END_GUTTER = 130
 TRACK_WIDTH = CHART_WIDTH - LABEL_GUTTER - END_GUTTER
 LABEL_LIMIT = 30
 AXIS_HEIGHT = 22
+
+# Past this many rows the chart is taller than any screen and the bars are too thin to compare,
+# so drawing more of them adds no information. When the cap bites, the longest-resident spans
+# are the ones kept — length is the question this chart exists to answer — and the omission is
+# stated on the face of the chart. Every omitted span is still in the embedded payload and in
+# the tables, so the cap costs the reader nothing but a scroll.
+MAX_SPANS = 60
+OMISSION_HEIGHT = 20
 
 # Lane names come from the payload's ``lane_by_turn``; each maps to a swatch role and a
 # plain-language sentence, because "uncached" means nothing to the reader this report is for.
@@ -82,12 +98,31 @@ def residency_timeline(
     if turn_count <= 0:
         raise ValueError(f"a residency timeline needs at least one turn, got {turn_count}")
 
-    body: list[str] = []
-    for index, span in enumerate(spans):
-        body.append(_span_row(span=span, chart_id=chart_id, index=index, turn_count=turn_count))
+    drawn, omitted = _select(spans, turn_count)
+    # Stated in the drawing itself, not only in the caption: a truncated chart that does not say
+    # so reads as "this is everything", which is the one thing it must never imply.
+    omission = (
+        ""
+        if not omitted
+        else (
+            f"Showing the {len(drawn)} longest-resident of {len(spans)} items. "
+            f"The other {omitted} are in the table above and in this file's embedded data."
+        )
+    )
+    offset = OMISSION_HEIGHT if omission else 0
 
-    height = ROW_HEIGHT * len(spans) + AXIS_HEIGHT
-    axis_y = ROW_HEIGHT * len(spans) + 6
+    body: list[str] = []
+    if omission:
+        body.append(
+            f'<text class="omission" x="0" y="12" text-anchor="start">{escape(omission)}</text>'
+        )
+    for index, span in enumerate(drawn):
+        body.append(
+            _span_row(span=span, chart_id=chart_id, index=index, turn_count=turn_count, top=offset)
+        )
+
+    height = ROW_HEIGHT * len(drawn) + AXIS_HEIGHT + offset
+    axis_y = ROW_HEIGHT * len(drawn) + 6 + offset
     axis = "".join(
         [
             (
@@ -118,11 +153,38 @@ def residency_timeline(
         ]
     )
     legend = _lane_legend()
-    return figure(chart_id=chart_id, title=title, svg=svg, legend=legend, note=note)
+    caption = f"{omission} {note}".strip() if omission else note
+    return figure(chart_id=chart_id, title=title, svg=svg, legend=legend, note=caption)
 
 
-def _span_row(*, span: Mapping[str, Any], chart_id: str, index: int, turn_count: int) -> str:
-    """One item's bar, divided into its per-turn lanes.
+def _select(
+    spans: Sequence[Mapping[str, Any]], turn_count: int
+) -> tuple[Sequence[Mapping[str, Any]], int]:
+    """The spans to draw and how many were left out.
+
+    Below the cap the payload's own order is kept untouched, so a small chart is unaffected by
+    the existence of the cap. Above it, the spans are ranked by how long they stayed resident,
+    which is the measure the chart is about.
+    """
+    if len(spans) <= MAX_SPANS:
+        return spans, 0
+    ranked = sorted(
+        spans,
+        key=lambda span: (-_turns_held(span, turn_count), str(span.get("item_id", ""))),
+    )
+    return ranked[:MAX_SPANS], len(spans) - MAX_SPANS
+
+
+def _turns_held(span: Mapping[str, Any], turn_count: int) -> int:
+    last_turn = span.get("last_turn")
+    end_turn = turn_count if last_turn is None else int(last_turn)
+    return end_turn - int(span["first_turn"]) + 1
+
+
+def _span_row(
+    *, span: Mapping[str, Any], chart_id: str, index: int, turn_count: int, top: int = 0
+) -> str:
+    """One item's bar, divided into its per-turn lanes, collapsed to runs.
 
     The lane segments partition the span exactly, so the bar's length is the residency and its
     composition is what that residency was charged at.
@@ -136,7 +198,7 @@ def _span_row(*, span: Mapping[str, Any], chart_id: str, index: int, turn_count:
             f"{end_turn}, which is not a span"
         )
 
-    y = index * ROW_HEIGHT
+    y = index * ROW_HEIGHT + top
     text_y = y + SPAN_HEIGHT + 1
     start_x = LABEL_GUTTER + TRACK_WIDTH * (first_turn - 1) // turn_count
     end_x = LABEL_GUTTER + TRACK_WIDTH * end_turn // turn_count
@@ -146,18 +208,24 @@ def _span_row(*, span: Mapping[str, Any], chart_id: str, index: int, turn_count:
     parts: list[str] = []
     if lanes:
         # Equal-width turns within the span: a turn is the unit the charge is levied on, so
-        # every turn gets the same slice of the bar regardless of what it cost.
+        # every turn gets the same slice of the bar regardless of what it cost. The edges are
+        # still computed per turn — a run is drawn from its first turn's left edge to its last
+        # turn's right edge, so collapsing runs cannot move a boundary by a pixel.
         edges = [start_x + width * position // len(lanes) for position in range(len(lanes) + 1)]
-        for position, lane in enumerate(lanes):
-            lane_width = edges[position + 1] - edges[position]
+        for lane, begin, end in _runs(lanes):
+            lane_width = edges[end] - edges[begin]
             if lane_width <= 0:
                 continue
+            turns = (
+                f"Turn {first_turn + begin}"
+                if end - begin == 1
+                else f"Turns {first_turn + begin}–{first_turn + end - 1} ({end - begin} turns)"
+            )
             parts.append(
-                f'<g class="mark"><rect class="slice lane lane--{escape(str(lane))}" '
-                f'x="{edges[position]}" y="{y}" width="{lane_width}" height="{SPAN_HEIGHT}" '
-                f'fill="{_lane_fill(chart_id, str(lane))}"></rect>'
-                f"<title>Turn {first_turn + position}: "
-                f"{escape(LANE_MEANING.get(str(lane), str(lane)))}</title></g>"
+                f'<g class="mark"><rect class="slice lane lane--{escape(lane)}" '
+                f'x="{edges[begin]}" y="{y}" width="{lane_width}" height="{SPAN_HEIGHT}" '
+                f'fill="{_lane_fill(chart_id, lane)}"></rect>'
+                f"<title>{turns}: {escape(LANE_MEANING.get(lane, lane))}</title></g>"
             )
     else:
         parts.append(
@@ -186,6 +254,22 @@ def _span_row(*, span: Mapping[str, Any], chart_id: str, index: int, turn_count:
             ),
         ]
     )
+
+
+def _runs(lanes: Sequence[str]) -> list[tuple[str, int, int]]:
+    """Collapse consecutive equal lanes into ``(lane, begin, end)`` half-open ranges.
+
+    Purely a serialisation concern: the runs cover exactly the same turns, in the same order,
+    with the same lane on each.
+    """
+    runs: list[tuple[str, int, int]] = []
+    for position, lane in enumerate(str(value) for value in lanes):
+        if runs and runs[-1][0] == lane and runs[-1][2] == position:
+            previous_lane, begin, _ = runs[-1]
+            runs[-1] = (previous_lane, begin, position + 1)
+        else:
+            runs.append((lane, position, position + 1))
+    return runs
 
 
 def _lane_fill(chart_id: str, lane: str) -> str:

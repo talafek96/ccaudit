@@ -148,6 +148,8 @@ p { margin: 0.4rem 0; }
 .tick { fill: var(--text-secondary); font-size: 11px; }
 .row-label { fill: var(--text-primary); font-size: 12px; }
 .row-value { fill: var(--text-secondary); font-size: 12px; font-variant-numeric: tabular-nums; }
+/* What a truncated chart left out, stated in the drawing itself. */
+.omission { fill: var(--text-primary); font-size: 12px; font-weight: 600; }
 .node { fill: var(--hierarchy); stroke: var(--hierarchy); stroke-width: 1; }
 .node--own { fill: var(--muted); fill-opacity: 0.28; stroke: var(--muted); stroke-width: 1; }
 .node-label { fill: var(--text-primary); font-size: 11px; dominant-baseline: middle; }

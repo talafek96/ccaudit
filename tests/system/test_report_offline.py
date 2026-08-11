@@ -16,7 +16,7 @@ import pytest
 from ccaudit.config.components import ATTRIBUTION_COMPONENTS, CHARGE_COMPONENTS
 from ccaudit.model.reconcile import UNATTRIBUTED_DISPLAY
 from ccaudit.render.report import render_report_html, write_report
-from tests.unit.test_charts import report_payload, sample_tree
+from tests.unit.test_charts import busy_payload, report_payload, sample_tree
 
 pytestmark = pytest.mark.system
 
@@ -201,6 +201,41 @@ class TestDegenerateInput:
         assert "compacted (turn 2)" in html
         assert "node--remainder" in html
         assert "still in context when the session ended" in html
+
+
+class TestItCanBeEmailed:
+    """FR-032 is not only about network access — a file nobody can send is not shareable.
+
+    The report went to 3.5 MB the first time the residency section carried real data, because
+    the timeline drew one rectangle per item per turn. The budget below is what stops that
+    class of regression: it is generous enough that ordinary growth does not trip it, and tight
+    enough that a per-mark blow-up (which lands in the megabytes) cannot slip past.
+    """
+
+    # 400 KB against ~167 KB for the payload below: ~2.4x headroom for new charts and sections,
+    # while a regression to one mark per turn would produce well over a megabyte on this same
+    # input. Chosen against the size, not the other way round — if a future section genuinely
+    # needs more, raise it deliberately and say why here.
+    BUDGET_BYTES = 400 * 1024
+
+    def test_a_long_session_stays_under_the_budget(self) -> None:
+        html = render_report_html(busy_payload(turn_count=300, span_count=50))
+        assert len(html.encode("utf-8")) < self.BUDGET_BYTES, (
+            f"report grew to {len(html.encode('utf-8')):,} bytes, over the "
+            f"{self.BUDGET_BYTES:,} byte budget"
+        )
+
+    def test_the_timeline_draws_runs_rather_than_one_mark_per_turn(self) -> None:
+        """The marks are bounded by the runs in the data, not by turns times spans."""
+        html = render_report_html(busy_payload(turn_count=300, span_count=50))
+        # Two lanes per span at most in this fixture, plus the hit target, plus every other
+        # chart on the page. One mark per turn would be several thousand.
+        assert html.count("<rect") < 400
+
+    def test_nothing_is_dropped_silently_when_the_chart_is_capped(self) -> None:
+        html = render_report_html(busy_payload(turn_count=300, span_count=90))
+        assert "Showing the 60 longest-resident of 90 items" in html
+        assert "The other 30 are in the table above" in html
 
 
 class TestWriting:

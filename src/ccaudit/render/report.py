@@ -708,8 +708,12 @@ def _embedded_payload(data: Mapping[str, Any]) -> str:
 
     ``<`` is escaped as a unicode sequence so no byte sequence in the data can close the script
     element early — the one way an embedded JSON literal turns into markup.
+
+    Written compactly. Indentation would add about a third to the size of a file that has to
+    survive being emailed, and it buys nothing: nobody reads this block in place — a reader
+    checking a figure copies it out and formats it with their own tools.
     """
-    literal = json.dumps(data, ensure_ascii=False, indent=1).replace("<", "\\u003c")
+    literal = json.dumps(data, ensure_ascii=False, separators=(",", ":")).replace("<", "\\u003c")
     return f'<script type="application/json" id="ccaudit-data">\n{literal}\n</script>\n'
 
 

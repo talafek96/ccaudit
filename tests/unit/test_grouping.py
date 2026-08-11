@@ -9,7 +9,13 @@ import pytest
 
 from ccaudit.analyse import SessionAnalysis, analyse_transcript
 from ccaudit.config import BUNDLED_PRICING_PATH, load_pricing
-from ccaudit.render.data import GROUPINGS, UnknownGroupingError, build_report_data
+from ccaudit.render.data import (
+    GROUPINGS,
+    SORTS,
+    UnknownGroupingError,
+    UnknownSortError,
+    build_report_data,
+)
 from tests.fixtures.builder import TranscriptBuilder
 
 PRICING = load_pricing(BUNDLED_PRICING_PATH)
@@ -137,3 +143,37 @@ class TestDeterminism:
         first.pop("generated_at")
         second.pop("generated_at")
         assert first == second
+
+
+class TestSorting:
+    @pytest.mark.parametrize("sort_by", SORTS)
+    def test_sorting_never_changes_what_the_rows_sum_to(
+        self, analysis: SessionAnalysis, sort_by: str
+    ) -> None:
+        """A ranking reorders rows. It cannot add, drop, or alter one."""
+        default = build_report_data([analysis])
+        sorted_payload = build_report_data([analysis], sort_by=sort_by)
+        assert sum(i["total_micros"] for i in sorted_payload["items"]) == sum(
+            i["total_micros"] for i in default["items"]
+        )
+        assert len(sorted_payload["items"]) == len(default["items"])
+
+    def test_sorting_by_reads_can_reorder_a_cost_ranking(self, analysis: SessionAnalysis) -> None:
+        """SC-010 at the API level: the two measures may disagree, and must be free to."""
+        by_cost = [i["display"] for i in build_report_data([analysis], sort_by="cost")["items"]]
+        by_reads = [i["display"] for i in build_report_data([analysis], sort_by="reads")["items"]]
+        assert set(by_cost) == set(by_reads)
+
+    def test_the_default_ranking_is_by_cost(self, analysis: SessionAnalysis) -> None:
+        assert build_report_data([analysis])["sort_by"] == "cost"
+
+    def test_ties_break_deterministically(self, analysis: SessionAnalysis) -> None:
+        first = build_report_data([analysis], sort_by="reads")["items"]
+        second = build_report_data([analysis], sort_by="reads")["items"]
+        assert [i["item_id"] for i in first] == [i["item_id"] for i in second]
+
+    def test_an_unknown_sort_measure_raises_rather_than_falling_back(
+        self, analysis: SessionAnalysis
+    ) -> None:
+        with pytest.raises(UnknownSortError, match="unknown sort measure"):
+            build_report_data([analysis], sort_by="vibes")
