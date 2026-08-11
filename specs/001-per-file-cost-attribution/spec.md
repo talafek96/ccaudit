@@ -486,6 +486,29 @@ item's residency shortened.
 - **FR-069**: System MUST NOT require a session to have ended before any of its cost can be
   attributed.
 
+**Instruction and always-resident content**
+
+- **FR-076**: System MUST report the cost of each always-resident item — each instruction file,
+  each skill, the base instructions, and each group of tool descriptions — individually and
+  accumulated across the whole session, not as a single combined figure.
+- **FR-077**: System MUST distinguish, for every resident item on every turn, whether it was
+  charged at the reduced rate for content already loaded, or at a higher rate because it had to
+  be loaded again.
+- **FR-078**: System MUST identify content that is too small to qualify for reduced-rate reuse on
+  the model in use, and MUST report it as charged at full rate on every turn.
+- **FR-079**: System MUST determine the reduced-rate eligibility threshold from the model recorded
+  on each request, and MUST NOT assume a single threshold across a session or a corpus.
+- **FR-080**: System MUST price re-loading from the retention period actually in effect for that
+  request, not from a single assumed rate.
+- **FR-081**: System MUST attribute the cost of a forced reload to the change that caused it —
+  a changed tool set, a changed model, an edited instruction file — and MUST NOT attribute it to
+  the content that was merely re-loaded as a consequence.
+- **FR-082**: System MUST distinguish the reasons content stopped being reused: it left the
+  conversation, something before it changed, it was never eligible for reuse, or the reuse window
+  was exceeded. These MUST NOT be collapsed into a single category.
+- **FR-083**: System MUST compute total conversation size as the sum of all three input measures,
+  and MUST NOT report the full-rate measure alone as the size of the conversation.
+
 **Presentation surfaces**
 
 - **FR-070**: System MUST provide a rich terminal presentation — formatted tables, proportion
@@ -585,6 +608,16 @@ item's residency shortened.
 - **SC-025**: The interactive interface starts from a single command in under 5 seconds, serves
   only the local machine, makes no external requests, and leaves nothing running after it is
   closed.
+- **SC-026**: For every always-resident item, the tool reports its total cost across the session
+  and the share of that cost charged at the reduced reuse rate versus the full rate.
+- **SC-027**: Given a session in which content had to be re-loaded, the tool names the change that
+  forced it, and the re-load cost is attributed to that change rather than to the re-loaded
+  content.
+- **SC-028**: Given content below the reuse-eligibility threshold for the model in use, the tool
+  reports it as charged at full rate every turn, rather than silently pricing it at the reduced
+  rate.
+- **SC-029**: The tool's reported conversation size for any turn equals the sum of all three input
+  measures for that turn.
 
 ## Assumptions
 
