@@ -64,7 +64,20 @@ class TestComponentRegistry:
             attribution_component("indirect")
 
     def test_confidence_drives_displayed_precision(self) -> None:
-        assert sig_figs_for("high") > sig_figs_for("medium") > sig_figs_for("low")
+        """CHANGED: `medium` and `low` now render at the same width, and that is deliberate.
+
+        Precision may not exceed confidence — but it must also not fall so far below it that
+        the displayed number stops being the answer. One significant figure displaces a value by
+        up to 50% ($149 shows as $100), which is larger than any uncertainty here; it reported a
+        $358.90 folder and a $400.85 folder both as "$400". Two is the floor.
+
+        The ordering that still matters is observed-versus-derived, and it is asserted. The
+        derived tiers are told apart by their stated basis and confidence, which every surface
+        already shows, rather than by a rounding that misinforms.
+        """
+        assert sig_figs_for("high") > sig_figs_for("medium")
+        assert sig_figs_for("medium") >= sig_figs_for("low")
+        assert sig_figs_for("low") >= 2
 
     def test_unknown_confidence_raises(self) -> None:
         with pytest.raises(KeyError, match="unknown confidence"):

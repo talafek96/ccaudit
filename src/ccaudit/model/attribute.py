@@ -134,22 +134,36 @@ def price_turn(turn: TurnRecord, turn_index: int, pricing: Pricing) -> TurnCharg
     """Price one turn's observed usage. Raises on an unknown model rather than guessing."""
     model = pricing.for_model(turn.model)
     usage = turn.usage
-    write_multiplier, confidence_cap = pricing.cache.write_multiplier(usage.ttl)
+    # Each window priced at its own multiplier. A turn that writes into both is not a turn with
+    # an unknown TTL — the record states how many tokens went to each — and treating it as one
+    # priced the write at a blended guess *and* capped the whole session's precision at one
+    # significant figure, which is how a $358.90 folder came to be displayed as "$400".
+    unknown_multiplier, unknown_confidence = pricing.cache.write_multiplier(None)
+    cache_write = (
+        cost_micros(
+            usage.cache_creation_5m_tokens, model.input_micros_per_mtok, pricing.cache.write_5m
+        )
+        + cost_micros(
+            usage.cache_creation_1h_tokens, model.input_micros_per_mtok, pricing.cache.write_1h
+        )
+        + cost_micros(
+            usage.cache_creation_unknown_tokens, model.input_micros_per_mtok, unknown_multiplier
+        )
+    )
 
     return TurnCharges(
         turn_index=turn_index,
         model=turn.model,
         fresh_input_micros=cost_micros(usage.input_tokens, model.input_micros_per_mtok),
-        cache_write_micros=cost_micros(
-            usage.cache_creation_tokens, model.input_micros_per_mtok, write_multiplier
-        ),
+        cache_write_micros=cache_write,
         cache_read_micros=cost_micros(
             usage.cache_read_tokens, model.input_micros_per_mtok, pricing.cache.read
         ),
         output_micros=cost_micros(usage.output_tokens, model.output_micros_per_mtok),
-        # A write whose reuse window the record does not state is priced at 5m and capped in
-        # confidence rather than assumed — assuming 5m where 1h applied understates it by 60%.
-        ttl_confidence_cap=confidence_cap if usage.cache_creation_tokens else None,
+        # Capped only for the part whose window the record genuinely does not state. Capping a
+        # turn whose windows *are* stated spends the report's precision on an uncertainty that
+        # is not there.
+        ttl_confidence_cap=(unknown_confidence if usage.cache_creation_unknown_tokens else None),
     )
 
 

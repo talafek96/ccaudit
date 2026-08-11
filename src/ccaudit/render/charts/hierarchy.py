@@ -105,9 +105,7 @@ def icicle(
         f"{note} Click a folder to zoom into it; the crumbs above the chart lead back out. "
         f"Zooming changes the scale, never a figure."
     ).strip()
-    return figure(
-        chart_id=chart_id, title=title, svg=controls + svg, note=note
-    )
+    return figure(chart_id=chart_id, title=title, svg=controls + svg, note=note)
 
 
 def _draw(

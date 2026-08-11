@@ -91,13 +91,22 @@ class Usage:
     input_tokens: int = 0
     cache_creation_5m_tokens: int = 0
     cache_creation_1h_tokens: int = 0
+    # Written to cache by a record that gave a flat total with no window breakdown. Kept apart
+    # from the two known windows rather than folded into either: the write multiplier differs
+    # by 60% between them, so this is the one part of a write whose price is genuinely a guess,
+    # and it is the only part whose confidence should be capped (FR-080).
+    cache_creation_unknown_tokens: int = 0
     cache_read_tokens: int = 0
     output_tokens: int = 0
 
     @property
     def cache_creation_tokens(self) -> int:
-        """Total written to cache this turn, across both reuse windows."""
-        return self.cache_creation_5m_tokens + self.cache_creation_1h_tokens
+        """Total written to cache this turn, across both reuse windows and the unattributed."""
+        return (
+            self.cache_creation_5m_tokens
+            + self.cache_creation_1h_tokens
+            + self.cache_creation_unknown_tokens
+        )
 
     @property
     def prompt_tokens(self) -> int:
@@ -111,11 +120,12 @@ class Usage:
 
     @property
     def ttl(self) -> str | None:
-        """Which reuse window this turn's cache write used, where the record makes it clear.
+        """Which single reuse window this turn's write used, where there is only one.
 
-        ``None`` when there was no write, or when both windows appear — the write multiplier
-        then cannot be resolved from this turn alone and the figure's confidence is capped
-        rather than assumed (FR-080).
+        Reported, not priced against: a turn that writes into *both* windows is not a turn with
+        an unknown TTL, it is a turn with two known ones, and pricing splits it (`price_turn`).
+        ``None`` here means "no single answer", which is a fact about this label rather than a
+        gap in what was recorded.
         """
         has_5m = self.cache_creation_5m_tokens > 0
         has_1h = self.cache_creation_1h_tokens > 0
@@ -453,15 +463,16 @@ def _parse_usage(raw: dict[str, Any], path: Path, line: int) -> Usage:
         five_minute = 0
         one_hour = 0
     total_creation = _as_int(raw.get("cache_creation_input_tokens"))
-    if total_creation and five_minute + one_hour == 0:
-        # Window unknown. Recorded as 5m-shaped so the total is not lost; `Usage.ttl` returns
-        # None for it only when both windows are populated, so flag it here instead.
-        five_minute = total_creation
+    # Anything the breakdown does not account for is kept as *unknown* rather than assigned to
+    # a window. Filing it under 5m — which is what this used to do — prices a 1h write 60% too
+    # low and reports it at full confidence, which is a confidently wrong figure.
+    unknown = max(0, total_creation - five_minute - one_hour)
 
     usage = Usage(
         input_tokens=_as_int(raw.get("input_tokens")),
         cache_creation_5m_tokens=five_minute,
         cache_creation_1h_tokens=one_hour,
+        cache_creation_unknown_tokens=unknown,
         cache_read_tokens=_as_int(raw.get("cache_read_input_tokens")),
         output_tokens=_as_int(raw.get("output_tokens")),
     )

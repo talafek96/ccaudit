@@ -30,7 +30,18 @@ CONFIDENCE_VALUES: tuple[str, ...] = ("high", "medium", "low")
 # the paired share already carry. Hiding digits would not express that uncertainty, it would
 # just lose information. Six figures shows cents for any session total under $10,000 and
 # degrades gracefully above it (the renderer never prints finer than a cent regardless).
-SIG_FIGS_BY_CONFIDENCE: dict[str, int] = {"high": 6, "medium": 2, "low": 1}
+#
+# **Two is the floor, and `low` used to be one.** The rule is that precision must not exceed
+# confidence — but rounding to a single significant figure *displaces* a figure by up to 50%
+# ($149 shows as $100), which is larger than any uncertainty this tool actually carries, and it
+# moves the number rather than widening it. It reported a $358.90 folder as "$400" and a
+# $400.85 one as "$400" too, so two different answers read as one. Two figures caps the
+# displacement at 5%, comfortably inside the band, and keeps distinct figures distinct.
+#
+# Confidence is not expressed by digit count alone: every figure states its own basis and
+# confidence, and `explain` gives the derivation. Those say "this rests on a policy" far better
+# than a rounded number ever could.
+SIG_FIGS_BY_CONFIDENCE: dict[str, int] = {"high": 6, "medium": 2, "low": 2}
 
 
 @dataclass(frozen=True)

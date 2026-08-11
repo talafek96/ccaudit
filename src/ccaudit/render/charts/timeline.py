@@ -123,27 +123,34 @@ def residency_timeline(
     shared = common_directory_prefix(
         [str(span.get("display", span.get("item_id", ""))) for span in drawn]
     )
-    # A span belongs to one session, and a selection can hold many. Twenty-six identically
-    # labelled `skill_listing` bars are twenty-six real spans in twenty-six different sessions
-    # — correct, and unreadable, because nothing on the row said which. The session is added
-    # only where there is more than one, so a single-session chart stays uncluttered.
-    sessions = {str(span.get("session_id")) for span in spans}
-    name_by_session = _session_names(spans) if len(sessions) > 1 else {}
-    for index, span in enumerate(drawn):
-        body.append(
-            _span_row(
-                span=span,
-                chart_id=chart_id,
-                index=index,
-                turn_count=turn_count,
-                top=offset,
-                shared_prefix=shared,
-                session_name=name_by_session.get(str(span.get("session_id")), ""),
+    # One row per *item*, not per span. A span belongs to one session, so a selection holding
+    # twenty-six sessions produced twenty-six identically labelled `skill_listing` rows —
+    # correct, and unreadable. They are the same item, so they share a row, and the periods it
+    # was resident in each session are drawn as separate bars along it. Nothing is merged
+    # arithmetically: each bar is still exactly the span that was observed.
+    rows: dict[str, list[Mapping[str, Any]]] = {}
+    for span in drawn:
+        rows.setdefault(str(span.get("display", span.get("item_id", ""))), []).append(span)
+    for index, (_label, group) in enumerate(rows.items()):
+        for span in group:
+            body.append(
+                _span_row(
+                    span=span,
+                    chart_id=chart_id,
+                    index=index,
+                    turn_count=turn_count,
+                    top=offset,
+                    shared_prefix=shared,
+                    # Only the first bar on a row carries the label; the rest are the same item
+                    # in another session and a repeated label would be noise.
+                    draw_label=span is group[0],
+                    spans_in_row=len(group),
+                )
             )
-        )
 
-    height = ROW_HEIGHT * len(drawn) + AXIS_HEIGHT + offset
-    axis_y = ROW_HEIGHT * len(drawn) + 6 + offset
+    # Rows, not spans: several spans of one item share a row.
+    height = ROW_HEIGHT * len(rows) + AXIS_HEIGHT + offset
+    axis_y = ROW_HEIGHT * len(rows) + 6 + offset
     axis = "".join(
         [
             (
@@ -221,7 +228,8 @@ def _span_row(
     turn_count: int,
     top: int = 0,
     shared_prefix: str = "",
-    session_name: str = "",
+    draw_label: bool = True,
+    spans_in_row: int = 1,
 ) -> str:
     """One item's bar, divided into its per-turn lanes, collapsed to runs.
 
@@ -277,32 +285,40 @@ def _span_row(
     reason_key = span.get("end_reason") or ("session_end" if last_turn is None else "unknown")
     reason = END_REASON_TEXT.get(str(reason_key), str(reason_key))
     turns_held = end_turn - first_turn + 1
+    label = (
+        row_label(
+            x=LABEL_GUTTER - 10,
+            y=text_y,
+            # One label per row. Where the item was resident in several sessions the row says
+            # so, because "x26" is the answer to "why is this one item broken into bars".
+            text=truncate(
+                elide_prefix(display, shared_prefix)
+                + (f" x{spans_in_row}" if spans_in_row > 1 else ""),
+                LABEL_LIMIT,
+            ),
+            title=(
+                f"{display} — resident in {spans_in_row} session(s)"
+                if spans_in_row > 1
+                else display
+            ),
+        )
+        if draw_label
+        else ""
+    )
     return "".join(
         [
-            row_label(
-                x=LABEL_GUTTER - 10,
-                y=text_y,
-                # The session goes on the *label*, not only in the tooltip — the complaint this
-                # answers is "why does skill_listing appear so many times", which a hover cannot
-                # answer for twenty-six rows at once. Middle truncation keeps both ends, so the
-                # id survives even when the name is cut.
-                text=truncate(
-                    f"{elide_prefix(display, shared_prefix)} · {session_name}"
-                    if session_name
-                    else elide_prefix(display, shared_prefix),
-                    LABEL_LIMIT,
-                ),
-                title=f"{display} — {session_name}" if session_name else display,
-            ),
+            label,
             "".join(parts),
             (
                 f'<text class="row-value" x="{CHART_WIDTH}" y="{text_y}" text-anchor="end">'
                 f"{turns_held} turns</text>"
+                if draw_label
+                else ""
             ),
             (
-                f'<g class="mark"><rect class="hit" x="{LABEL_GUTTER}" y="{y}" '
-                f'width="{TRACK_WIDTH}" height="{SPAN_HEIGHT}" fill="transparent"></rect>'
-                f"<title>{escape(display)}: turns {first_turn}–{end_turn} "
+                f'<g class="mark"><rect class="hit" x="{start_x}" y="{y}" '
+                f'width="{width}" height="{SPAN_HEIGHT}" fill="transparent"></rect>'
+                f"<title>{escape(display)}: turns {first_turn}\u2013{end_turn} "
                 f"({turns_held} turns) — {escape(reason)}</title></g>"
             ),
         ]

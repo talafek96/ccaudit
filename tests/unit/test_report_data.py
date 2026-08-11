@@ -201,7 +201,12 @@ class TestPrecisionMatchesConfidence:
         assert carried
         assert all(item["display_sig_figs"] <= 2 for item in carried)
 
-    def test_an_estimated_size_drops_the_precision_to_one_figure(self, tmp_path: Path) -> None:
+    def test_an_estimated_size_lowers_the_precision_and_names_the_driver(
+        self, tmp_path: Path
+    ) -> None:
+        """CHANGED from "drops to one figure": one figure moved the number by more than the
+        uncertainty it stood for. What must hold is that the precision is the *reduced* one and
+        that the item says what drives its range."""
         builder = TranscriptBuilder()
         builder.add_turn(input_tokens=50, cache_creation_5m=9_000, output_tokens=20)
         builder.add_tool_schema_delta(added=["mcp__demo__go"], added_lines=400)
@@ -210,7 +215,8 @@ class TestPrecisionMatchesConfidence:
 
         estimated = [item for item in payload["items"] if item["basis"] == "estimated"]
         assert estimated
-        assert all(item["display_sig_figs"] == 1 for item in estimated)
+        assert all(item["display_sig_figs"] == sig_figs_for("low") for item in estimated)
+        assert all(item["display_sig_figs"] < sig_figs_for("high") for item in estimated)
         assert all(item["uncertainty"]["driver"] == "size_estimate" for item in estimated)
 
     def test_every_item_names_what_dominates_its_range(self, payload: dict) -> None:

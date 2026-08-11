@@ -51,6 +51,9 @@ class TranscriptBuilder:
         input_tokens: int = 0,
         cache_creation_5m: int = 0,
         cache_creation_1h: int = 0,
+        # An older record that gives a flat total with no window breakdown — the only case
+        # where the write multiplier is genuinely a guess.
+        cache_creation_unsplit: int = 0,
         cache_read: int = 0,
         output_tokens: int = 0,
         message_id: str | None = None,
@@ -90,7 +93,9 @@ class TranscriptBuilder:
                         "ephemeral_5m_input_tokens": cache_creation_5m,
                         "ephemeral_1h_input_tokens": cache_creation_1h,
                     },
-                    "cache_creation_input_tokens": cache_creation_5m + cache_creation_1h,
+                    "cache_creation_input_tokens": (
+                        cache_creation_5m + cache_creation_1h + cache_creation_unsplit
+                    ),
                     "cache_read_input_tokens": cache_read,
                     "output_tokens": output_tokens,
                     "service_tier": "standard",

@@ -59,13 +59,46 @@ class TestPricingATurn:
         parsed = parse_transcript(builder.write(tmp_path / "s.jsonl"))
         assert price_turn(parsed.turns[0], 0, PRICING).cache_write_micros == 10_000_000
 
-    def test_an_unknown_reuse_window_caps_confidence_rather_than_assuming(
+    def test_both_windows_at_once_is_two_known_windows_not_one_unknown(
         self, tmp_path: Path
     ) -> None:
+        """CHANGED, deliberately. This previously asserted that a turn writing into *both*
+        windows had an unknown TTL and capped its confidence to "low".
+
+        That was wrong, and expensively so. The record states how many tokens went to each
+        window, so nothing is unknown — but treating it as unknown priced the write at a
+        blended guess *and* dragged every figure derived from it down to one significant
+        figure. Since Claude Code writes into both windows on most turns, that was **every**
+        item in the report: a $358.90 folder displayed as "$400", and a $269.35 one as "$300",
+        which is what a user reported as "the pricings are unreliable".
+
+        The invariant the old test was reaching for still holds and is asserted below: a window
+        the record does *not* state caps confidence rather than being assumed.
+        """
         builder = TranscriptBuilder()
-        builder.add_turn(cache_creation_5m=500, cache_creation_1h=500)
+        builder.add_turn(cache_creation_5m=1_000_000, cache_creation_1h=1_000_000)
+        parsed = parse_transcript(builder.write(tmp_path / "s.jsonl"))
+        charges = price_turn(parsed.turns[0], 0, PRICING)
+        assert charges.ttl_confidence_cap is None
+        # Priced per window: 1.25x on the 5m tokens, 2x on the 1h tokens, not a blend.
+        assert charges.cache_write_micros == 6_250_000 + 10_000_000
+
+    def test_a_window_the_record_does_not_state_caps_confidence(self, tmp_path: Path) -> None:
+        """The real unknown: a flat total with no breakdown. Assuming 5m understates a 1h
+        write by 60%, so it is priced conservatively and the figure says it is a guess."""
+        builder = TranscriptBuilder()
+        builder.add_turn(cache_creation_unsplit=1_000)
         parsed = parse_transcript(builder.write(tmp_path / "s.jsonl"))
         assert price_turn(parsed.turns[0], 0, PRICING).ttl_confidence_cap == "low"
+
+    def test_an_unsplit_write_is_not_filed_under_a_window(self, tmp_path: Path) -> None:
+        """It used to be recorded as 5m-shaped, which reported a guess at full confidence."""
+        builder = TranscriptBuilder()
+        builder.add_turn(cache_creation_unsplit=1_000)
+        usage = parse_transcript(builder.write(tmp_path / "s.jsonl")).turns[0].usage
+        assert usage.cache_creation_unknown_tokens == 1_000
+        assert usage.cache_creation_5m_tokens == 0
+        assert usage.cache_creation_tokens == 1_000
 
     def test_a_turn_with_no_write_has_no_ttl_caveat(self, tmp_path: Path) -> None:
         builder = TranscriptBuilder()

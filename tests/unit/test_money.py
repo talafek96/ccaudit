@@ -8,6 +8,7 @@ from fractions import Fraction
 
 import pytest
 
+from ccaudit.config.components import sig_figs_for
 from ccaudit.money import (
     allocate,
     cost_micros,
@@ -154,3 +155,30 @@ class TestFormatShare:
 
     def test_zero_is_zero(self) -> None:
         assert format_share(0.0) == "0.0%"
+
+
+class TestPrecisionNeverDisplacesTheFigure:
+    """Precision must not exceed confidence — and must not fall so far below it that the
+    displayed number is no longer the answer.
+
+    Rounding to one significant figure moves a figure by up to 50%: $149 becomes $100. That is
+    larger than any uncertainty this tool carries, so it does not express doubt, it introduces
+    error. It reported a $358.90 folder as "$400" and a $400.85 folder as "$400" as well, which
+    is how two different answers came to read as one.
+    """
+
+    @pytest.mark.parametrize("confidence", ["high", "medium", "low"])
+    def test_no_confidence_renders_below_two_significant_figures(self, confidence: str) -> None:
+        assert sig_figs_for(confidence) >= 2
+
+    @pytest.mark.parametrize("micros", [358_900_000, 400_850_000, 149_000_000, 9_800_000])
+    def test_the_rounding_error_stays_under_ten_percent(self, micros: int) -> None:
+        """The bound that makes a displayed figure still the figure."""
+        shown = format_micros(micros, sig_figs_for("low"))
+        value = float(shown.replace("$", "").replace(",", ""))
+        assert abs(value - micros / 1e6) / (micros / 1e6) < 0.10, shown
+
+    def test_two_distinct_figures_stay_distinct(self) -> None:
+        """$358.90 and $400.85 are different answers and must not print identically."""
+        low = sig_figs_for("low")
+        assert format_micros(358_900_000, low) != format_micros(400_850_000, low)

@@ -15,7 +15,7 @@ from rich.console import Console
 
 from ccaudit.analyse import SessionAnalysis, analyse_transcript
 from ccaudit.config import BUNDLED_PRICING_PATH, load_pricing
-from ccaudit.config.components import CHARGE_COMPONENTS
+from ccaudit.config.components import CHARGE_COMPONENTS, sig_figs_for
 from ccaudit.model.reconcile import UNATTRIBUTED_DISPLAY
 from ccaudit.money import format_micros
 from ccaudit.render.data import (
@@ -186,12 +186,12 @@ class TestPrecision:
         builder.add_turn(input_tokens=5, cache_read=90_000, output_tokens=15)
         payload = build_report_data([analyse(builder, tmp_path)], generated_at=FIXED_TIME)
 
-        estimated = [i for i in payload["items"] if i["display_sig_figs"] == 1]
+        estimated = [i for i in payload["items"] if i["display_sig_figs"] == sig_figs_for("low")]
         assert estimated
         text = render(payload)
         for item in estimated:
             precise = format_micros(item["total_micros"], 6)
-            coarse = format_micros(item["total_micros"], 1)
+            coarse = format_micros(item["total_micros"], sig_figs_for("low"))
             assert coarse in text
             if precise != coarse:
                 assert precise not in text
