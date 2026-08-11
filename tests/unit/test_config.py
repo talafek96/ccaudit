@@ -1,5 +1,6 @@
 """Contract on the configuration registry (Principle IX) and the honesty rules it enforces."""
 
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -8,6 +9,7 @@ from ccaudit.config import (
     ATTRIBUTION_COMPONENTS,
     BUNDLED_PRICING_PATH,
     CHARGE_COMPONENTS,
+    STALE_RATES_AFTER_DAYS,
     MissingThresholdError,
     UnknownModelError,
     attribution_component,
@@ -247,3 +249,60 @@ class TestCategories:
     def test_all_results_are_declared_categories(self) -> None:
         for path in ("a.py", "b.md", "specs/c.md", "d.bin", "skills/e/SKILL.md"):
             assert categorize(path).category in CATEGORIES
+
+
+class TestStaleRates:
+    """Rates go out of date silently. Nothing auto-refreshes, so staleness must be *said*.
+
+    An automatic update is deliberately not built: it would put a network call on the analysis
+    path and make two runs over the same transcript disagree (FR-017, FR-030).
+    """
+
+    def _table(self, tmp_path: Path, priced_on: str) -> Path:
+        table = tmp_path / "pricing.toml"
+        table.write_text(
+            BUNDLED_PRICING_PATH.read_text(encoding="utf-8").replace(
+                f'priced_on = "{BUNDLED.priced_on}"', f'priced_on = "{priced_on}"'
+            ),
+            encoding="utf-8",
+        )
+        return table
+
+    def test_fresh_rates_produce_no_warning(self, tmp_path: Path) -> None:
+        pricing = load_pricing(self._table(tmp_path, "2026-08-01"))
+        assert pricing.staleness_note(date(2026, 8, 12)) is None
+
+    def test_old_rates_say_how_old_and_what_to_do(self, tmp_path: Path) -> None:
+        pricing = load_pricing(self._table(tmp_path, "2026-01-01"))
+        note = pricing.staleness_note(date(2026, 8, 12))
+        assert note is not None
+        assert "223 days ago" in note
+        assert "ccaudit pricing refresh" in note
+
+    def test_the_boundary_is_the_declared_threshold(self, tmp_path: Path) -> None:
+        pricing = load_pricing(self._table(tmp_path, "2026-01-01"))
+        just_inside = date(2026, 1, 1) + timedelta(days=STALE_RATES_AFTER_DAYS - 1)
+        just_outside = date(2026, 1, 1) + timedelta(days=STALE_RATES_AFTER_DAYS)
+        assert pricing.staleness_note(just_inside) is None
+        assert pricing.staleness_note(just_outside) is not None
+
+    def test_an_undated_table_is_reported_as_unjudgeable_not_assumed_fresh(
+        self, tmp_path: Path
+    ) -> None:
+        """ "No date" is not "current". Saying nothing would be the flattering reading."""
+        table = tmp_path / "pricing.toml"
+        table.write_text(
+            BUNDLED_PRICING_PATH.read_text(encoding="utf-8").replace(
+                f'priced_on = "{BUNDLED.priced_on}"', 'priced_on = "unknown"'
+            ),
+            encoding="utf-8",
+        )
+        pricing = load_pricing(table)
+        assert pricing.age_days() is None
+        note = pricing.staleness_note()
+        assert note is not None
+        assert "does not record when" in note
+
+    def test_the_age_is_computed_from_the_published_date(self, tmp_path: Path) -> None:
+        pricing = load_pricing(self._table(tmp_path, "2026-06-12"))
+        assert pricing.age_days(date(2026, 8, 12)) == 61

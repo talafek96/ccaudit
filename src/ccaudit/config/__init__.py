@@ -26,6 +26,7 @@ result records which table priced it, so a reader can see how old the rates are.
 import os
 import tomllib
 from dataclasses import dataclass
+from datetime import UTC, date, datetime
 from fractions import Fraction
 from functools import lru_cache
 from pathlib import Path
@@ -44,6 +45,7 @@ __all__ = [
     "ATTRIBUTION_COMPONENTS",
     "BUNDLED_PRICING_PATH",
     "CHARGE_COMPONENTS",
+    "STALE_RATES_AFTER_DAYS",
     "CacheRates",
     "CostComponent",
     "MissingThresholdError",
@@ -64,6 +66,13 @@ BUNDLED_PRICING_PATH = Path(__file__).with_name("pricing.toml")
 PRICING_PATH_ENV = "CCAUDIT_PRICING"
 CCAUDIT_HOME_ENV = "CCAUDIT_HOME"
 USER_PRICING_FILENAME = "pricing.toml"
+
+# When a rate table stops being safe to assume current. Model prices move a few times a year,
+# so a table older than this is not necessarily wrong — it is unverified, which is a different
+# claim and one the reader is entitled to see. Nothing refreshes on its own: an automatic
+# update would put a network call on the analysis path and make two runs over the same
+# transcript disagree (FR-017).
+STALE_RATES_AFTER_DAYS = 90
 
 # Claude Code records models in a few decorated forms. These are presentation suffixes on the
 # same priced model, not distinct models, so they normalize away before lookup.
@@ -145,6 +154,42 @@ class Pricing:
         not a footnote (FR-014, FR-018).
         """
         return f"{self.source_origin} pricing table, rates as published {self.priced_on}"
+
+    def age_days(self, today: date | None = None) -> int | None:
+        """How old these rates are, or ``None`` if the table does not say.
+
+        Nothing refreshes automatically — that would make two runs over the same transcript
+        disagree, which FR-017 forbids, and would put a network call on the analysis path. So
+        staleness is *reported* and the user decides.
+        """
+        try:
+            published = date.fromisoformat(self.priced_on)
+        except ValueError:
+            return None
+        reference = today or datetime.now(UTC).date()
+        return (reference - published).days
+
+    def staleness_note(self, today: date | None = None) -> str | None:
+        """A warning when the rates are old enough to be worth re-checking, else ``None``.
+
+        Model prices change a few times a year, so ``STALE_RATES_AFTER_DAYS`` is the point at
+        which "these were current when I installed it" stops being a safe assumption. An old
+        table is not wrong — it is *unverified*, and the difference is the reader's to judge.
+        """
+        age = self.age_days(today)
+        if age is None:
+            return (
+                f"The rate table at {self.source_path} does not record when its rates were "
+                f"published, so how current they are cannot be judged. Run "
+                f"`ccaudit pricing refresh` to replace it with a dated one."
+            )
+        if age < STALE_RATES_AFTER_DAYS:
+            return None
+        return (
+            f"These rates were published {age} days ago ({self.priced_on}) and have not been "
+            f"checked since. Prices change a few times a year; run `ccaudit pricing refresh` "
+            f"to update them without upgrading ccaudit."
+        )
 
     def for_model(self, model_id: str) -> ModelPricing:
         """Resolve a model's rates, raising rather than defaulting on an unknown id."""

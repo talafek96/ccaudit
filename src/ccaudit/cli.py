@@ -670,6 +670,9 @@ def _pricing_show() -> int:
         f"cache:    read x{float(pricing.cache.read)}, "
         f"write x{float(pricing.cache.write_5m)} at 5m, x{float(pricing.cache.write_1h)} at 1h"
     )
+    stale = pricing.staleness_note()
+    if stale:
+        print(f"\n{stale}")
     missing = sorted(m for m, p in pricing.models.items() if p.min_cacheable_tokens is None)
     if missing:
         print(

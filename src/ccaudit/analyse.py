@@ -201,6 +201,9 @@ def _limitations(
             "so a portion of the cost is provably absent from the source records."
         ),
     ]
+    stale = pricing.staleness_note()
+    if stale:
+        notes.append(stale)
     if parsed.unparseable_count:
         notes.append(
             f"{parsed.unparseable_count} record(s) could not be parsed and are excluded from "
