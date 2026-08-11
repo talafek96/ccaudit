@@ -283,9 +283,9 @@ adds (SC-023, SC-031).
 - [X] T117 [P] Validate the performance goals in `tests/system/test_performance.py` — a single session under 30 s, a ~25-session corpus under 5 minutes, the UI up in under 5 s (SC-005, SC-006, SC-025)
 - [X] T118 [P] Audit precision and uncertainty across every surface in `tests/system/test_precision_audit.py` — no figure carries more significant digits than its confidence supports, and every totals surface names its dominant uncertainty (SC-036, SC-037)
 - [X] T119 [P] Verify the no-network, no-credential guarantee in `tests/system/test_no_egress.py` — no outbound request from any code path, and the tool runs with no environment variable set (FR-029, FR-030, SC-011)
-- [ ] T120 Walk every scenario in `specs/001-per-file-cost-attribution/quickstart.md` end to end and record the result
+- [X] T120 Walk every scenario in `specs/001-per-file-cost-attribution/quickstart.md` end to end and record the result
 - [X] T121 [P] Update `README.md` with real usage — zero-argument invocation, the command table, and the honesty framing (API-equivalent, never billed)
-- [ ] T122 [P] Reconcile `HANDOFF.md` and `PITFALLS.md` with what was actually built and what was actually hit — the two files that carry session-to-session memory (constitution VII)
+- [X] T122 [P] Reconcile `HANDOFF.md` and `PITFALLS.md` with what was actually built and what was actually hit — the two files that carry session-to-session memory (constitution VII)
 - [ ] T123 Self-review the full diff, then run `uv run ruff format && uv run ruff check && uv run mypy && uv run pytest` clean (constitution IV)
 
 ---
