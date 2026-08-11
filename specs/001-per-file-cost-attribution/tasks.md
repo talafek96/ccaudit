@@ -286,7 +286,7 @@ adds (SC-023, SC-031).
 - [X] T120 Walk every scenario in `specs/001-per-file-cost-attribution/quickstart.md` end to end and record the result
 - [X] T121 [P] Update `README.md` with real usage — zero-argument invocation, the command table, and the honesty framing (API-equivalent, never billed)
 - [X] T122 [P] Reconcile `HANDOFF.md` and `PITFALLS.md` with what was actually built and what was actually hit — the two files that carry session-to-session memory (constitution VII)
-- [ ] T123 Self-review the full diff, then run `uv run ruff format && uv run ruff check && uv run mypy && uv run pytest` clean (constitution IV)
+- [X] T123 Self-review the full diff, then run `uv run ruff format && uv run ruff check && uv run mypy && uv run pytest` clean (constitution IV)
 
 ---
 
