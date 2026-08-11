@@ -35,7 +35,7 @@ from pathlib import PurePosixPath
 from typing import Any
 
 from ccaudit import __version__
-from ccaudit.analyse import SessionAnalysis
+from ccaudit.analyse import ReportInput
 from ccaudit.config import (
     ATTRIBUTION_COMPONENTS,
     CHARGE_COMPONENTS,
@@ -200,7 +200,7 @@ class UnknownSortError(ValueError):
 
 
 def build_report_data(
-    analyses: Sequence[SessionAnalysis],
+    analyses: Sequence[ReportInput],
     *,
     redact: bool = False,
     sessions_excluded_count: int = 0,
@@ -286,7 +286,7 @@ def build_report_data(
         "diagnostics": {
             "unparseable_records": sum(a.parsed.unparseable_count for a in analyses),
             # Anchor reconciliation is parsed (ingest/anchors.py) but not yet wired into
-            # SessionAnalysis; an empty list says "not checked", never "checked and clean".
+            # ReportInput; an empty list says "not checked", never "checked and clean".
             "anchor_reconciliation": [],
             "limitations": limitations,
             "estimated_figures": sum(
@@ -413,7 +413,7 @@ def _assert_comparison_adds_up(payload: dict[str, Any]) -> None:
         )
 
 
-def _totals(analyses: Sequence[SessionAnalysis]) -> dict[str, Any]:
+def _totals(analyses: Sequence[ReportInput]) -> dict[str, Any]:
     cost = sum(a.reconciliation.total_micros for a in analyses)
     attributed = sum(a.reconciliation.attributed_micros for a in analyses)
     unattributed = sum(a.reconciliation.unattributed_micros for a in analyses)
@@ -442,7 +442,7 @@ def _totals(analyses: Sequence[SessionAnalysis]) -> dict[str, Any]:
 
 
 def _scope(
-    analyses: Sequence[SessionAnalysis], excluded: int, skipped: Sequence[str] = ()
+    analyses: Sequence[ReportInput], excluded: int, skipped: Sequence[str] = ()
 ) -> dict[str, Any]:
     versions: set[str] = set()
     for analysis in analyses:
@@ -460,7 +460,7 @@ def _scope(
     }
 
 
-def _components(analyses: Sequence[SessionAnalysis], total_micros: int) -> list[dict[str, Any]]:
+def _components(analyses: Sequence[ReportInput], total_micros: int) -> list[dict[str, Any]]:
     """The four charge components, priced and labelled from the registry that defines them."""
     tokens = {component.id: 0 for component in CHARGE_COMPONENTS}
     micros = {component.id: 0 for component in CHARGE_COMPONENTS}
@@ -494,7 +494,7 @@ def _components(analyses: Sequence[SessionAnalysis], total_micros: int) -> list[
     ]
 
 
-def _invalidations(analyses: Sequence[SessionAnalysis], *, redact: bool) -> list[dict[str, Any]]:
+def _invalidations(analyses: Sequence[ReportInput], *, redact: bool) -> list[dict[str, Any]]:
     """Prefix changes that forced content back into the cache, and what each cost.
 
     The `detail` is deliberately user-facing ("MCP server 'playwright' added") rather than a
@@ -533,7 +533,7 @@ def _redact_paths(detail: str) -> str:
     )
 
 
-def _attribution(analyses: Sequence[SessionAnalysis], total_micros: int) -> list[dict[str, Any]]:
+def _attribution(analyses: Sequence[ReportInput], total_micros: int) -> list[dict[str, Any]]:
     """The four attribution components — what the charges were concluded to be *for*.
 
     ``direct`` and ``carry`` are the item-level conclusions the leaderboard breaks down;
@@ -568,14 +568,14 @@ def _attribution(analyses: Sequence[SessionAnalysis], total_micros: int) -> list
     ]
 
 
-def _ordered_sessions(analyses: Sequence[SessionAnalysis]) -> list[tuple[SessionAnalysis, int]]:
+def _ordered_sessions(analyses: Sequence[ReportInput]) -> list[tuple[ReportInput, int]]:
     """The sessions in a fixed order, each with the turn ordinal it starts at.
 
     A multi-session selection is drawn on one turn axis, so the ordinals have to be assigned
     once and shared by every section that names a turn. Ordering by session id rather than by
     argument order is what keeps the axis identical between two runs (FR-017).
     """
-    ordered: list[tuple[SessionAnalysis, int]] = []
+    ordered: list[tuple[ReportInput, int]] = []
     offset = 0
     for analysis in sorted(analyses, key=lambda analysis: analysis.session_id):
         ordered.append((analysis, offset))
@@ -583,7 +583,7 @@ def _ordered_sessions(analyses: Sequence[SessionAnalysis]) -> list[tuple[Session
     return ordered
 
 
-def _turns(ordered: Sequence[tuple[SessionAnalysis, int]]) -> list[dict[str, Any]]:
+def _turns(ordered: Sequence[tuple[ReportInput, int]]) -> list[dict[str, Any]]:
     """What each turn cost, in order, with compaction boundaries marked (FR-039).
 
     ``prompt_tokens`` is all three input measures, never ``input_tokens`` alone (FR-083): a
@@ -620,7 +620,7 @@ def _turns(ordered: Sequence[tuple[SessionAnalysis, int]]) -> list[dict[str, Any
     return rows
 
 
-def _compaction_by_turn(analysis: SessionAnalysis) -> dict[int, dict[str, Any]]:
+def _compaction_by_turn(analysis: ReportInput) -> dict[int, dict[str, Any]]:
     """The compaction boundaries, keyed by the turn they landed on.
 
     Measured, not inferred: the boundary record states the conversation size before and after
@@ -657,7 +657,7 @@ def _compaction_by_turn(analysis: SessionAnalysis) -> dict[int, dict[str, Any]]:
 
 
 def _residency(
-    ordered: Sequence[tuple[SessionAnalysis, int]], *, redact: bool
+    ordered: Sequence[tuple[ReportInput, int]], *, redact: bool
 ) -> tuple[list[dict[str, Any]], int]:
     """One row per residency span, with its per-turn lane (FR-036).
 
@@ -701,7 +701,7 @@ def _residency(
     return rows, unbroken
 
 
-def _lanes_by_item(analysis: SessionAnalysis) -> dict[str, dict[int, str]]:
+def _lanes_by_item(analysis: ReportInput) -> dict[str, dict[int, str]]:
     """Every lane verdict, indexed by item and turn — one pass instead of a scan per span."""
     lanes: dict[str, dict[int, str]] = {}
     for assignment in analysis.attribution.lanes.assignments:
@@ -709,7 +709,7 @@ def _lanes_by_item(analysis: SessionAnalysis) -> dict[str, dict[int, str]]:
     return lanes
 
 
-def _rollups(analyses: Sequence[SessionAnalysis]) -> tuple[list[_ItemRollup], list[str]]:
+def _rollups(analyses: Sequence[ReportInput]) -> tuple[list[_ItemRollup], list[str]]:
     """Accumulate per-item figures across sessions, ranked most expensive first.
 
     Returns the rollups and the models whose cacheability threshold could not be resolved —
@@ -1120,7 +1120,7 @@ def _assert_grouping_conserves(
         )
 
 
-def _fold_lanes(analysis: SessionAnalysis, rollups: dict[str, _ItemRollup]) -> None:
+def _fold_lanes(analysis: ReportInput, rollups: dict[str, _ItemRollup]) -> None:
     """Fold one session's lane history into the item rollups (FR-078, SC-026).
 
     The lane classification names the models an item was **actually resident on and below the
@@ -1259,7 +1259,7 @@ def _pseudonym(text: str) -> str:
     return f"{PSEUDONYM_PREFIX}{sha256(text.encode('utf-8')).hexdigest()[:PSEUDONYM_HEX_DIGITS]}"
 
 
-def _uncertainty_notes(analyses: Sequence[SessionAnalysis], policy: str) -> list[str]:
+def _uncertainty_notes(analyses: Sequence[ReportInput], policy: str) -> list[str]:
     """What a reader must be told wherever these totals appear (FR-097).
 
     Three dominate, and they are stated first: the prices are imputed, the shared carry rests
@@ -1281,7 +1281,7 @@ def _uncertainty_notes(analyses: Sequence[SessionAnalysis], policy: str) -> list
 
 
 def _limitations(
-    analyses: Sequence[SessionAnalysis],
+    analyses: Sequence[ReportInput],
     threshold_gaps: Sequence[str],
     rollups: Sequence[_ItemRollup],
     unbroken_spans: int,

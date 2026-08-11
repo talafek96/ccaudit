@@ -563,6 +563,36 @@ item's residency shortened.
 - **FR-094**: Repeating an analysis over unchanged records MUST produce the same result and MUST
   NOT create a second stored entry.
 
+**Reading results back**
+
+The tool re-derived every figure from the transcripts on every invocation. That is correct and
+it is unusable at scale: a sweep over ~900 sessions took 106 seconds, and the pipeline is flat
+and linear, so the cost is volume rather than a hot spot to optimise away. These requirements
+govern serving a stored result instead — and they exist because the obvious implementation,
+re-deriving an analysis from the normalised tables, would create a *second* way to produce the
+same figures, and two derivations drift.
+
+- **FR-104**: An analysis whose records have not changed MUST be served from the store rather
+  than recomputed. Reading back MUST NOT re-read the original transcript.
+- **FR-105**: What is stored MUST be a **round-trippable record of the conclusion**, never a
+  second derivation of it. Restoring a stored result MUST yield a value equal to the one the
+  pipeline produced, and that equality MUST be verified by test against real sessions. A stored
+  result that must be recomputed to be used is not a cache; it is a second implementation.
+- **FR-106**: A stored result MUST be served only when everything it depends on is unchanged:
+  the session's records, the carry-splitting policy, **the rate table**, and the version of the
+  tool that produced it. A change to any of them MUST miss rather than serve a stale figure.
+  Rates in particular are refreshable at any time (FR-099), so a cached figure priced by an
+  older table is a wrong number, not an old one.
+- **FR-107**: Caching MUST be per session, so that adding one session to a corpus recomputes
+  that session and no other.
+- **FR-108**: A session that may still be running MUST NOT be served from the store, because
+  its records are still growing (FR-067).
+- **FR-109**: The user MUST be able to tell, for any run, which sessions were served from the
+  store and which were computed — a figure's provenance includes whether it was recalled or
+  derived (FR-014).
+- **FR-110**: The store MUST be a cache and never a source of truth: deleting it MUST change
+  nothing but speed, and a run against a deleted store MUST produce identical figures.
+
 **Presentation surfaces**
 
 - **FR-070**: System MUST provide a rich terminal presentation — formatted tables, proportion
@@ -652,6 +682,11 @@ item's residency shortened.
   contribution.
 - **SC-021**: Changing which sessions are included in an analysis produces updated results in
   under 2 seconds for a corpus of 100 sessions, without re-reading the original records.
+- **SC-024**: A stored result restores to a value equal to the one the pipeline computed, for
+  every session in a real local corpus — so a figure read from the store and the same figure
+  computed from the transcript can never disagree (FR-105).
+- **SC-025**: A second run over an unchanged corpus of 100 sessions completes in under 2
+  seconds, and deleting the store changes the figures not at all (FR-110).
 - **SC-022**: A user can analyse a session from months earlier, provided its records still
   exist locally, with no loss of detail relative to a recent one.
 - **SC-023**: Analysing a session that is still running returns a breakdown of activity so far,

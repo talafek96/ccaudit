@@ -1,7 +1,9 @@
--- ccaudit store schema, version 1.
+-- ccaudit store schema, version 2.
 --
--- v1 is corrected in place rather than migrated: no released build has ever written this
--- database, so there is no store on disk for a migration to carry forward.
+-- v1 was corrected in place rather than migrated: no released build had ever written this
+-- database, so there was no store on disk for a migration to carry forward. v2 adds the cache
+-- columns on `analysis_result` and IS migrated (db.py `_MIGRATIONS`), because by then a store
+-- could exist.
 --
 -- Derived from specs/001-per-file-cost-attribution/data-model.md. The spine of the model is
 -- the split between Charge (observed, never adjusted) and Attribution (derived, must sum back
@@ -203,6 +205,16 @@ CREATE TABLE IF NOT EXISTS analysis_result (
     producing_version    TEXT,
     tool_version         TEXT,
     computed_at          TEXT NOT NULL,
+    -- Invariant F3: a figure depends on the rates that priced it, and rates are refreshable at
+    -- any time (FR-099). A cached figure priced by a superseded table is a wrong number, not an
+    -- old one, so this is part of the key that decides whether a row may be served (FR-106).
+    pricing_fingerprint  TEXT NOT NULL DEFAULT '',
+    -- The cached conclusion itself: zlib-compressed JSON of a SessionContribution. A blob and
+    -- not a set of columns on purpose — the store holds a *round-trippable record* of what was
+    -- concluded, never the material to re-derive it, because a second derivation is a second
+    -- implementation and two implementations drift (FR-105). NULL for a row written before the
+    -- cache existed, which simply misses.
+    contribution         BLOB,
     UNIQUE (session_id, fingerprint, policy)
 );
 

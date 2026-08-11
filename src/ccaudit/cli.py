@@ -14,15 +14,23 @@ import argparse
 import json
 import logging
 import os
+import sqlite3
 import sys
 import time
 import webbrowser
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, NoReturn
 
 from ccaudit import __version__
-from ccaudit.analyse import SessionAnalysis, analyse_transcript
+from ccaudit.analyse import (
+    ReportInput,
+    SessionAnalysis,
+    analyse_transcript,
+    contribution_of,
+)
 from ccaudit.capture import clear_queue, enqueue, read_queue, release_worker_lock
 from ccaudit.config import (
     UnknownModelError,
@@ -60,7 +68,8 @@ from ccaudit.render.explain import (
 from ccaudit.render.report import write_report
 from ccaudit.render.serve import Selection, serve_ui
 from ccaudit.render.terminal import build_console, render_report
-from ccaudit.store.db import connect
+from ccaudit.store.cache import cache_key, read_contribution, store_contribution
+from ccaudit.store.db import SchemaVersionError, connect
 from ccaudit.store.results import store_result
 
 # The exit-code contract from contracts/cli.md. These are part of the interface: a script that
@@ -73,6 +82,10 @@ EXIT_DATA_ERROR = 4
 EXIT_INTERRUPTED = 130
 
 LOG_FILENAME = "ccaudit.log"
+
+# Escape hatch used by the tests that prove the store is a cache and nothing more: the same
+# corpus analysed with and without it must produce identical figures (FR-110).
+NO_CACHE_ENV = "CCAUDIT_NO_CACHE"
 _LOGGER = logging.getLogger("ccaudit")
 
 
@@ -396,9 +409,22 @@ def select_sessions(args: argparse.Namespace) -> list[SessionRef]:
     return refs
 
 
-def _analyse_selection(
-    args: argparse.Namespace,
-) -> tuple[list[SessionAnalysis], int, list[str]]:
+@dataclass(frozen=True)
+class Selected:
+    """What a selection produced, including how it produced it.
+
+    ``recalled`` is part of the answer rather than a statistic: a figure's provenance includes
+    whether it was recalled or derived (FR-109). A reader who sees a corpus total appear
+    instantly is entitled to know it was not recomputed.
+    """
+
+    analyses: list[ReportInput]
+    excluded: int
+    skipped: list[str]
+    recalled: int = 0
+
+
+def _analyse_selection(args: argparse.Namespace, *, cached: bool = True) -> Selected:
     """Analyse the selected sessions, returning them, how many were excluded, and what was skipped.
 
     The exclusion count travels with the result because an exclusion is *part of* the answer:
@@ -418,41 +444,108 @@ def _analyse_selection(
     refs = select_sessions(args)
     named = bool(getattr(args, "session", None))
     pricing = load_pricing()
-    analyses: list[SessionAnalysis] = []
+    analyses: list[ReportInput] = []
     skipped: list[str] = []
-    for ref in refs:
-        try:
-            analyses.append(
-                analyse_transcript(
+    recalled = 0
+    with _result_cache(enabled=cached) as cache:
+        for ref in refs:
+            key = (
+                cache_key(ref.session_id, ref.fingerprint, args.policy, pricing.fingerprint)
+                if cache is not None and not ref.in_progress
+                else None
+            )
+            # An in-progress session is never served from the store: its records are still
+            # growing, so a cached figure for it is a figure for a session that no longer
+            # exists (FR-108).
+            stored = read_contribution(cache, key) if cache is not None and key else None
+            if stored is not None:
+                analyses.append(stored)
+                recalled += 1
+                continue
+            try:
+                analysis = analyse_transcript(
                     ref.path,
                     pricing=pricing,
                     policy=args.policy,
                     project_path=str(ref.project_path) if ref.project_path else None,
                     provisional=ref.in_progress,
                 )
-            )
-        except UnknownModelError as exc:
-            if named:
-                raise
-            skipped.append(f"{ref.session_id} ({exc.model})")
+            except UnknownModelError as exc:
+                if named:
+                    raise
+                skipped.append(f"{ref.session_id} ({exc.model})")
+                continue
+            analyses.append(analysis)
+            if cache is not None and key is not None:
+                # Best-effort: the cache is not a source of truth, so a store that will not
+                # take the write must not take the answer down with it (FR-110).
+                try:
+                    store_contribution(cache, key, contribution_of(analysis))
+                except sqlite3.Error as exc:
+                    _LOGGER.info("could not cache %s: %s", ref.session_id, exc)
     if not analyses:
         raise NoSessionsFound(
             f"every selected session used a model this rate table cannot price: "
             f"{', '.join(skipped)}. Run `ccaudit pricing refresh`, or add the model to "
             f"{resolve_pricing_path()} with its min_cacheable_tokens."
         )
-    return analyses, len(getattr(args, "exclude", None) or ()), skipped
+    return Selected(
+        analyses=analyses,
+        excluded=len(getattr(args, "exclude", None) or ()),
+        skipped=skipped,
+        recalled=recalled,
+    )
+
+
+def _analyse_fresh(args: argparse.Namespace) -> list[SessionAnalysis]:
+    """Analyse the selection without touching the cache.
+
+    `explain` and `footprint` need the live `Pricing` object — the provenance line, the rates
+    behind a formula — and a cached *conclusion* deliberately does not carry it: rates are
+    configuration, not something the analysis concluded, and freezing them into a cache entry
+    is how a figure ends up quoting a table that no longer prices it. Both commands are
+    single-session and interactive, so recomputing costs a fraction of a second.
+    """
+    selected = _analyse_selection(args, cached=False)
+    fresh = [item for item in selected.analyses if isinstance(item, SessionAnalysis)]
+    if len(fresh) != len(selected.analyses):  # pragma: no cover - cached=False guarantees this
+        raise AssertionError("cached=False must yield freshly-computed analyses")
+    return fresh
+
+
+@contextmanager
+def _result_cache(*, enabled: bool = True) -> Iterator[sqlite3.Connection | None]:
+    """The store, if it can be opened — and ``None`` if it cannot.
+
+    A cache that fails to open must not stop an analysis: the figures do not come from it, and
+    a read-only home directory or a database written by a newer build is a reason to be slow,
+    not a reason to produce nothing (FR-110). Set ``CCAUDIT_NO_CACHE`` to skip it entirely,
+    which is how the system tests prove the figures are identical without one.
+    """
+    if not enabled or os.environ.get(NO_CACHE_ENV):
+        yield None
+        return
+    try:
+        conn = connect()
+    except (sqlite3.Error, SchemaVersionError, OSError) as exc:
+        _LOGGER.info("running without the result cache: %s", exc)
+        yield None
+        return
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 def _run_analyse(args: argparse.Namespace) -> int:
     if getattr(args, "watch", False):
         return _run_watch(args)
-    analyses, excluded, skipped = _analyse_selection(args)
+    selected = _analyse_selection(args)
     payload = build_report_data(
-        analyses,
+        selected.analyses,
         redact=args.redact,
-        sessions_excluded_count=excluded,
-        sessions_skipped=skipped,
+        sessions_excluded_count=selected.excluded,
+        sessions_skipped=selected.skipped,
         group_by=args.group_by,
         sort_by=args.sort_by,
     )
@@ -533,12 +626,12 @@ def _run_watch(args: argparse.Namespace) -> int:
             coverage = "|".join(f"{ref.session_id}:{ref.fingerprint}" for ref in refs)
             if coverage != seen:
                 seen = coverage
-                analyses, excluded, skipped = _analyse_selection(args)
+                selected = _analyse_selection(args)
                 payload = build_report_data(
-                    analyses,
+                    selected.analyses,
                     redact=args.redact,
-                    sessions_excluded_count=excluded,
-                    sessions_skipped=skipped,
+                    sessions_excluded_count=selected.excluded,
+                    sessions_skipped=selected.skipped,
                     group_by=args.group_by,
                 )
                 console.clear()
@@ -622,7 +715,7 @@ def _run_ui(args: argparse.Namespace) -> int:
 
 def _run_footprint(args: argparse.Namespace) -> int:
     """Disclose the tool's own resident cost rather than asserting it is negligible (FR-056)."""
-    analyses, _, _ = _analyse_selection(args)
+    analyses = _analyse_fresh(args)
     console = build_console()
     for analysis in analyses:
         for line in measure_footprint(analysis).lines():
@@ -632,12 +725,12 @@ def _run_footprint(args: argparse.Namespace) -> int:
 
 def _run_report(args: argparse.Namespace) -> int:
     """Write the shareable report — one file, opens offline, no tooling required (FR-032)."""
-    analyses, excluded, skipped = _analyse_selection(args)
+    selected = _analyse_selection(args)
     payload = build_report_data(
-        analyses,
+        selected.analyses,
         redact=args.redact,
-        sessions_excluded_count=excluded,
-        sessions_skipped=skipped,
+        sessions_excluded_count=selected.excluded,
+        sessions_skipped=selected.skipped,
         group_by=args.group_by,
         sort_by=args.sort_by,
     )
@@ -659,7 +752,7 @@ def _run_report(args: argparse.Namespace) -> int:
 
 
 def _run_explain(args: argparse.Namespace) -> int:
-    analyses, _, _ = _analyse_selection(args)
+    analyses = _analyse_fresh(args)
     if len(analyses) > 1:
         raise UsageError(
             f"explain works on one session at a time; the selection matched {len(analyses)}. "

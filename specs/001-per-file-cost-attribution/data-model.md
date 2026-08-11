@@ -186,6 +186,54 @@ reload is charged to the change, not the content (FR-081).
 >
 > **Invariant F2.** `UNIQUE(session_id, fingerprint, policy)` — re-running over unchanged records
 > creates no second entry (FR-094).
+>
+> **Invariant F3.** A result may be served only when *everything it was computed from* is
+> unchanged. `fingerprint` covers the records and `policy` covers the split, but a figure also
+> depends on the rate table and on the code that derived it — and rates are refreshable at any
+> time (FR-099). So the row additionally carries `pricing_fingerprint` and `tool_version`, and a
+> mismatch on either is a miss. A cached figure priced by a superseded table is a **wrong
+> number**, not an old one (FR-106).
+
+### SessionContribution — the cached conclusion
+
+The unit that is stored and read back. It exists because of one decision, which is the whole
+design: **the store holds a round-trippable record of the conclusion, never the material to
+re-derive it** (FR-105).
+
+The obvious alternative — rebuild a `SessionAnalysis` by querying the normalised tables — was
+rejected. It would be a second implementation of the same arithmetic, reachable by a different
+path, and the two can drift silently. That is precisely the defect class this tool exists to
+prevent, and it would be introduced by the machinery meant to make the tool faster.
+
+A serialisation does not have that failure mode, because it is checkable in a way a
+re-derivation is not: `restore(store(x)) == x` is a property that can be asserted directly,
+over real sessions (SC-024).
+
+| Field | Type | Notes |
+|---|---|---|
+| `session_id`, `policy`, `provisional` | | Identity and how it was split |
+| `charges` | per turn | Observed, never adjusted — the denominator every check uses |
+| `attributions` | list | The conclusion: target, component, cost, basis, confidence, refs |
+| `invalidations` | list | Forced reloads, charged to the change (FR-081) |
+| `lanes` | assignments, summaries, `threshold_unknown_models` | Which rate each item paid, per turn |
+| `timeline` | turns, items, compaction turns | What was resident and when |
+| `parsed` | compactions, producing versions, unparseable count | Coverage and its gaps |
+| `reconciliation` | total / attributed / unattributed micros | Restated so a restored result is checkable on its own |
+| `limitations` | list of text | Travels with the figures wherever they appear (FR-018) |
+
+Scope is fixed by what the payload builder actually reads off an analysis, and nothing more.
+In particular it does **not** carry `ParsedTranscript`'s records: those are the transcript, and
+storing them would make the cache the size of the corpus it is caching.
+
+> **Invariant S1.** `restore(store(contribution)) == contribution`, asserted against a real
+> corpus rather than a fixture (FR-105, SC-024).
+>
+> **Invariant S2.** A restored contribution reconciles on its own terms — the stored
+> `reconciliation` equals the sum of the stored attributions. A restore that had to be trusted
+> rather than checked would be a second source of truth.
+>
+> **Invariant S3.** The store is a cache and never a source of truth. Deleting it changes speed
+> and nothing else (FR-110), which is what makes it safe to throw away on any doubt.
 
 ### Claim
 

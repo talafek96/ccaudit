@@ -29,6 +29,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from fractions import Fraction
 from functools import lru_cache
+from hashlib import sha256
 from pathlib import Path
 
 from ccaudit.config.components import (
@@ -118,6 +119,14 @@ class ModelPricing:
     output_micros_per_mtok: int
     min_cacheable_tokens: int | None
 
+    @property
+    def fingerprint(self) -> str:
+        """Every value of this row that can change a figure, in a stable form."""
+        return (
+            f"{self.input_micros_per_mtok}/{self.output_micros_per_mtok}/"
+            f"{self.min_cacheable_tokens}"
+        )
+
 
 @dataclass(frozen=True)
 class CacheRates:
@@ -128,6 +137,14 @@ class CacheRates:
     write_1h: Fraction
     unknown_ttl: Fraction
     unknown_ttl_confidence: str
+
+    @property
+    def fingerprint(self) -> str:
+        """Every multiplier that can change a figure. Fractions render exactly, unlike floats."""
+        return (
+            f"{self.read}/{self.write_5m}/{self.write_1h}/"
+            f"{self.unknown_ttl}/{self.unknown_ttl_confidence}"
+        )
 
     def write_multiplier(self, ttl: str | None) -> tuple[Fraction, str | None]:
         """Write multiplier for a recorded TTL, plus a confidence ceiling when it is unknown.
@@ -153,6 +170,22 @@ class Pricing:
     source_origin: str
     cache: CacheRates
     models: dict[str, ModelPricing]
+
+    @property
+    def fingerprint(self) -> str:
+        """Identity of the *rates themselves*, for deciding whether a cached figure still holds.
+
+        Rates are refreshable at any time (FR-099), so a figure priced by a superseded table is
+        a wrong number rather than an old one. That makes this part of every cache key
+        (FR-106). Derived from the values that enter a calculation — not from the file's bytes,
+        which would also change on a comment edit, and not from `priced_on`, which a table can
+        carry without its rates having moved.
+        """
+        parts = [f"cache:{self.cache.fingerprint}"]
+        for model_id in sorted(self.models):
+            model = self.models[model_id]
+            parts.append(f"{model_id}:{model.fingerprint}")
+        return sha256("|".join(parts).encode("utf-8")).hexdigest()[:16]
 
     @property
     def provenance(self) -> str:

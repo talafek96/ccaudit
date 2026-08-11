@@ -41,12 +41,21 @@ SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 
 # Bumped whenever schema.sql changes shape. Mirrored into `PRAGMA user_version`, which is the
 # only version marker: a schema_version table would be a second source for the same fact.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 # from-version -> statements that carry the database to from-version + 1. Empty at v1: the
 # mechanism exists so the first real migration is a data entry, not a design decision made
 # under pressure. A gap in the chain is a hard error, never a silent skip.
-_MIGRATIONS: dict[int, tuple[str, ...]] = {}
+_MIGRATIONS: dict[int, tuple[str, ...]] = {
+    # v1 -> v2: the cache. `contribution` holds the round-trippable conclusion and
+    # `pricing_fingerprint` puts the rates into the key that decides whether it may be served
+    # (invariant F3, FR-106). Both are nullable/defaulted, so an existing row survives the
+    # migration and simply misses the cache until it is next computed.
+    1: (
+        "ALTER TABLE analysis_result ADD COLUMN pricing_fingerprint TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE analysis_result ADD COLUMN contribution BLOB",
+    ),
+}
 
 
 class SchemaVersionError(RuntimeError):

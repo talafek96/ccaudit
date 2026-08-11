@@ -27,6 +27,7 @@ from ccaudit.config import Pricing, load_pricing
 from ccaudit.ingest.dedup import DedupResult, dedup_turns
 from ccaudit.ingest.records import (
     AttachmentRecord,
+    CompactionRecord,
     IngestDiagnostic,
     ParsedTranscript,
     ToolResultRecord,
@@ -227,3 +228,98 @@ def _limitations(
             f"across the boundary."
         )
     return notes
+
+
+# --- the exportable conclusion -----------------------------------------------------------
+#
+# Everything below is what a finished analysis is worth keeping, and it lives here rather than
+# in `store/` because it is not a storage concern: `render.data` consumes it, and putting it
+# under the store would make the presentation layer depend on the cache.
+
+
+@dataclass(frozen=True)
+class ParsedFacts:
+    """What the payload builder needs from the parse — never the records themselves."""
+
+    producing_versions: set[str]
+    compactions: list[CompactionRecord]
+    unparseable_count: int
+
+
+@dataclass(frozen=True)
+class SessionContribution:
+    """One session's finished conclusion, in the form that is stored and read back.
+
+    Frozen because a cached value that can be mutated after restore is a cached value that can
+    disagree with what was stored.
+    """
+
+    session_id: str
+    policy: str
+    provisional: bool
+    parsed: ParsedFacts
+    timeline: Timeline
+    attribution: AttributionResult
+    reconciliation: Reconciliation
+    limitations: list[str] = field(default_factory=list)
+
+    @property
+    def total_micros(self) -> int:
+        return self.reconciliation.total_micros
+
+    def check_reconciles(self) -> None:
+        """Invariant S2 — a restored result is checkable on its own terms.
+
+        Re-derived from the stored parts rather than trusted. A cache that hands back a total
+        nobody re-checked is a second source of truth, which is the thing this design exists to
+        avoid — so the check is run on the way *out* of the store, not only on the way in.
+
+        Note what the remainder is and is not: it is computed once by
+        :func:`~ccaudit.model.reconcile.reconcile` from what the attributions leave unexplained,
+        and is deliberately **not** an attribution row (passing it in as one would double-count
+        it). So the check is that the rows account for ``attributed_micros`` exactly, and that
+        the remainder makes up the rest of the total — never that a remainder row exists.
+        """
+        attributed = sum(row.cost_micros for row in self.attribution.attributions)
+        observed = sum(charge.total_micros for charge in self.attribution.charges)
+        if attributed != self.reconciliation.attributed_micros:
+            raise ValueError(
+                f"restored contribution for {self.session_id} does not reconcile: its "
+                f"attributions sum to {attributed}, but it claims "
+                f"{self.reconciliation.attributed_micros} attributed"
+            )
+        if attributed + self.reconciliation.unattributed_micros != observed:
+            raise ValueError(
+                f"restored contribution for {self.session_id} does not add up: "
+                f"{attributed} + {self.reconciliation.unattributed_micros} != {observed}, the "
+                f"total of the charges it stored"
+            )
+        if observed != self.reconciliation.total_micros:
+            raise ValueError(
+                f"restored contribution for {self.session_id} claims a total of "
+                f"{self.reconciliation.total_micros}, but its stored charges sum to {observed}"
+            )
+
+
+def contribution_of(analysis: SessionAnalysis) -> SessionContribution:
+    """Reduce a freshly-computed analysis to the part worth keeping."""
+    return SessionContribution(
+        session_id=analysis.session_id,
+        policy=analysis.policy,
+        provisional=analysis.provisional,
+        parsed=ParsedFacts(
+            producing_versions=set(analysis.parsed.producing_versions),
+            compactions=list(analysis.parsed.compactions),
+            unparseable_count=analysis.parsed.unparseable_count,
+        ),
+        timeline=analysis.timeline,
+        attribution=analysis.attribution,
+        reconciliation=analysis.reconciliation,
+        limitations=list(analysis.limitations),
+    )
+
+
+# What every presentation surface accepts. Both a freshly-computed analysis and a contribution
+# restored from the cache satisfy it, and that is the point: a cached run and a computed run go
+# through *one* renderer, so they cannot produce two different reports.
+ReportInput = SessionAnalysis | SessionContribution
