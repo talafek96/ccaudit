@@ -33,7 +33,7 @@ from ccaudit.model.policy import DEFAULT_POLICY, POLICIES
 # Raised in the model layer, where the invariant lives; re-exported here because this is where
 # it becomes exit code 3 (Principle I, Principle X, SC-001).
 from ccaudit.model.reconcile import ReconciliationError
-from ccaudit.render.data import build_report_data
+from ccaudit.render.data import DEFAULT_GROUPING, GROUPINGS, build_report_data
 from ccaudit.render.explain import (
     UnknownFigureError,
     available_figures,
@@ -179,6 +179,13 @@ def _add_analysis_options(parser: argparse.ArgumentParser) -> None:
         help="How shared carry cost is divided among resident items.",
     )
     parser.add_argument(
+        "--by",
+        dest="group_by",
+        choices=GROUPINGS,
+        default=DEFAULT_GROUPING,
+        help="Group the breakdown by this dimension.",
+    )
+    parser.add_argument(
         "--top", type=int, default=20, help="Item rows to show; cost is never hidden."
     )
     parser.add_argument("--json", action="store_true", help="Machine-readable output.")
@@ -318,7 +325,12 @@ def _analyse_selection(args: argparse.Namespace) -> tuple[list[SessionAnalysis],
 
 def _run_analyse(args: argparse.Namespace) -> int:
     analyses, excluded = _analyse_selection(args)
-    payload = build_report_data(analyses, redact=args.redact, sessions_excluded_count=excluded)
+    payload = build_report_data(
+        analyses,
+        redact=args.redact,
+        sessions_excluded_count=excluded,
+        group_by=args.group_by,
+    )
     if args.json:
         print(json.dumps(payload, indent=2, sort_keys=False))
         return EXIT_OK

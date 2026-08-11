@@ -85,19 +85,43 @@ class _ItemRollup:
         return self.direct_micros + self.carry_micros
 
 
+# Grouping dimensions (FR-007). `item` is the ungrouped view; the rest merge rows.
+#
+# `folder` groups by an item's **immediate parent directory**, not by every ancestor. Rolling
+# a file up into all of its ancestors at once would count it several times in one flat table,
+# and a table that double-counts is the same defect as one that drops a row. The
+# every-level-of-the-hierarchy view (FR-034) is the `tree` section, where a node can carry both
+# its own cost and its subtree's without the two being summed together.
+GROUPINGS: tuple[str, ...] = ("item", "file", "folder", "ext", "category")
+DEFAULT_GROUPING = "item"
+
+_MIXED = "(mixed)"
+
+
+class UnknownGroupingError(ValueError):
+    """An unsupported `--by` dimension. Never silently falls back to the default."""
+
+
 def build_report_data(
     analyses: Sequence[SessionAnalysis],
     *,
     redact: bool = False,
     sessions_excluded_count: int = 0,
     generated_at: str | None = None,
+    group_by: str = DEFAULT_GROUPING,
 ) -> dict[str, Any]:
     """Build the report-data payload for one or more analysed sessions.
+
+    ``group_by`` merges the item rows along one dimension (FR-007). Grouping only ever *merges*
+    rows, so every dimension sums to the same attributed total — a grouping that changed the
+    total would mean it had dropped or duplicated something.
 
     Raises :class:`~ccaudit.model.reconcile.ReconciliationError` if the payload would not add
     up, and ``ValueError`` for an empty selection or a mix of carry-splitting policies —
     figures produced under different policies are not comparable and must not be summed.
     """
+    if group_by not in GROUPINGS:
+        raise UnknownGroupingError(f"unknown grouping {group_by!r}; known: {list(GROUPINGS)}")
     if not analyses:
         raise ValueError(
             "cannot build report data from zero analyses; an empty selection is the caller's "
@@ -116,7 +140,9 @@ def build_report_data(
     rollups, threshold_gaps = _rollups(analyses)
     limitations = _limitations(analyses, threshold_gaps, rollups)
 
-    items = [_item_payload(rollup, totals["cost_micros"], redact=redact) for rollup in rollups]
+    grouped = _regroup(rollups, group_by)
+    _assert_grouping_conserves(rollups, grouped, group_by)
+    items = [_item_payload(rollup, totals["cost_micros"], redact=redact) for rollup in grouped]
 
     payload: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
@@ -125,6 +151,7 @@ def build_report_data(
         "cost_basis": COST_BASIS,
         "currency": CURRENCY,
         "policy": policy,
+        "group_by": group_by,
         "redacted": redact,
         "scope": _scope(analyses, sessions_excluded_count),
         "totals": {**totals, "uncertainty_notes": _uncertainty_notes(analyses, policy)},
@@ -375,6 +402,86 @@ def _rollups(analyses: Sequence[SessionAnalysis]) -> tuple[list[_ItemRollup], li
         sorted(rollups.values(), key=lambda r: (-r.total_micros, r.item_id)),
         sorted(threshold_gaps),
     )
+
+
+def _regroup(rollups: list[_ItemRollup], group_by: str) -> list[_ItemRollup]:
+    """Merge item rows along one dimension. Merging only — nothing is created or dropped."""
+    if group_by == DEFAULT_GROUPING:
+        return rollups
+
+    merged: dict[str, _ItemRollup] = {}
+    for rollup in rollups:
+        key = _group_key(rollup, group_by)
+        target = merged.get(key)
+        if target is None:
+            merged[key] = _ItemRollup(
+                item_id=f"{group_by}:{key}",
+                kind=rollup.kind,
+                identity=key,
+                category=rollup.category,
+                size_tokens=rollup.size_tokens,
+                direct_micros=rollup.direct_micros,
+                carry_micros=rollup.carry_micros,
+                reads=rollup.reads,
+                turns_resident=rollup.turns_resident,
+                basis=rollup.basis,
+                confidence=rollup.confidence,
+                per_session=dict(rollup.per_session),
+                never_cacheable_on=set(rollup.never_cacheable_on),
+            )
+            continue
+
+        target.direct_micros += rollup.direct_micros
+        target.carry_micros += rollup.carry_micros
+        target.reads += rollup.reads
+        target.turns_resident += rollup.turns_resident
+        target.size_tokens += rollup.size_tokens
+        target.never_cacheable_on |= rollup.never_cacheable_on
+        for session_id, cost in rollup.per_session.items():
+            target.per_session[session_id] = target.per_session.get(session_id, 0) + cost
+        # A merged row is only as trustworthy as its weakest member, and only as specific: two
+        # categories in one bucket is "(mixed)", never whichever happened to arrive first.
+        target.basis = _weakest(target.basis, rollup.basis, BASIS_VALUES)
+        target.confidence = _weakest(target.confidence, rollup.confidence, CONFIDENCE_VALUES)
+        if target.category != rollup.category:
+            target.category = _MIXED
+        if target.kind != rollup.kind:
+            target.kind = _MIXED
+
+    return sorted(merged.values(), key=lambda r: (-r.total_micros, r.item_id))
+
+
+def _group_key(rollup: _ItemRollup, group_by: str) -> str:
+    if group_by == "category":
+        return rollup.category
+    if group_by == "file":
+        return rollup.identity
+    if group_by == "folder":
+        parent = PurePosixPath(rollup.identity).parent
+        # An item with no directory part (a skill listing, a tool schema) is not in a folder;
+        # saying so is more useful than filing it under ".".
+        return str(parent) if str(parent) not in (".", "/") else f"({rollup.kind})"
+    # extension
+    suffix = PurePosixPath(rollup.identity).suffix
+    return suffix or f"({rollup.kind})"
+
+
+def _assert_grouping_conserves(
+    original: list[_ItemRollup], grouped: list[_ItemRollup], group_by: str
+) -> None:
+    """A grouping must partition the rows exactly — none dropped, none counted twice.
+
+    This is the same promise as the session-level reconciliation, one level down. A per-folder
+    view that quietly loses a file looks entirely plausible in a report, which is precisely why
+    it is checked rather than assumed (FR-007, FR-012).
+    """
+    before = sum(rollup.total_micros for rollup in original)
+    after = sum(rollup.total_micros for rollup in grouped)
+    if before != after:
+        raise ReconciliationError(
+            f"grouping by {group_by!r} changed the attributed total from {before} to {after} "
+            f"(difference {after - before}). A grouping may only merge rows."
+        )
 
 
 def _mark_never_cacheable(
