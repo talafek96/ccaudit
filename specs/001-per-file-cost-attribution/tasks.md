@@ -75,7 +75,7 @@ turns transcripts into facts. Every user story consumes these.
 - [X] T017 [P] Create `src/ccaudit/ingest/discover.py` — locate sessions under `~/.claude/` (honouring `CLAUDE_CONFIG_DIR`) read-only, and compute the coverage fingerprint `(record_count, last_record_uuid, byte_size)` without a full parse (research §3, FR-085)
 - [X] T018 [P] Create `src/ccaudit/ingest/tokens.py` — the exact → measured → declared ladder, recording the tier as `basis`; image tokens from decoded PNG/JPEG/WebP header dimensions via the published area formula capped at the per-image maximum. **`chars // 4` is never applied to images** and is marked estimated wherever used at all (research §6)
 - [X] T019 [P] Create `src/ccaudit/ingest/anchors.py` — parse `/context` ground-truth tables and reconcile computed totals against them, reporting disagreement rather than adjusting either side (FR-026)
-- [ ] T020 Persist and surface `IngestDiagnostic` rows from `src/ccaudit/ingest/records.py` through `src/ccaudit/store/db.py` — unparseable counts, unrecognised versions, anchor mismatches, each with a sample record identifier
+- [X] T020 Persist and surface `IngestDiagnostic` rows from `src/ccaudit/ingest/records.py` through `src/ccaudit/store/db.py` — unparseable counts, unrecognised versions, anchor mismatches, each with a sample record identifier
 - [X] T021 [P] Unit-test record parsing in `tests/unit/test_records.py` — all three input measures summed for prompt size, version stamp captured, malformed record counted not dropped
 - [X] T022 [P] Unit-test dedup in `tests/unit/test_dedup.py` — a resumed and a forked session counted exactly once; re-ingest does not double any figure
 - [X] T023 [P] Unit-test discovery and fingerprinting in `tests/unit/test_discover.py` — fingerprint changes when the session advances, is stable when it does not, and no write ever touches `~/.claude/` (FR-020)
@@ -85,8 +85,8 @@ turns transcripts into facts. Every user story consumes these.
 ### Fixtures and CLI skeleton
 
 - [X] T026 Create `tests/fixtures/builder.py` — a synthetic transcript builder (turns, usage blocks, tool results, injections, models, TTLs, compaction, sidechains). **Synthetic only; never real user transcripts** (git-conventions)
-- [ ] T027 Create the baseline fixture session under `tests/fixtures/sessions/baseline/` — a small multi-turn session with file reads, resident instruction content, and a known token profile
-- [ ] T028 Component-test the ingest stage end-to-end over fixtures in `tests/component/test_ingest_pipeline.py` — transcript in, deduplicated facts and diagnostics out, idempotent across repeat runs (FR-094)
+- [X] T027 Create the baseline fixture session under `tests/fixtures/sessions/baseline/` — a small multi-turn session with file reads, resident instruction content, and a known token profile
+- [X] T028 Component-test the ingest stage end-to-end over fixtures in `tests/component/test_ingest_pipeline.py` — transcript in, deduplicated facts and diagnostics out, idempotent across repeat runs (FR-094)
 - [X] T029 Create `src/ccaudit/cli.py` and wire `src/ccaudit/__main__.py` — argument parsing for the command table in `contracts/cli.md`, and the exit-code contract (`0` success, `1` usage, `2` no sessions, `3` breakdown does not add up, `4` data error, `130` interrupted)
 - [X] T030 Configure logging in `src/ccaudit/cli.py` — the constitution's four levels, with a file target under `CCAUDIT_HOME` so hook-path failures log rather than surface into a user's session (FR-054)
 - [X] T031 [P] Unit-test the CLI surface in `tests/unit/test_cli_exit_codes.py` — each exit code reachable and distinct; exit `3` is never reachable from an ordinary warning path
@@ -109,9 +109,9 @@ explicitly, and repeat runs are byte-identical (SC-001, SC-002, SC-009).
 - [X] T034 [US1] Create `src/ccaudit/model/attribute.py` — split each turn's observed charges into direct, carry, overhead, and output; output targets the exchange and **never** an item (invariant A2, FR-005)
 - [X] T035 [US1] Roll subagent turns up to the parent exchange exactly once in `src/ccaudit/model/attribute.py`, asserting rather than warning on a double count (FR-009, data-model validation rule 5)
 - [X] T036 [US1] Create `src/ccaudit/model/reconcile.py` — enforce `Σ attributions + unattributed == session total` by integer equality, emit the remainder as its own explicit entry, and raise on violation (invariant A1, FR-012, FR-013)
-- [ ] T037 [US1] Persist `AnalysisResult` and `Attribution` rows in one transaction via `src/ccaudit/store/db.py`, keyed `(session_id, fingerprint, policy)` so a repeat run creates no second entry (FR-047, FR-094)
-- [ ] T038 [US1] Create `src/ccaudit/render/data.py` — the report-data envelope from `contracts/report-data.md`: `scope`, `totals` (with `uncertainty_notes`), `components` sourced from `config/components.py`, and `items`. One contract, three consumers
-- [ ] T039 [US1] Create `src/ccaudit/render/terminal.py` — ranked table with proportion bars, every absolute paired with its share, every figure labelled an **API-equivalent cost estimate**, the unattributed line always present, and plain-text degradation when not a TTY (FR-010, FR-011, FR-033, FR-070, FR-071)
+- [X] T037 [US1] Persist `AnalysisResult` and `Attribution` rows in one transaction via `src/ccaudit/store/db.py`, keyed `(session_id, fingerprint, policy)` so a repeat run creates no second entry (FR-047, FR-094)
+- [X] T038 [US1] Create `src/ccaudit/render/data.py` — the report-data envelope from `contracts/report-data.md`: `scope`, `totals` (with `uncertainty_notes`), `components` sourced from `config/components.py`, and `items`. One contract, three consumers
+- [X] T039 [US1] Create `src/ccaudit/render/terminal.py` — ranked table with proportion bars, every absolute paired with its share, every figure labelled an **API-equivalent cost estimate**, the unattributed line always present, and plain-text degradation when not a TTY (FR-010, FR-011, FR-033, FR-070, FR-071)
 - [X] T040 [US1] Implement `analyse --session` and `--json` in `src/ccaudit/cli.py`, returning exit `3` when reconciliation fails rather than printing the numbers
 - [X] T041 [P] [US1] Unit-test residency in `tests/unit/test_residency.py` — a span ends on eviction, on invalidation, and at session end; carry accrues only while resident
 - [X] T042 [P] [US1] Unit-test splitting policies in `tests/unit/test_policy.py` — both policies conserve the pool exactly; policy choice changes per-item figures and never the total
@@ -136,18 +136,18 @@ with opposite remedies — and make any figure traceable to the records that pro
 profiles; verify the direct/carry splits differ measurably and the derivation of each is printable
 without rerunning the analysis (SC-008, SC-010).
 
-- [ ] T050 [US2] Extend `src/ccaudit/model/residency.py` with per-item cause metrics — load count, turns resident, and `end_reason` per span (FR-008, FR-035)
-- [ ] T051 [US2] Add `source_refs` provenance to every attribution row in `src/ccaudit/model/attribute.py` — the record identifiers, the formula, and the inputs behind the figure (FR-015, Principle VI)
-- [ ] T052 [US2] Create `src/ccaudit/render/explain.py` — the derivation trace: component, formula, inputs, policy in effect, `basis`, `confidence`, and source record identifiers
-- [ ] T053 [US2] Implement the `explain` command in `src/ccaudit/cli.py` (`explain <figure-id>`, `--explain FIGURE`)
-- [ ] T054 [US2] Add grouping aggregation queries to `src/ccaudit/store/db.py` — by file, folder (at every level of the hierarchy), extension, category, and item, each reconciling to the total (FR-007)
-- [ ] T055 [US2] Implement `--by`, `--sort`, and `--top` in `src/ccaudit/cli.py` and `src/ccaudit/render/terminal.py`, with the omitted remainder still shown as its own line
-- [ ] T056 [US2] Populate `reads`, `turns_resident`, and the direct/carry split per item in `src/ccaudit/render/data.py`
+- [X] T050 [US2] Extend `src/ccaudit/model/residency.py` with per-item cause metrics — load count, turns resident, and `end_reason` per span (FR-008, FR-035)
+- [X] T051 [US2] Add `source_refs` provenance to every attribution row in `src/ccaudit/model/attribute.py` — the record identifiers, the formula, and the inputs behind the figure (FR-015, Principle VI)
+- [X] T052 [US2] Create `src/ccaudit/render/explain.py` — the derivation trace: component, formula, inputs, policy in effect, `basis`, `confidence`, and source record identifiers
+- [X] T053 [US2] Implement the `explain` command in `src/ccaudit/cli.py` (`explain <figure-id>`, `--explain FIGURE`)
+- [X] T054 [US2] Add grouping aggregation queries to `src/ccaudit/store/db.py` — by file, folder (at every level of the hierarchy), extension, category, and item, each reconciling to the total (FR-007)
+- [X] T055 [US2] Implement `--by`, `--sort`, and `--top` in `src/ccaudit/cli.py` and `src/ccaudit/render/terminal.py`, with the omitted remainder still shown as its own line
+- [X] T056 [US2] Populate `reads`, `turns_resident`, and the direct/carry split per item in `src/ccaudit/render/data.py`
 - [ ] T057 [US2] Create the cause-profile golden fixture under `tests/golden/fixtures/session_cause_profiles/` — two files, equal total, opposite profiles, expected breakdown hand-verified
 - [ ] T058 [US2] Golden-test cause attribution in `tests/golden/test_cause_profiles.py` — the two files' direct/carry splits differ measurably
-- [ ] T059 [P] [US2] Unit-test grouping in `tests/unit/test_grouping.py` — every grouping level sums to the session total; no bucket silently absorbs the remainder
-- [ ] T060 [P] [US2] Unit-test explain output in `tests/unit/test_explain.py` — a skeptic can recompute the figure from the trace alone
-- [ ] T061 [US2] System-test the falsifiable premise in `tests/system/test_carry_reorders_ranking.py` — ranking by total attributed cost differs materially from ranking by read count on at least one real session (SC-010, quickstart Scenario 3). **If this fails, the product thesis is wrong and we stop and say so**
+- [X] T059 [P] [US2] Unit-test grouping in `tests/unit/test_grouping.py` — every grouping level sums to the session total; no bucket silently absorbs the remainder
+- [X] T060 [P] [US2] Unit-test explain output in `tests/unit/test_explain.py` — a skeptic can recompute the figure from the trace alone
+- [X] T061 [US2] System-test the falsifiable premise in `tests/system/test_carry_reorders_ranking.py` — ranking by total attributed cost differs materially from ranking by read count on at least one real session (SC-010, quickstart Scenario 3). **If this fails, the product thesis is wrong and we stop and say so**
 
 **Checkpoint**: US1 and US2 both work independently. The premise has been tested, not assumed.
 
@@ -162,20 +162,20 @@ Code, and optional automatic capture that never blocks the user.
 project directory and get a correct breakdown of the most recent session — no configuration, no
 credential, no prior step (SC-011, SC-015).
 
-- [ ] T062 [US3] Implement the zero-argument default in `src/ccaudit/cli.py` and `src/ccaudit/ingest/discover.py` — resolve the current working directory's project and its most recent session (FR-048)
-- [ ] T063 [US3] Create the state directory on demand under `CCAUDIT_HOME` in `src/ccaudit/store/db.py` — no config file, no first-run wizard (FR-050)
-- [ ] T064 [US3] Create `src/ccaudit/store/claims.py` — claim per `(session_id, fingerprint)` with `state`, `expires_at`, `pid`, `host`; taken by a single atomic statement that also reclaims expired claims (invariants K1–K3, FR-089, FR-092)
-- [ ] T065 [US3] Implement the internal `_enqueue` command in `src/ccaudit/cli.py` — append a queue entry and return, targeting under 50 ms, never analysing inline (PITFALLS: `SessionEnd` cannot raise its own budget)
-- [ ] T066 [US3] Spawn the detached worker from `_enqueue` in `src/ccaudit/cli.py` with `start_new_session=True` and stdio redirected away from the parent; a failed spawn degrades to the queue entry, losing nothing (research §5, FR-088)
-- [ ] T067 [US3] Implement `--wait SECONDS` in `src/ccaudit/cli.py` — bound the wait on a live claim, then compute the result locally rather than block (FR-091, SC-035)
-- [ ] T068 [P] [US3] Create `src/ccaudit/plugin/.claude-plugin/plugin.json` — name, description, version
-- [ ] T069 [P] [US3] Create `src/ccaudit/plugin/commands/audit.md` — `/ccaudit:audit`, analysing the current session including while in progress; costs nothing until typed (FR-051, FR-055)
-- [ ] T070 [P] [US3] Create `src/ccaudit/plugin/skills/ccaudit/SKILL.md` — model-invocable so a natural-language cost question is answered from measured data; shells out to the CLI and reimplements nothing (FR-052)
-- [ ] T071 [P] [US3] Create `src/ccaudit/plugin/hooks/hooks.json` — opt-in `SessionEnd` hook invoking `ccaudit _enqueue` (FR-053, FR-054)
+- [X] T062 [US3] Implement the zero-argument default in `src/ccaudit/cli.py` and `src/ccaudit/ingest/discover.py` — resolve the current working directory's project and its most recent session (FR-048)
+- [X] T063 [US3] Create the state directory on demand under `CCAUDIT_HOME` in `src/ccaudit/store/db.py` — no config file, no first-run wizard (FR-050)
+- [X] T064 [US3] Create `src/ccaudit/store/claims.py` — claim per `(session_id, fingerprint)` with `state`, `expires_at`, `pid`, `host`; taken by a single atomic statement that also reclaims expired claims (invariants K1–K3, FR-089, FR-092)
+- [X] T065 [US3] Implement the internal `_enqueue` command in `src/ccaudit/cli.py` — append a queue entry and return, targeting under 50 ms, never analysing inline (PITFALLS: `SessionEnd` cannot raise its own budget)
+- [X] T066 [US3] Spawn the detached worker from `_enqueue` in `src/ccaudit/cli.py` with `start_new_session=True` and stdio redirected away from the parent; a failed spawn degrades to the queue entry, losing nothing (research §5, FR-088)
+- [X] T067 [US3] Implement `--wait SECONDS` in `src/ccaudit/cli.py` — bound the wait on a live claim, then compute the result locally rather than block (FR-091, SC-035)
+- [X] T068 [P] [US3] Create `src/ccaudit/plugin/.claude-plugin/plugin.json` — name, description, version
+- [X] T069 [P] [US3] Create `src/ccaudit/plugin/commands/audit.md` — `/ccaudit:audit`, analysing the current session including while in progress; costs nothing until typed (FR-051, FR-055)
+- [X] T070 [P] [US3] Create `src/ccaudit/plugin/skills/ccaudit/SKILL.md` — model-invocable so a natural-language cost question is answered from measured data; shells out to the CLI and reimplements nothing (FR-052)
+- [X] T071 [P] [US3] Create `src/ccaudit/plugin/hooks/hooks.json` — opt-in `SessionEnd` hook invoking `ccaudit _enqueue` (FR-053, FR-054)
 - [ ] T072 [US3] Implement self-footprint measurement in `src/ccaudit/model/attribute.py` and `src/ccaudit/render/terminal.py` — report the tool's own always-resident contribution as its own figure (FR-056, SC-017)
-- [ ] T073 [P] [US3] Unit-test claims in `tests/unit/test_claims.py` — an expired claim is reclaimable with no manual cleanup; a partial result is never readable as complete
-- [ ] T074 [US3] Component-test the capture path in `tests/component/test_enqueue_worker.py` — `_enqueue` returns fast, the worker completes the analysis, two simultaneous analyses leave exactly one stored result with identical figures (SC-033, SC-034)
-- [ ] T075 [US3] System-test first-run ceremony in `tests/system/test_zero_argument_run.py` — clean state directory, no arguments, correct breakdown, no configuration step
+- [X] T073 [P] [US3] Unit-test claims in `tests/unit/test_claims.py` — an expired claim is reclaimable with no manual cleanup; a partial result is never readable as complete
+- [X] T074 [US3] Component-test the capture path in `tests/component/test_enqueue_worker.py` — `_enqueue` returns fast, the worker completes the analysis, two simultaneous analyses leave exactly one stored result with identical figures (SC-033, SC-034)
+- [X] T075 [US3] System-test first-run ceremony in `tests/system/test_zero_argument_run.py` — clean state directory, no arguments, correct breakdown, no configuration step
 
 **Checkpoint**: v1's three P1 stories are complete. The tool is usable and trustworthy.
 
@@ -265,9 +265,9 @@ figures as current and never reporting a figure that later proves an over-count.
 labelled provisional; re-run after more turns and confirm the later result supersedes rather than
 adds (SC-023, SC-031).
 
-- [ ] T109 [US7] Set `scope.provisional` and `scope.covered_through_turn` for in-progress sessions in `src/ccaudit/render/data.py`, and render the provisional label prominently in `src/ccaudit/render/terminal.py` (FR-066, FR-067)
+- [X] T109 [US7] Set `scope.provisional` and `scope.covered_through_turn` for in-progress sessions in `src/ccaudit/render/data.py`, and render the provisional label prominently in `src/ccaudit/render/terminal.py` (FR-066, FR-067)
 - [ ] T110 [US7] Enforce freshness on read in `src/ccaudit/store/db.py` — a stored result whose fingerprint differs from the transcript's current fingerprint is either recomputed or served with explicit coverage ("covers turns 1–40; session is now at 62"), never as current (FR-084, FR-086, SC-030)
-- [ ] T111 [US7] Implement `--refresh` and `--watch` in `src/ccaudit/cli.py` — `--watch` polls the coverage fingerprint, redraws only on change, and exits on interrupt or when the session ends (FR-068)
+- [X] T111 [US7] Implement `--refresh` and `--watch` in `src/ccaudit/cli.py` — `--watch` polls the coverage fingerprint, redraws only on change, and exits on interrupt or when the session ends (FR-068)
 - [ ] T112 [US7] Ensure a later result supersedes an earlier provisional one for the same session in `src/ccaudit/store/db.py`, rather than accumulating alongside it (FR-069)
 - [ ] T113 [P] [US7] Unit-test freshness in `tests/unit/test_freshness.py` — invariants F1 and F2: stale is never current, and an unchanged transcript creates no second entry
 - [ ] T114 [US7] Component-test in-progress analysis in `tests/component/test_in_progress.py` — a growing fixture transcript yields a monotonically increasing total with no provisional figure ever later proving an over-count
@@ -278,13 +278,13 @@ adds (SC-023, SC-031).
 
 ## Phase 10: Polish & Cross-Cutting Concerns
 
-- [ ] T115 Create the hostile golden fixture under `tests/golden/fixtures/session_hostile/` — images, a resume, subagents, and a compaction in one session — and pin it in `tests/golden/test_hostile_session.py` (SC-014, quickstart Scenario 13)
+- [X] T115 Create the hostile golden fixture under `tests/golden/fixtures/session_hostile/` — images, a resume, subagents, and a compaction in one session — and pin it in `tests/golden/test_hostile_session.py` (SC-014, quickstart Scenario 13)
 - [ ] T116 System-test corpus reconciliation in `tests/system/test_corpus_reconciles.py` — the real CLI over the local corpus, asserting every breakdown adds up and every output is well-formed. **This is the merge gate** (constitution, Testing Discipline)
 - [ ] T117 [P] Validate the performance goals in `tests/system/test_performance.py` — a single session under 30 s, a ~25-session corpus under 5 minutes, the UI up in under 5 s (SC-005, SC-006, SC-025)
 - [ ] T118 [P] Audit precision and uncertainty across every surface in `tests/system/test_precision_audit.py` — no figure carries more significant digits than its confidence supports, and every totals surface names its dominant uncertainty (SC-036, SC-037)
 - [ ] T119 [P] Verify the no-network, no-credential guarantee in `tests/system/test_no_egress.py` — no outbound request from any code path, and the tool runs with no environment variable set (FR-029, FR-030, SC-011)
 - [ ] T120 Walk every scenario in `specs/001-per-file-cost-attribution/quickstart.md` end to end and record the result
-- [ ] T121 [P] Update `README.md` with real usage — zero-argument invocation, the command table, and the honesty framing (API-equivalent, never billed)
+- [X] T121 [P] Update `README.md` with real usage — zero-argument invocation, the command table, and the honesty framing (API-equivalent, never billed)
 - [ ] T122 [P] Reconcile `HANDOFF.md` and `PITFALLS.md` with what was actually built and what was actually hit — the two files that carry session-to-session memory (constitution VII)
 - [ ] T123 Self-review the full diff, then run `uv run ruff format && uv run ruff check && uv run mypy && uv run pytest` clean (constitution IV)
 
