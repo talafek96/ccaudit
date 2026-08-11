@@ -655,12 +655,21 @@ item's residency shortened.
 - Automatic recording is opt-in rather than default, because writing to a user's environment
   without being asked is a decision that belongs to the user (consistent with how this project
   treats the user's own directories elsewhere).
-- **Automatic recording must be near-instant, not merely fast.** Session-end handlers run
-  inside a shared time budget, and a handler supplied by an installed integration cannot raise
-  that budget for itself. The assumption is therefore that automatic recording records *that a
-  session needs analysing* and returns immediately, with the analysis itself happening on the
-  next invocation — never that the analysis runs inside the session-end handler. This also
-  keeps FR-054 satisfiable: a slow analysis can never delay the user.
+- **Automatic recording must return near-instantly; the analysis itself must not run inside
+  the session-end handler.** Session-end handlers share an overall time budget capped at 60
+  seconds, and — decisively — a handler supplied by an installed integration **cannot raise
+  that budget for itself**. Since a full analysis is budgeted at up to 30 seconds (SC-005), it
+  cannot safely run inline. Two shapes satisfy FR-054, and the plan may choose either or both:
+  the handler *queues* the session for analysis and returns, with the work happening on the
+  next invocation; or it *detaches* the analysis to run independently of the session and
+  returns immediately. Queuing is the more robust of the two because it degrades to a no-op —
+  a queue entry that is never processed costs nothing and the session remains analysable from
+  its records regardless.
+- **Session end is not the only moment worth capturing, and it does not fire on compaction.**
+  Compaction is a distinct event within a continuing session, so a session that compacts
+  several times ends once. Nothing is lost by this — compaction is recorded in the session's
+  own records and is reconstructed during analysis (FR-025) — but it means automatic recording
+  cannot be assumed to fire at every point where the context materially changes.
 - Automatic recording is a convenience, not the system of record. Sessions that end in ways
   that do not trigger a handler (a crash, a closed terminal, a killed process) are still fully
   analysable afterwards from their records, so no data is lost by relying on it — or by not
