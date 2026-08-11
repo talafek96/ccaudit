@@ -33,6 +33,12 @@
     var shown = 0;
     rows.forEach(function (row) {
       if (row.dataset.pinned === "1") return;
+      // Rows past the truncation point are hidden on purpose, and the "N other items" line is
+      // still accounting for them. Unhiding one here — which an empty filter did, on load, to
+      // all of them — leaves the table showing the rows *and* the line that stands in for
+      // them, so the visible column sums to more than the session total. That is a breakdown
+      // that does not add up, which is the one defect this project treats as a show-stopper.
+      if (row.dataset.overflow === "1" && row.dataset.revealed !== "1") return;
       items += 1;
       var name = String(row.dataset.name || "").toLowerCase();
       var visible = needle === "" || name.indexOf(needle) !== -1;

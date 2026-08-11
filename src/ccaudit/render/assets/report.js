@@ -80,6 +80,10 @@
     button.addEventListener("click", function () {
       hidden.slice(shown, shown + step).forEach(function (candidate) {
         candidate.hidden = false;
+        // Marked, not merely unhidden. Anything else that hides and shows rows — the UI's row
+        // filter — has to tell a row the reader revealed from one that is still accounted for
+        // by the truncation line, or it will show both and the table will double-count.
+        candidate.dataset.revealed = "1";
       });
       shown = Math.min(shown + step, hidden.length);
       if (shown >= hidden.length) {

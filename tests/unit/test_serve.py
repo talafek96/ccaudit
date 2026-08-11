@@ -16,8 +16,9 @@ from ccaudit.analyse import SessionAnalysis
 from ccaudit.ingest.discover import SessionRef, fingerprint_transcript
 from ccaudit.model.reconcile import ReconciliationError
 from ccaudit.render.data import build_report_data
-from ccaudit.render.report import REPORT_TITLE
+from ccaudit.render.report import ASSETS, REPORT_TITLE
 from ccaudit.render.serve import (
+    UI_SCRIPT,
     Selection,
     UiHttpServer,
     UiServer,
@@ -197,3 +198,35 @@ class TestTheLifetimeIsBounded:
         server = UiServer(lambda _selection: payload, sessions, Selection(("sess-one",)))
         server.close()
         server.close()
+
+
+class TestTheFilterCannotBreakTheArithmetic:
+    """The browser view showed 277 item rows *and* the "265 other items" line that stands in
+    for them, so its visible column summed to $884 against a $612 session — a breakdown that
+    does not add up, which is the one defect this project treats as a show-stopper.
+
+    The cause was one line: the row filter ran on load with an empty needle and did
+    `row.hidden = !visible` over every row, unhiding the ones the truncation line was already
+    accounting for.
+
+    There is no JavaScript test runner here, so these assert the guard rather than execute it.
+    The behaviour itself was verified in Chrome: 17 rows summing to the total on load, 42 after
+    a reveal, and 42 summing to the total again after a filter was applied and cleared.
+    """
+
+    def test_the_filter_leaves_unrevealed_overflow_rows_alone(self) -> None:
+        script = UI_SCRIPT.read_text(encoding="utf-8")
+        assert 'row.dataset.overflow === "1" && row.dataset.revealed !== "1"' in script
+
+    def test_revealing_a_row_marks_it_as_revealed(self) -> None:
+        """Without the mark, the filter cannot tell a revealed row from a never-shown one."""
+        script = (ASSETS / "report.js").read_text(encoding="utf-8")
+        assert 'candidate.dataset.revealed = "1"' in script
+
+    def test_the_two_scripts_agree_on_the_attribute_names(self) -> None:
+        """They are a contract between two files; a rename in one silently breaks the other."""
+        report = (ASSETS / "report.js").read_text(encoding="utf-8")
+        ui = UI_SCRIPT.read_text(encoding="utf-8")
+        for attribute in ("overflow", "revealed"):
+            assert f"dataset.{attribute}" in report or f"data-{attribute}" in report
+            assert f"dataset.{attribute}" in ui
