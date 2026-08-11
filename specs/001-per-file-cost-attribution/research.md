@@ -131,23 +131,55 @@ exceeds tolerance the figure drops to low-confidence rather than shipping a plau
 
 ---
 
-## 7. Pricing and thresholds: one config, per model, versioned
+## 7. Pricing and thresholds: one config, per model, refreshable on demand
 
-**Decision.** A single `config/pricing.toml` keyed by model ID, holding per-token rates, the
+**Decision.** A single TOML table keyed by model ID, holding per-token rates, the
 **TTL-dependent cache-write multipliers** (1.25× at 5-minute, 2× at 1-hour), and the
 **cacheability minimum** (512 / 1024 / 2048 / 4096 depending on model). Loaded once; every rate
 lookup goes through it. The producing-tool version is recorded per ingested row so
 version-spanning comparisons are identifiable (FR-028).
 
-**Rationale.** Principle IX makes this a one-place edit, and the cost model makes it necessary:
-the cacheability minimum is **not monotonic across model generations**, so it cannot be derived
-from a version ordering — it must be a table. Same for the write multiplier, which doubles with
-TTL and must not be applied as a single session-wide constant.
+**The table is not pinned to the tool's version.** It resolves most-specific-first:
 
-**Alternatives rejected.** *Fetching prices at runtime* — violates the no-network constraint.
-*Hardcoded constants at call sites* — the drift bug Principle IX exists to prevent. *Deriving the
-threshold from model ordering* — factually wrong; Opus 4.7 requires 2048 while the newer Opus 5
-requires 512.
+1. `$CCAUDIT_PRICING` — an explicit path, for tests and for a team-managed table.
+2. `$CCAUDIT_HOME/pricing.toml` — the user's own table, written by `ccaudit pricing refresh`.
+   It lives outside the installed package and **survives upgrades**.
+3. The table bundled with the release — a dated seed, never the mechanism that keeps a machine
+   current.
+
+**Rationale.** Principle IX makes this a one-place edit, and the cost model makes the table
+necessary: the cacheability minimum is **not monotonic across model generations**, so it cannot
+be derived from a version ordering. Same for the write multiplier, which doubles with TTL and
+must not be applied as a single session-wide constant.
+
+Rates and multipliers also *drift*, and a table baked into the release goes quietly stale on
+every installed copy — someone has to cut a release to fix a number. Hence the refresh. Three
+properties keep it compatible with the no-network guarantee:
+
+- **It is not on the analysis path.** Analysing a session makes no network request and needs no
+  credential; only `ccaudit pricing refresh`, typed by the user, reaches out (FR-029, FR-030,
+  SC-011). Offline operation is unchanged.
+- **No user data leaves the machine.** The request is a plain GET for a public rate table. FR-030
+  governs session data, and none is involved in either direction.
+- **It can only add information about rates.** The refresh *merges*: it never drops a model the
+  source omits, and it never overwrites a hand-verified cacheability minimum.
+
+**What the refresh refuses to do.** Rate sources publish prices; none publishes the minimum
+cacheable prefix. A refresh therefore leaves a newly-discovered model *without* a threshold, and
+the loader raises on use rather than lane-classifying against an invented number (FR-019).
+Guessing that threshold misprices small instruction files by ~10× in the direction that hides
+the error — the one mistake this tool cannot afford. For the same reason, a source whose implied
+cache multipliers disagree with the configured ones produces a **reported divergence**, not a
+silent rewrite: the multipliers are a documented property of the API, and a disagreement is a
+finding for a human.
+
+**Alternatives rejected.** *Rates pinned to the release* — the original decision here, reversed:
+it makes every installed copy stale and turns a price correction into a release. *Fetching prices
+during analysis* — would break the offline guarantee and make two runs over the same transcript
+disagree, violating FR-017. *Replacing the table wholesale from the source* — would silently drop
+the hand-verified thresholds the source does not carry. *Hardcoded constants at call sites* — the
+drift bug Principle IX exists to prevent. *Deriving the threshold from model ordering* —
+factually wrong; Opus 4.7 requires 2048 while the newer Opus 5 requires 512.
 
 ---
 

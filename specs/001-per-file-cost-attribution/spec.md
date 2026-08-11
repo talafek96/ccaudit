@@ -407,6 +407,23 @@ item's residency shortened.
 - **FR-031**: System MUST operate correctly when optional richer data sources are unavailable,
   degrading to what the primary records support and declaring the reduced confidence.
 
+**Rate currency**
+
+- **FR-099**: The rates a figure is imputed from MUST NOT be tied to the installed version of
+  the tool. The user MUST be able to update rates, cache multipliers, and cacheability
+  thresholds without upgrading or reinstalling, and an updated table MUST survive an upgrade.
+- **FR-100**: Updating rates MUST be an explicit action the user takes. Analysis itself MUST NOT
+  contact any network, so a machine that never updates still produces a complete result from the
+  rates it has (consistent with FR-029, FR-030).
+- **FR-101**: An update MUST NOT reduce what is known. It MUST preserve any hand-verified value
+  the rate source does not carry — the cacheability threshold in particular — and MUST NOT drop a
+  model the source omits.
+- **FR-102**: Where an update introduces a model whose cacheability threshold is unknown, the
+  system MUST decline to classify that model's content rather than assume a threshold, and MUST
+  name what is missing (per FR-019).
+- **FR-103**: The system MUST state, alongside its figures, which rate table priced them and when
+  those rates were published, so a reader can judge how current they are.
+
 **Presentation**
 
 - **FR-032**: System MUST produce a single self-contained report file that opens without
@@ -708,7 +725,11 @@ item's residency shortened.
   size. It is chosen for auditability: it is explainable in one sentence and a disputant can
   recompute it by hand. An exclusive-attribution alternative is supported for users who prefer
   it (FR-006).
-- Prices live in a single editable configuration so they can be corrected without code changes.
+- Prices live in a single editable configuration so they can be corrected without code changes,
+  and are **refreshable on demand** rather than pinned to the installed version (FR-099–FR-103).
+  Rates and cache multipliers drift; a table baked into the release would go stale on every
+  installed copy and turn a price correction into a release. The refresh is an explicit command,
+  never part of analysis, so the offline and no-credential guarantees are unaffected.
 
 **Data**
 
