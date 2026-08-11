@@ -509,6 +509,31 @@ item's residency shortened.
 - **FR-083**: System MUST compute total conversation size as the sum of all three input measures,
   and MUST NOT report the full-rate measure alone as the size of the conversation.
 
+**Freshness and concurrent work**
+
+- **FR-084**: System MUST never present a stored result as current when the underlying session has
+  advanced since that result was produced. It MUST either recompute, or present the stored result
+  with an explicit statement of how much of the session it covers.
+- **FR-085**: System MUST detect that a session has advanced without re-reading its full records.
+- **FR-086**: System MUST record, with every stored result, exactly how much of the session it
+  covers, so coverage can be compared against the session's current state.
+- **FR-087**: System MUST NOT require a session to have ended, nor any user action, for that
+  session's analysis to be available and current.
+- **FR-088**: System MUST allow analysis to proceed in the background so that a later invocation
+  finds work already done.
+- **FR-089**: System MUST allow two analyses of the same session to run at once without corrupting
+  stored results or producing a partially-written result.
+- **FR-090**: System MUST make an in-progress analysis visible to anything else that asks for the
+  same session, including when it started and whether it is still live.
+- **FR-091**: A user waiting on an in-progress analysis MUST NOT wait indefinitely: the system
+  MUST bound the wait and then produce the result itself rather than block.
+- **FR-092**: System MUST recover automatically when an analysis is interrupted — a crash, a kill,
+  a reboot — with no manual cleanup and no session permanently stuck as in-progress.
+- **FR-093**: System MUST never leave a partially-computed result readable as though it were
+  complete.
+- **FR-094**: Repeating an analysis over unchanged records MUST produce the same result and MUST
+  NOT create a second stored entry.
+
 **Presentation surfaces**
 
 - **FR-070**: System MUST provide a rich terminal presentation — formatted tables, proportion
@@ -618,6 +643,18 @@ item's residency shortened.
   rate.
 - **SC-029**: The tool's reported conversation size for any turn equals the sum of all three input
   measures for that turn.
+- **SC-030**: Analysing a session that has advanced since it was last analysed never returns the
+  older figures labelled as current.
+- **SC-031**: A session in progress can be analysed at any moment, with no action taken to end it
+  and no manual step, and the result reflects activity through the most recently recorded turn.
+- **SC-032**: With background analysis enabled, a user invoking the tool after a session ends
+  typically finds the result already computed and waits only for it to be displayed.
+- **SC-033**: Two analyses of the same session started simultaneously both complete, produce
+  identical figures, and leave exactly one stored result.
+- **SC-034**: An analysis killed part-way leaves no session permanently marked in-progress, and
+  the next invocation completes it without manual intervention.
+- **SC-035**: A user asking for a session another process is analysing waits no longer than a
+  stated bound before receiving a correct result.
 
 ## Assumptions
 

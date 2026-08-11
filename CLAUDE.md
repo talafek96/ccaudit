@@ -67,12 +67,19 @@ spec (constitution Principle III: design first).
 
 ## Domain vocabulary — read before touching cost code
 
+**Read [`docs/cost-model.md`](docs/cost-model.md) before writing or reviewing anything that
+produces a number.** It is the tracked, authoritative reference: the four cost components and
+their rates, why resident content is not always cached (a model-dependent minimum that is *not*
+monotonic across generations), how prefix invalidation decides which change gets blamed, the four
+distinct causes of a cache miss, and the five design moves that keep attribution honest despite
+all of it. The governing rule is **observe, don't predict** — cache mechanics explain an observed
+number, they never derive one.
+
 Cost figures are **API-equivalent cost**, never billed cost. The four cost components each
 have a mandated plain-language name (loading into context / keeping context loaded / your
 new typing / what Claude wrote back), and the attribution model splits cost into direct,
-carry, overhead, and output. All of it, with the evidence behind it, is in
-[`docs/research/prior-art.md`](docs/research/prior-art.md). Read it before writing or
-reviewing anything that produces a number.
+carry, overhead, and output. The underlying research and measurements are in
+[`docs/research/prior-art.md`](docs/research/prior-art.md) (local-only, not tracked).
 
 Then read [`docs/research/prior-art-pass-2.md`](docs/research/prior-art-pass-2.md), which
 supersedes pass 1 on three points: the resident instruction context is dominated by tool/MCP
