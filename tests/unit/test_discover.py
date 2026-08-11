@@ -15,6 +15,7 @@ import pytest
 
 from ccaudit.ingest.discover import (
     IN_PROGRESS_WINDOW,
+    MAX_TITLE_LENGTH,
     SHORT_ID_LENGTH,
     TranscriptTreeError,
     claude_home,
@@ -403,3 +404,20 @@ class TestSessionNames:
         path.write_text('{"type": "user", "uuid": "u1"}\n', encoding="utf-8")
         assert session_ref(path).short_id == "abcdef01"
         assert len(session_ref(path).short_id) == SHORT_ID_LENGTH
+
+    def test_an_over_long_name_is_clipped_at_a_word(self) -> None:
+        """Claude Code takes the name from the conversation, so a pasted paragraph can be one.
+
+        One such session was enough to blow the scope line back out into the wall of text that
+        naming sessions was meant to replace.
+        """
+        pasted = "I have a problem I want to solve and here is a great deal of detail " * 3
+        clipped = session_title({"type": "ai-title", "aiTitle": pasted})
+        assert clipped is not None
+        assert len(clipped) <= MAX_TITLE_LENGTH + 1
+        assert clipped.endswith("…")
+        assert not clipped.rstrip("…").endswith(" ")
+
+    def test_a_name_is_collapsed_to_one_line(self) -> None:
+        """A newline in a name breaks every single-line surface it appears on."""
+        assert session_title({"type": "ai-title", "aiTitle": "two\n\n  lines"}) == "two lines"

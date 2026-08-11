@@ -47,6 +47,11 @@ TITLE_TYPES: frozenset[str] = frozenset({"ai-title", "custom-title"})
 # How much of a session id is shown beside its name. The first block of a UUID.
 SHORT_ID_LENGTH = 8
 
+# A name is meant to be a label. Claude Code usually writes a short phrase, but it takes the
+# name from the conversation, so a pasted paragraph can become one — and one such session was
+# enough to blow the scope line back out into the wall of text this replaced.
+MAX_TITLE_LENGTH = 60
+
 
 class TranscriptTreeError(RuntimeError):
     """The configured Claude home exists but is not usable. Carries the offending path."""
@@ -334,8 +339,16 @@ def session_title(record: Mapping[str, Any]) -> str | None:
     for field in ("customTitle", "aiTitle", "title"):
         value = record.get(field)
         if isinstance(value, str) and value.strip():
-            return value.strip()
+            return _clip(" ".join(value.split()))
     return None
+
+
+def _clip(title: str) -> str:
+    """Shorten an over-long name at a word boundary, marking that it was cut."""
+    if len(title) <= MAX_TITLE_LENGTH:
+        return title
+    head = title[:MAX_TITLE_LENGTH].rsplit(" ", 1)[0] or title[:MAX_TITLE_LENGTH]
+    return head + "…"
 
 
 def _byte_size(path: Path) -> int:

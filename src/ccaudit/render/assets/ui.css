@@ -1,83 +1,353 @@
-/* Styles for the interactive controls only. Everything below the controls is the report's own
-   stylesheet, unchanged, so the two surfaces cannot look like two different tools.
+/* The exploring shell: the controls wrapped around the report document.
+   Everything below the controls is the report's own stylesheet, unchanged, so the two surfaces
+   cannot look like two different tools.
 
-   No colour carries meaning here: every state the controls express is also written in words
-   (FR-042). Both themes come from the report's variables rather than new ones. */
+   ── Why this file exists at all ─────────────────────────────────────────────────────────
+   It used to be a thin skin over native form controls, and it read as a 1998 form bolted on
+   top of a designed document. The controls are not decoration around the report — they are the
+   part a reader touches, and the only part that has state. So they get the same working-paper
+   direction: the figure face for anything that identifies or counts, the prose face for the
+   sentences, hairline rules for structure, and no colour carrying meaning on its own.
 
-.ui-controls {
-  max-width: 60rem;
-  margin: 1rem auto 0;
-  padding: 0.75rem 1rem;
-  border: 1px solid var(--grid);
-  border-radius: 8px;
-  background: var(--surface-1);
+   Two rules the old version broke, restated here because they are what "professional" means:
+
+   **Nothing overlaps and nothing is cut off.** Every control sits in a grid track wide enough
+   for its content; the session list scrolls in its own box with a fixed height rather than
+   inheriting one that its own help text had already consumed.
+
+   **State is visible.** A checked session, a focused field, and a hovered row each look
+   different — and each difference is a shape or a weight, never only a hue (FR-042). */
+
+.ui {
+  --ui-gap: 0.75rem;
+  --ui-radius: 4px;
+  max-width: 64rem;
+  margin: 1.25rem auto 2rem;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: var(--ui-gap);
+  font-family: var(--font-ui);
 }
 
-.ui-controls fieldset {
-  border: 1px solid var(--grid);
-  border-radius: 6px;
-  padding: 0.4rem 0.6rem;
+/* The bar. Says what this is and gives the one action that ends it, and nothing else — a
+   toolbar that accumulates buttons stops being readable at a glance. */
+.ui-bar {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem 1rem;
+  align-items: center;
+  gap: 0.6rem;
+  padding-bottom: 0.6rem;
+  border-bottom: 2px solid var(--keyline);
 }
 
-.ui-controls legend {
-  color: var(--text-secondary);
-  font-size: 0.85rem;
-  padding: 0 0.3rem;
+.ui-brand {
+  font-family: var(--font-figure);
+  font-size: 0.86rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
 }
+
+.ui-mode {
+  font-family: var(--font-figure);
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  padding: 0.05rem 0.5rem;
+}
+
+.ui-spacer { flex: 1 1 auto; }
+.ui-inline { display: inline-flex; margin: 0; }
+
+/* Panels ------------------------------------------------------------------ */
+
+.ui-form {
+  display: grid;
+  /* Sessions need room; the view controls do not. Below the breakpoint they stack, which is
+     the only way a picker and a field row both stay usable on a narrow window. */
+  grid-template-columns: minmax(22rem, 1.15fr) minmax(18rem, 1fr);
+  gap: var(--ui-gap);
+  margin: 0;
+}
+
+.ui-panel {
+  border: 1px solid var(--border);
+  border-radius: var(--ui-radius);
+  background: var(--surface-1);
+  padding: 0.75rem 0.85rem 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.ui-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding-bottom: 0.45rem;
+  border-bottom: 1px solid var(--grid);
+}
+
+.ui-panel-head h2 {
+  /* Overrides the report's section heading, which carries a rule and 3.5rem of margin meant
+     for the flow of a document, not for the inside of a box. */
+  font-family: var(--font-figure);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.ui-count {
+  font-family: var(--font-figure);
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.ui-actions { display: inline-flex; gap: 0.35rem; }
+
+.ui-hint {
+  margin: 0;
+  color: var(--text-secondary);
+  font-family: var(--font-prose);
+  font-size: 0.86rem;
+  line-height: 1.5;
+  max-width: 44rem;
+}
+
+.ui-empty {
+  margin: 0;
+  color: var(--text-secondary);
+  font-family: var(--font-prose);
+  font-size: 0.9rem;
+}
+
+/* The session picker ------------------------------------------------------
+   A fixed height and its own scroll. The previous version put the help text *inside* the
+   scrolling box and capped the whole thing at 9rem, so the sessions — the entire point of the
+   control — were pushed out of view. */
 
 .ui-sessions {
-  max-height: 9rem;
+  max-height: 15rem;
   overflow-y: auto;
+  border: 1px solid var(--grid);
+  border-radius: var(--ui-radius);
+  background: var(--page);
 }
 
 .ui-session {
-  display: block;
-  width: 100%;
-  font-size: 0.88rem;
-}
-
-.ui-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem 1rem;
-}
-
-.ui-controls button,
-.ui-controls select,
-.ui-controls input[type="search"] {
-  font: inherit;
-  font-size: 0.88rem;
-  color: var(--text-primary);
-  background: var(--page);
-  border: 1px solid var(--grid);
-  border-radius: 5px;
-  padding: 0.2rem 0.5rem;
-}
-
-.ui-controls button {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: 0.55rem;
+  padding: 0.45rem 0.6rem;
+  border-bottom: 1px solid var(--grid);
   cursor: pointer;
 }
 
-.ui-stop {
+.ui-session:last-child { border-bottom: none; }
+.ui-session:hover { background: var(--band); }
+
+/* A checked row is heavier and carries a left edge — two signals, so the state survives
+   greyscale and a colourblind reader (FR-042). */
+.ui-session:has(input:checked) {
+  background: var(--band);
+  box-shadow: inset 3px 0 0 var(--series-1);
+}
+
+.ui-session input { margin-top: 0.2rem; accent-color: var(--series-1); }
+
+.ui-session-body { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
+
+.ui-session-name {
+  font-family: var(--font-ui);
+  font-size: 0.88rem;
+  font-weight: 600;
+  /* One line. A session name is prose and can be long; the id below it is what identifies it,
+     so truncating the name costs nothing and keeps every row the same height. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ui-session:has(input:checked) .ui-session-name { font-weight: 700; }
+
+.ui-session-meta {
+  font-family: var(--font-figure);
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ui-tag {
+  display: inline-block;
+  margin-left: 0.4rem;
+  padding: 0 0.35rem;
+  border: 1px solid var(--warning);
+  border-radius: 999px;
+  color: var(--warning);
+  font-family: var(--font-figure);
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  vertical-align: 0.05rem;
+}
+
+/* Fields ------------------------------------------------------------------
+   Auto-fit tracks, so a field never has to share a line it does not fit on. */
+
+.ui-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  align-items: end;
+  gap: 0.5rem 0.75rem;
+}
+
+.ui-field { display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; }
+
+.ui-label {
+  font-family: var(--font-figure);
+  font-size: 0.66rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.ui-input {
+  font-family: var(--font-ui);
+  font-size: 0.86rem;
+  color: var(--text-primary);
+  background: var(--page);
+  border: 1px solid var(--rule);
+  border-radius: var(--ui-radius);
+  padding: 0.3rem 0.45rem;
+  min-width: 0;
+  width: 100%;
+}
+
+.ui-input:focus-visible { border-color: var(--series-1); }
+
+.ui-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: var(--font-ui);
+  font-size: 0.86rem;
+  /* Aligned with the inputs beside it rather than to the top of its track. */
+  padding-bottom: 0.35rem;
+  cursor: pointer;
+}
+
+.ui-check input { accent-color: var(--series-1); }
+
+/* Buttons ----------------------------------------------------------------- */
+
+.ui-btn {
+  font-family: var(--font-ui);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  background: var(--page);
+  border: 1px solid var(--rule);
+  border-radius: var(--ui-radius);
+  padding: 0.32rem 0.7rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.ui-btn:hover { border-color: var(--keyline); }
+
+.ui-btn--primary {
+  color: var(--swatch-ink);
+  background: var(--series-1);
+  border-color: var(--series-1);
+}
+
+.ui-btn--primary:hover { filter: brightness(1.08); }
+
+.ui-btn--quiet {
+  font-weight: 500;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  padding: 0.2rem 0.55rem;
+}
+
+.ui-btn--quiet:hover { color: var(--text-primary); }
+
+/* Section toggles ---------------------------------------------------------- */
+
+.ui-views {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 0.2rem 0.75rem;
+}
+
+.ui-views label {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.4rem;
+  font-family: var(--font-ui);
+  font-size: 0.84rem;
+  cursor: pointer;
+  min-width: 0;
 }
 
-.ui-controls code {
-  font-size: 0.85rem;
-  word-break: break-all;
+.ui-views input { accent-color: var(--series-1); }
+
+/* The terminal equivalent -------------------------------------------------
+   Folded away. It is the proof that nothing here is browser-only, which is worth keeping and
+   is not worth twenty lines of session ids at the top of the page. */
+
+.ui-details {
+  border: 1px solid var(--border);
+  border-radius: var(--ui-radius);
+  background: var(--surface-1);
+  padding: 0.5rem 0.85rem;
 }
 
-/* Matches the report's own convention: controls that need scripting stay hidden until it runs,
-   so the page never offers a dead button. `.js-only` is defined by the report stylesheet as
-   inline-flex; the block-level ones here need their own display. */
-.js .ui-controls p.js-only { display: flex; }
-.js .ui-controls fieldset.js-only { display: flex; }
+.ui-details summary {
+  cursor: pointer;
+  font-family: var(--font-figure);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.ui-details summary:hover { color: var(--text-primary); }
+
+.ui-details code {
+  display: block;
+  margin: 0.5rem 0;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--grid);
+  border-radius: var(--ui-radius);
+  background: var(--page);
+  font-family: var(--font-figure);
+  font-size: 0.72rem;
+  line-height: 1.6;
+  /* A hundred session ids must wrap inside the box, never widen the page. */
+  overflow-wrap: anywhere;
+  max-height: 12rem;
+  overflow-y: auto;
+}
+
+/* Controls that need scripting stay hidden until it runs, so the page never offers a dead
+   button. `.js-only` is `inline-flex` in the report's stylesheet; these need their own. */
+.js .ui .js-only { display: flex; }
+.js .ui label.js-only { display: flex; }
+.js .ui span.ui-actions.js-only { display: inline-flex; }
+
+@media (max-width: 62rem) {
+  .ui-form { grid-template-columns: 1fr; }
+}
