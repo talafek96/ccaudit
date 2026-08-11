@@ -38,7 +38,13 @@ from rich.text import Text
 from ccaudit.config.components import attribution_component, sig_figs_for
 from ccaudit.model.reconcile import UNATTRIBUTED_DISPLAY
 from ccaudit.money import format_micros, format_share
-from ccaudit.render.data import forced_reload_micros, summarise_ids, summarise_versions
+from ccaudit.render.data import (
+    GROUPINGS,
+    SORTS,
+    forced_reload_micros,
+    summarise_ids,
+    summarise_versions,
+)
 
 # Fixed so captured output does not depend on the terminal that produced it (SC-009).
 PLAIN_WIDTH = 120
@@ -293,6 +299,14 @@ def _render_items(
     console.print(
         f"Every row above plus '{UNATTRIBUTED_DISPLAY}' ({_UNATTRIBUTED_NOTE}) adds up to the "
         f"total. Nothing is dropped or spread around."
+    )
+    # What these rows *are*, and how to ask for different ones. The tool has grouped by folder,
+    # extension, and category since the first release and said so nowhere but `--help`, so the
+    # question "how do I see this by folder?" had no answer on the surface that raises it.
+    console.print(
+        f"Rows are grouped by {data['group_by']}. Group them differently with "
+        f"--by {{{','.join(GROUPINGS)}}}, and rank them differently with "
+        f"--sort {{{','.join(SORTS)}}}."
     )
     # The columns were legible to their author and to nobody else. A reader who has to guess
     # what "3 / 420" means is reading a defect, not a table (Principle X: name things as they are).

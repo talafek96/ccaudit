@@ -43,12 +43,24 @@ COMPOSITION_HEIGHT = TICK_BASELINE + 6
 
 ROW_BAR_HEIGHT = 14
 
-# The label column. Wide, because a row label that has been squeezed to thirty characters is
-# not a label — it is a puzzle, and two sibling paths reduce to nearly the same string.
-ROW_LABEL_GUTTER = 300
-VALUE_GUTTER = 150
+# The three columns of a row: label, bar, figure. Sized from measurement, not from taste —
+# the value column was 150 and the widest label it has to hold ("$77.12 (12.9% of total)") is
+# 166 units at this font size, so the bars ran 16 units *underneath* the figures and the cut
+# mark was drawn over the dollar sign.
+#
+# `.row-label` and `.row-value` are both 12px in the figure face, whose advance is 0.6em, so a
+# character costs 7.2 units. Every limit below is derived from that rather than guessed.
+CHARACTER_WIDTH = 7.2
+# "$99,999.99 (100.0% of total)" is 28 — the widest this can produce short of a six-figure
+# session, and the test below re-derives it from `format_micros` rather than trusting this line.
+VALUE_LABEL_CHARACTERS = 28
+COLUMN_GAP = 14
+
+VALUE_GUTTER = round(VALUE_LABEL_CHARACTERS * CHARACTER_WIDTH) + COLUMN_GAP
+ROW_LABEL_GUTTER = 265
 ROW_BAR_WIDTH = CHART_WIDTH - ROW_LABEL_GUTTER - VALUE_GUTTER
-ROW_LABEL_LIMIT = 42
+# What fits in the label gutter, less the gap between it and the bar.
+ROW_LABEL_LIMIT = int((ROW_LABEL_GUTTER - COLUMN_GAP) / CHARACTER_WIDTH)
 
 # The torn edge on a bar that ran past the scale — the printer's convention for "this axis is
 # broken here", which is exactly what has happened.

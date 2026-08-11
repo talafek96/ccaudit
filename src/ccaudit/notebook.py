@@ -157,15 +157,38 @@ def _(list_sessions, mo):
 
 
 @app.cell
-def _(mo, picker, run_ccaudit):
+def _(mo):
+    # Grouping is a real feature of the tool that was reachable only through `--help`, so the
+    # question "how do I see this by folder?" had no answer on the surface that raises it.
+    # A grouping only ever *merges* rows, so every choice sums to the same total.
+    grouping = mo.ui.dropdown(
+        options=["item", "file", "folder", "ext", "category"],
+        value="item",
+        label="Group rows by",
+    )
+    sorting = mo.ui.dropdown(
+        options=["cost", "carry", "direct", "reads", "share"],
+        value="cost",
+        label="Rank rows by",
+    )
+    mo.hstack([grouping, sorting], justify="start", gap=2)
+    return grouping, sorting
+
+
+@app.cell
+def _(grouping, mo, picker, run_ccaudit, sorting):
     if not picker.value:
         mo.stop(True, mo.md("**Select at least one session.** Nothing to analyse yet."))
-    payload = run_ccaudit("--session", *picker.value)
+    payload = run_ccaudit(
+        "--session", *picker.value, "--by", grouping.value, "--sort", sorting.value
+    )
     totals = payload["totals"]
     mo.md(
         f"""
         ## {payload["scope"]["covered_through_turn"]:,} turns across
         {len(payload["scope"]["sessions_included"])} session(s)
+
+        Rows grouped by **{payload["group_by"]}**, ranked by **{payload["sort_by"]}**.
 
         **Total (API-equivalent estimate): ${totals["cost_micros"] / 1e6:,.2f}** —
         accounted for ${totals["attributed_micros"] / 1e6:,.2f}

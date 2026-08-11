@@ -47,6 +47,7 @@ from ccaudit.render.charts.hierarchy import icicle
 from ccaudit.render.charts.scatter import cause_scatter, session_bars
 from ccaudit.render.charts.timeline import residency_timeline
 from ccaudit.render.data import (
+    GROUPINGS,
     forced_reload_micros,
     summarise_ids,
     summarise_versions,
@@ -77,6 +78,12 @@ TOP_ITEMS = 12
 EXPAND_STEP = 25
 
 _TRUNCATION_LABEL = "other items (not shown)"
+
+# The same phrase appears in the chart and in the table, but only one of them can be expanded —
+# a bar chart cannot grow a button, and a reader who found the phrase in the chart first went
+# looking for one that was never there. So the chart's copy says where the control is.
+# Short enough to survive the label gutter without being truncated itself.
+_CHART_TRUNCATION_LABEL = "other items — see table"
 _UNATTRIBUTED_NOTE = "cost we could not tie to any item"
 
 
@@ -337,10 +344,10 @@ def _items_section(data: Mapping[str, Any]) -> str:
         omitted_micros = sum(item["total_micros"] for item in omitted)
         rows.append(
             (
-                f"{len(omitted)} {_TRUNCATION_LABEL}",
+                f"{len(omitted)} {_CHART_TRUNCATION_LABEL}",
                 [
                     Slice(
-                        label=_TRUNCATION_LABEL,
+                        label=_CHART_TRUNCATION_LABEL,
                         micros=omitted_micros,
                         share=_share(omitted_micros, total),
                         sig_figs=min(item["display_sig_figs"] for item in omitted),
@@ -394,13 +401,20 @@ def _items_section(data: Mapping[str, Any]) -> str:
             "The item bars share one scale, set by the most expensive item. The rows beneath "
             "them are sums — the items not shown, cost the exchange itself caused rather than "
             "any file, and the remainder — so one of them can exceed every item and is drawn "
-            "at full width rather than being allowed to shrink the ranking above it. Together "
-            "they reach the session total."
+            "at full width, cut short with a broken-axis mark rather than being allowed to "
+            "shrink the ranking above it. Together they reach the session total. The items not "
+            "shown here are listed in the table below, which has a button to reveal them."
         ),
     )
     return "".join(
         [
             "<h2>What cost the most</h2>",
+            (
+                f'<p class="lede">Rows are grouped by <strong>{escape(str(data["group_by"]))}'
+                f"</strong>. The terminal and the browser view can group by "
+                f"{escape(', '.join(GROUPINGS))} — a grouping only ever merges rows, so every "
+                f"one of them sums to the same total.</p>"
+            ),
             chart,
             _items_table(data, shown=shown, omitted=omitted),
             _cacheability(shown),

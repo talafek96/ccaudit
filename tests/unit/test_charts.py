@@ -18,8 +18,9 @@ import pytest
 
 from ccaudit.config.components import ATTRIBUTION_COMPONENTS, CHARGE_COMPONENTS, sig_figs_for
 from ccaudit.model.reconcile import UNATTRIBUTED_DISPLAY
-from ccaudit.money import format_micros
+from ccaudit.money import format_micros, format_share
 from ccaudit.render.charts import (
+    CHART_WIDTH,
     SERIES_SLOT_COUNT,
     UNATTRIBUTED_SWATCH,
     Slice,
@@ -31,7 +32,13 @@ from ccaudit.render.charts import (
     truncate,
 )
 from ccaudit.render.charts.bars import (
+    CHARACTER_WIDTH,
+    COLUMN_GAP,
     ROW_BAR_WIDTH,
+    ROW_LABEL_GUTTER,
+    ROW_LABEL_LIMIT,
+    VALUE_GUTTER,
+    VALUE_LABEL_CHARACTERS,
     composition_bar,
     cumulative_sparkline,
     stacked_bars,
@@ -147,6 +154,11 @@ def report_payload(
         "cost_basis": "api_equivalent_estimate",
         "currency": "USD",
         "policy": "proportional",
+        # Part of the payload contract (`build_report_data` always emits both). Added here so
+        # the renderer can keep reading them strictly: a surface that quietly tolerates a
+        # missing key is one that will render a report it cannot describe.
+        "group_by": "item",
+        "sort_by": "cost",
         "redacted": redact,
         "scope": {
             "sessions_included": ["session-a"],
@@ -729,3 +741,33 @@ def _session_row(session_id: str, cost: int) -> dict:
         "provisional": False,
         "display_sig_figs": 6,
     }
+
+
+class TestNothingCollides:
+    """A bar drawn under its own figure is a chart that cannot be read.
+
+    It happened: the value column was sized by eye at 150 units while the widest figure it has
+    to hold is 166, so every clamped bar ran underneath the dollar amount and the broken-axis
+    mark was painted over the "$". The geometry below is derived from the font's advance width
+    rather than chosen, and these tests are what keep it derived.
+    """
+
+    @pytest.mark.parametrize("micros", [1_234_560_000, 99_999_990_000, 1_000, 0])
+    def test_the_value_column_holds_the_widest_figure_it_can_be_given(self, micros: int) -> None:
+        """Re-derived from the formatter, so widening a figure's format fails here first."""
+        widest = f"{format_micros(micros, 6)} ({format_share(1.0)} of total)"
+        assert len(widest) <= VALUE_LABEL_CHARACTERS, widest
+
+    def test_a_bar_can_never_reach_the_value_column(self) -> None:
+        """Including a clamped one, which is drawn at the full track width."""
+        assert ROW_LABEL_GUTTER + ROW_BAR_WIDTH < CHART_WIDTH - VALUE_GUTTER + 1
+
+    def test_a_label_can_never_reach_the_bars(self) -> None:
+        assert ROW_LABEL_LIMIT * CHARACTER_WIDTH <= ROW_LABEL_GUTTER - COLUMN_GAP
+
+    def test_every_track_is_wide_enough_to_be_worth_drawing(self) -> None:
+        """Sizing the other two columns generously must not squeeze the bars into stubs."""
+        assert ROW_BAR_WIDTH >= 200
+
+    def test_the_columns_account_for_the_whole_chart(self) -> None:
+        assert ROW_LABEL_GUTTER + ROW_BAR_WIDTH + VALUE_GUTTER == CHART_WIDTH
