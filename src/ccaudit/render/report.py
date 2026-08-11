@@ -32,7 +32,7 @@ from html import escape
 from pathlib import Path
 from typing import Any
 
-from ccaudit.config.components import attribution_component
+from ccaudit.config.components import attribution_component, sig_figs_for
 from ccaudit.model.reconcile import UNATTRIBUTED_DISPLAY
 from ccaudit.money import format_micros
 from ccaudit.render.charts import (
@@ -45,6 +45,11 @@ from ccaudit.render.charts import (
 from ccaudit.render.charts.bars import composition_bar, cumulative_sparkline, stacked_bars
 from ccaudit.render.charts.hierarchy import icicle
 from ccaudit.render.charts.timeline import residency_timeline
+from ccaudit.render.data import (
+    forced_reload_micros,
+    summarise_ids,
+    summarise_versions,
+)
 
 ASSETS = Path(__file__).parent / "assets"
 STYLESHEET = ASSETS / "report.css"
@@ -159,7 +164,7 @@ def _header(data: Mapping[str, Any]) -> str:
             '<button type="button" class="theme-toggle js-only">Dark theme</button></div>'
         ),
         (
-            f'<p class="meta">Sessions: {escape(", ".join(sessions)) or "none"}'
+            f'<p class="meta">Sessions: {escape(summarise_ids(sessions)) or "none"}'
             f" · {scope['covered_through_turn']} turns"
             f" · carry split: {escape(str(data['policy']))}"
             f" · currency: {escape(str(data['currency']))}</p>"
@@ -175,12 +180,12 @@ def _header(data: Mapping[str, Any]) -> str:
         parts.append(
             f'<p class="banner">{len(skipped)} session(s) could not be priced and are not in '
             f"these figures — they ran on a model this rate table does not cover: "
-            f"{escape(', '.join(skipped))}</p>"
+            f"{escape(summarise_ids(skipped))}</p>"
         )
     if len(scope["producing_versions"]) > 1:
         parts.append(
             f'<p class="meta">Spans Claude Code versions '
-            f"{escape(', '.join(scope['producing_versions']))}; figures may not be comparable "
+            f"{escape(summarise_versions(scope['producing_versions']))}; figures may not be comparable "
             f"across the boundary.</p>"
         )
     if scope["provisional"]:
@@ -442,6 +447,7 @@ def _items_table(
         # recomputation. Their figures were priced in Python like every other row.
         body += "".join(_item_row(item, total, overflow=True) for item in omitted)
         body += _remainder_row(omitted, total)
+    body += _forced_reload_row(data)
     for component in data["attribution"]:
         if component["per_item"]:
             continue
@@ -463,6 +469,24 @@ def _items_table(
         f'<div class="table-wrap"><table data-sortable="1">'
         f"<caption>{escape(RECONCILES_SENTENCE)}</caption>"
         f"<thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>"
+    )
+
+
+def _forced_reload_row(data: Mapping[str, Any]) -> str:
+    micros = forced_reload_micros(data)
+    if not micros:
+        return ""
+    events = data["invalidations"]
+    total = data["totals"]["cost_micros"]
+    return _summary_row(
+        label=(
+            f"Re-loading after a change (invalidation) — {len(events)} event(s)"
+            if len(events) != 1
+            else "Re-loading after a change (invalidation) — 1 event"
+        ),
+        micros=micros,
+        share=_share(micros, total),
+        sig_figs=min(sig_figs_for(str(event["confidence"])) for event in events),
     )
 
 

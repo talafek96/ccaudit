@@ -22,8 +22,12 @@ from ccaudit.render.charts import (
     SERIES_SLOT_COUNT,
     UNATTRIBUTED_SWATCH,
     Slice,
+    common_directory_prefix,
+    elide_prefix,
     partition,
+    row_label,
     series_swatch,
+    truncate,
 )
 from ccaudit.render.charts.bars import composition_bar, cumulative_sparkline, stacked_bars
 from ccaudit.render.charts.hierarchy import icicle
@@ -554,3 +558,55 @@ def _own_width(html: str, y: int) -> int:
     """The width of the 'own cost' block on a given row, or zero when there is none."""
     pattern = re.compile(rf'<rect class="node node--own" x="\d+" y="{y}" width="(\d+)"')
     return sum(int(width) for width in pattern.findall(html))
+
+
+class TestLabelsStayIdentifiable:
+    """A shortened label that identifies the wrong file is worse than no label.
+
+    Both ends of a path carry identity and neither alone is enough — the tail separates
+    siblings, the head says which tree — so the cut goes in the middle, the shared leading
+    directories are dropped first because they identify nothing, and the untruncated name is
+    always one hover away.
+    """
+
+    def test_it_keeps_both_ends(self) -> None:
+        assert truncate("/repo/src/model/attribute.py", 20) == "/repo/src…tribute.py"
+
+    def test_two_files_with_the_same_name_stay_distinguishable(self) -> None:
+        """The failure a tail-only ellipsis causes: every __init__.py becomes one row."""
+        left = truncate("/repo/config/__init__.py", 18)
+        right = truncate("/repo/render/__init__.py", 18)
+        assert left != right
+
+    def test_a_short_label_is_left_alone(self) -> None:
+        assert truncate("skill_listing", 40) == "skill_listing"
+
+    def test_a_gutter_too_narrow_for_two_ends_keeps_one(self) -> None:
+        """Below the floor a middle cut leaves two fragments that each identify nothing."""
+        assert truncate("/repo/src/model/attribute.py", 6) == "/repo…"
+
+    def test_the_shared_leading_path_is_found(self) -> None:
+        shared = common_directory_prefix(
+            ["/home/dev/repo/a/x.py", "/home/dev/repo/b/y.py", "/home/dev/repo/b/z.py"]
+        )
+        assert shared == "/home/dev/repo/"
+
+    def test_a_prefix_shared_by_only_some_labels_is_not_cut(self) -> None:
+        assert common_directory_prefix(["/home/dev/a.py", "/var/log/b.py"]) == ""
+
+    def test_a_single_label_has_no_shared_prefix_to_cut(self) -> None:
+        assert common_directory_prefix(["/home/dev/repo/a.py"]) == ""
+
+    def test_eliding_marks_the_cut_so_the_path_is_not_read_as_relative(self) -> None:
+        assert elide_prefix("/home/dev/repo/a.py", "/home/dev/repo/") == "…/a.py"
+
+    def test_a_label_outside_the_shared_prefix_is_untouched(self) -> None:
+        assert elide_prefix("skill_listing", "/home/dev/repo/") == "skill_listing"
+
+    def test_a_truncated_row_label_carries_the_full_name_as_a_tooltip(self) -> None:
+        markup = row_label(x=0, y=0, text="/repo/s…/attribute.py", title="/repo/src/attribute.py")
+        assert "<title>/repo/src/attribute.py</title>" in markup
+
+    def test_an_untruncated_label_needs_no_tooltip(self) -> None:
+        """A tooltip repeating what is already on screen is noise, not help."""
+        assert "<title>" not in row_label(x=0, y=0, text="a.py", title="a.py")

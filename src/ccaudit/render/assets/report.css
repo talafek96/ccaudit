@@ -2,20 +2,48 @@
    font to fetch, and no URL of any kind: the report has to render on a machine with no
    network, opened by someone who will not install anything (FR-032).
 
+   ── The direction ──────────────────────────────────────────────────────────────────────
+   This page is a reconciliation statement, not a dashboard. Its one claim is that the
+   figures add up and a skeptic can check them, so it is dressed as the artifact that claim
+   comes from: an audit working paper. Two devices carry it, and both are real notation
+   rather than decoration.
+
+   **The double rule.** Accountants underscore a grand total twice. It is the domain's own
+   mark for "this is the figure everything above reconciles to" — which is exactly invariant
+   A1. It appears under the session total and nowhere else, so it keeps its meaning.
+
+   **Greenbar banding.** The alternating pale-green stripes of fanfold ledger paper, on the
+   one table that is a ledger. It is what makes a wide row readable across ten columns, which
+   is the reason the stripes existed on the paper too.
+
+   Figures are set in mono for the same reason the paper columns were: a column of costs is
+   comparable at a glance only if the digits align. Prose is set in a serif, because the
+   explanations are meant to be read as argument, not scanned as data. The two faces mark
+   which is which without a label.
+
    Both themes are selected rather than derived. The dark column is the same hues stepped for
    the dark surface, declared under the OS preference *and* under the explicit toggle, so a
-   reader who prefers light on a dark machine still gets a legible page (FR-041). */
+   reader who prefers light on a dark machine still gets a legible page (FR-041).
+
+   The eight categorical series and the hatched remainder are NOT a style choice and are not
+   restyled here: their fixed order and their never-carrying-meaning-by-colour-alone are
+   accessibility invariants (FR-040, FR-042). */
 
 :root {
   color-scheme: light;
-  --surface-1: #fcfcfb;
-  --page: #f9f9f7;
-  --text-primary: #0b0b0b;
-  --text-secondary: #52514e;
-  --muted: #898781;
-  --grid: #e1e0d9;
-  --axis: #c3c2b7;
-  --border: rgba(11, 11, 11, 0.10);
+  --page: #fbfbf8;
+  --surface-1: #ffffff;
+  /* Greenbar. Kept far enough from white that it reads as a band, close enough that it never
+     competes with a figure sitting on it. */
+  --band: #f1f5ee;
+  --text-primary: #12161a;
+  --text-secondary: #545a61;
+  --muted: #7d838a;
+  --grid: #e2e4dc;
+  --rule: #c8ccc2;
+  --keyline: #12161a;
+  --axis: #b6bbaf;
+  --border: rgba(18, 22, 26, 0.12);
   --series-1: #2a78d6;
   --series-2: #eb6834;
   --series-3: #1baf7a;
@@ -27,21 +55,29 @@
   --unattributed: #c3c2b7;
   --unattributed-ink: #52514e;
   --hierarchy: #2a78d6;
-  --warning: #fab219;
-  --swatch-ink: #fcfcfb;
+  --warning: #c07a00;
+  --warning-wash: #fdf6e6;
+  --swatch-ink: #ffffff;
+
+  --font-figure: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --font-prose: ui-serif, Georgia, "Times New Roman", serif;
+  --font-ui: system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:where(:not([data-theme="light"])) {
     color-scheme: dark;
-    --surface-1: #1a1a19;
-    --page: #0d0d0d;
-    --text-primary: #ffffff;
-    --text-secondary: #c3c2b7;
-    --muted: #898781;
-    --grid: #2c2c2a;
-    --axis: #383835;
-    --border: rgba(255, 255, 255, 0.10);
+    --page: #0c0f11;
+    --surface-1: #14181a;
+    --band: #131b17;
+    --text-primary: #eef1ec;
+    --text-secondary: #a8afb2;
+    --muted: #868d90;
+    --grid: #262b2b;
+    --rule: #39403c;
+    --keyline: #eef1ec;
+    --axis: #3d443f;
+    --border: rgba(238, 241, 236, 0.14);
     --series-1: #3987e5;
     --series-2: #d95926;
     --series-3: #199e70;
@@ -53,20 +89,25 @@
     --unattributed: #383835;
     --unattributed-ink: #c3c2b7;
     --hierarchy: #3987e5;
-    --swatch-ink: #0d0d0d;
+    --warning: #e8b64a;
+    --warning-wash: #1d1a12;
+    --swatch-ink: #0c0f11;
   }
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --surface-1: #1a1a19;
-  --page: #0d0d0d;
-  --text-primary: #ffffff;
-  --text-secondary: #c3c2b7;
-  --muted: #898781;
-  --grid: #2c2c2a;
-  --axis: #383835;
-  --border: rgba(255, 255, 255, 0.10);
+  --page: #0c0f11;
+  --surface-1: #14181a;
+  --band: #131b17;
+  --text-primary: #eef1ec;
+  --text-secondary: #a8afb2;
+  --muted: #868d90;
+  --grid: #262b2b;
+  --rule: #39403c;
+  --keyline: #eef1ec;
+  --axis: #3d443f;
+  --border: rgba(238, 241, 236, 0.14);
   --series-1: #3987e5;
   --series-2: #d95926;
   --series-3: #199e70;
@@ -78,78 +119,169 @@
   --unattributed: #383835;
   --unattributed-ink: #c3c2b7;
   --hierarchy: #3987e5;
-  --swatch-ink: #0d0d0d;
+  --warning: #e8b64a;
+  --warning-wash: #1d1a12;
+  --swatch-ink: #0c0f11;
 }
 
 * { box-sizing: border-box; }
 
 body {
   margin: 0;
-  padding: 0 1.25rem 4rem;
+  padding: 0 1.5rem 5rem;
   background: var(--page);
   color: var(--text-primary);
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-  font-size: 15px;
-  line-height: 1.55;
+  font-family: var(--font-prose);
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-text-size-adjust: 100%;
 }
 
-main { max-width: 60rem; margin: 0 auto; }
+main { max-width: 64rem; margin: 0 auto; }
 
-h1 { font-size: 1.6rem; margin: 1.5rem 0 0.25rem; }
-h2 { font-size: 1.15rem; margin: 2.5rem 0 0.5rem; }
-h3 { font-size: 1rem; margin: 1.25rem 0 0.25rem; }
+/* Statement header ---------------------------------------------------------
+   Stamped rather than styled: the title of a working paper, set in the figure face,
+   letterspaced, over the keyline that opens the document. */
 
-p { margin: 0.4rem 0; }
+h1 {
+  font-family: var(--font-figure);
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  line-height: 1.25;
+  margin: 2.5rem 0 0.6rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 2px solid var(--keyline);
+}
 
-.lede { color: var(--text-secondary); max-width: 46rem; }
-.meta { color: var(--text-secondary); font-size: 0.9rem; }
+/* Section heads get a rule above them, which is how a statement separates its schedules. */
+h2 {
+  font-family: var(--font-figure);
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin: 3.5rem 0 1rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--rule);
+}
+
+h3 {
+  font-family: var(--font-ui);
+  font-size: 0.95rem;
+  font-weight: 650;
+  letter-spacing: 0;
+  margin: 1.5rem 0 0.3rem;
+}
+
+p { margin: 0.5rem 0; }
+
+.lede { color: var(--text-secondary); max-width: 44rem; }
+
+.meta {
+  font-family: var(--font-figure);
+  font-size: 0.78rem;
+  letter-spacing: 0.02em;
+  color: var(--text-secondary);
+}
 
 .banner {
   border: 1px solid var(--border);
-  border-left: 4px solid var(--warning);
-  background: var(--surface-1);
-  padding: 0.6rem 0.85rem;
-  margin: 0.75rem 0;
-  border-radius: 6px;
+  border-left: 3px solid var(--warning);
+  background: var(--warning-wash);
+  padding: 0.7rem 0.95rem;
+  margin: 1rem 0;
+  border-radius: 2px;
+  font-size: 0.95rem;
 }
 
 .panel {
   background: var(--surface-1);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 1rem 1.1rem;
-  margin: 1rem 0;
+  border-radius: 3px;
+  padding: 1.4rem 1.5rem;
+  margin: 1.25rem 0;
 }
 
-.hero { font-size: 2.4rem; font-weight: 650; line-height: 1.1; }
-.hero .share { font-size: 1rem; font-weight: 400; }
+/* Heading margins are set for the flow of the page; inside a box they become a gap at the
+   top of it. */
+.panel > :first-child { margin-top: 0; padding-top: 0; border-top: none; }
+.panel > :last-child { margin-bottom: 0; }
 
-.money { font-variant-numeric: tabular-nums; }
-.share { color: var(--text-secondary); }
+/* The total block. The one place the double rule appears — the accountant's mark for the
+   figure everything above reconciles to (invariant A1). */
+.hero {
+  font-family: var(--font-figure);
+  font-size: 3rem;
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  padding-bottom: 0.5rem;
+  border-bottom: 3px double var(--keyline);
+  display: inline-block;
+}
 
-.reconciles { color: var(--text-secondary); font-size: 0.9rem; }
+.hero .share {
+  font-size: 0.95rem;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+.money {
+  font-family: var(--font-figure);
+  font-variant-numeric: tabular-nums;
+}
+
+.share { color: var(--text-secondary); font-family: var(--font-figure); font-size: 0.86em; }
+
+.reconciles {
+  color: var(--text-secondary);
+  font-size: 0.92rem;
+  max-width: 44rem;
+}
 
 /* Charts ------------------------------------------------------------------ */
 
-.chart { margin: 1rem 0 1.5rem; }
-.chart-title { font-weight: 600; margin-bottom: 0.35rem; }
-.chart-note { color: var(--text-secondary); font-size: 0.88rem; max-width: 46rem; }
+.chart { margin: 1.25rem 0 2rem; }
+
+.chart-title {
+  font-family: var(--font-ui);
+  font-weight: 650;
+  font-size: 0.95rem;
+  margin-bottom: 0.5rem;
+}
+
+.chart-note {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  max-width: 44rem;
+  margin-top: 0.6rem;
+}
+
 .chart-svg { display: block; max-width: 100%; height: auto; overflow: visible; }
 
 .chart--placeholder .placeholder-body {
   border: 1px dashed var(--axis);
-  border-radius: 6px;
-  padding: 0.75rem 0.9rem;
+  border-radius: 2px;
+  padding: 0.8rem 0.95rem;
   color: var(--text-secondary);
 }
 
-.separator { fill: var(--surface-1); }
+.separator { fill: var(--page); }
 .axis { stroke: var(--axis); stroke-width: 1; }
-.tick { fill: var(--text-secondary); font-size: 11px; }
-.row-label { fill: var(--text-primary); font-size: 12px; }
-.row-value { fill: var(--text-secondary); font-size: 12px; font-variant-numeric: tabular-nums; }
+.tick { fill: var(--text-secondary); font-size: 11px; font-family: var(--font-figure); }
+.row-label { fill: var(--text-primary); font-size: 12px; font-family: var(--font-figure); }
+.row-value {
+  fill: var(--text-secondary);
+  font-size: 12px;
+  font-family: var(--font-figure);
+  font-variant-numeric: tabular-nums;
+}
 /* What a truncated chart left out, stated in the drawing itself. */
-.omission { fill: var(--text-primary); font-size: 12px; font-weight: 600; }
+.omission { fill: var(--text-primary); font-size: 12px; font-weight: 700; }
 .node { fill: var(--hierarchy); stroke: var(--hierarchy); stroke-width: 1; }
 .node--own { fill: var(--muted); fill-opacity: 0.28; stroke: var(--muted); stroke-width: 1; }
 .node-label { fill: var(--text-primary); font-size: 11px; dominant-baseline: middle; }
@@ -158,18 +290,28 @@ p { margin: 0.4rem 0; }
 .spark-event { stroke: var(--text-secondary); stroke-width: 1; stroke-dasharray: 3 3; }
 .spark-point { fill: var(--surface-1); stroke: var(--series-1); stroke-width: 2; }
 
+/* A truncated label is only honest if the full one is a hover away, so the cursor says so. */
+.row-label { cursor: help; }
+
 .mark:hover .slice,
 .mark:hover .node { stroke: var(--text-primary); stroke-width: 2; }
 
 .legend {
   list-style: none;
-  margin: 0.5rem 0 0;
+  margin: 0.75rem 0 0;
   padding: 0;
   display: grid;
-  gap: 0.15rem 0.75rem;
+  gap: 0.3rem 0.75rem;
 }
 
-.legend-item { display: flex; align-items: baseline; gap: 0.4rem; flex-wrap: wrap; }
+.legend-item {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  font-size: 0.92rem;
+}
+
 .legend-label { min-width: 16rem; }
 .legend-detail { color: var(--text-secondary); font-size: 0.88rem; }
 
@@ -179,7 +321,8 @@ p { margin: 0.4rem 0; }
   justify-content: center;
   width: 1.15rem;
   height: 1.15rem;
-  border-radius: 3px;
+  border-radius: 2px;
+  font-family: var(--font-figure);
   font-size: 0.72rem;
   font-weight: 700;
   color: var(--swatch-ink);
@@ -207,32 +350,108 @@ p { margin: 0.4rem 0; }
   );
 }
 
-/* Tables ------------------------------------------------------------------ */
+/* The ledger ---------------------------------------------------------------
+   Wide by nature: ten columns of figures. It scrolls inside its own box so the page never
+   does, and the header stays put so a column is still identifiable forty rows down. */
 
-.table-wrap { overflow-x: auto; }
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--surface-1);
+  margin: 0.75rem 0;
+}
 
-table { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
-caption { text-align: left; color: var(--text-secondary); padding-bottom: 0.35rem; }
-th, td { padding: 0.35rem 0.5rem; border-bottom: 1px solid var(--grid); text-align: right; }
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-family: var(--font-figure);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+caption {
+  text-align: left;
+  color: var(--text-secondary);
+  font-family: var(--font-prose);
+  font-size: 0.92rem;
+  padding: 0.75rem 0.85rem;
+  max-width: 48rem;
+}
+
+th, td {
+  padding: 0.5rem 0.7rem;
+  text-align: right;
+  vertical-align: top;
+}
+
 th:first-child, td:first-child { text-align: left; }
-thead th { color: var(--text-secondary); font-weight: 600; white-space: nowrap; }
-td.num { font-variant-numeric: tabular-nums; }
-tr.summary td { font-style: italic; }
-tr.summary td:first-child { font-style: normal; font-weight: 600; }
-tr.remainder td { background: color-mix(in srgb, var(--unattributed) 22%, transparent); }
+
+thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface-1);
+  color: var(--text-secondary);
+  font-weight: 700;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  border-bottom: 2px solid var(--keyline);
+}
+
+/* Greenbar. Applied to the odd data rows only, so the summary rows below break the rhythm
+   and read as a different kind of line — which they are. */
+tbody tr:nth-child(odd of :not([hidden])) { background: var(--band); }
+
+tbody tr:hover { background: color-mix(in srgb, var(--series-1) 9%, transparent); }
+
+td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* The summary block: subtotal rules above, double rule under the last line, as on paper. */
+tr.summary td {
+  color: var(--text-secondary);
+  background: var(--surface-1);
+}
+
+tr.summary td:first-child { color: var(--text-primary); font-weight: 700; }
+tr.summary:first-of-type td { border-top: 1px solid var(--keyline); }
+
+tr.remainder td {
+  border-bottom: 3px double var(--keyline);
+  background: color-mix(in srgb, var(--unattributed) 16%, var(--surface-1));
+}
 
 .flag {
   display: inline-block;
-  border: 1px solid var(--axis);
-  border-radius: 999px;
-  padding: 0 0.45rem;
-  font-size: 0.78rem;
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  padding: 0 0.35rem;
+  margin-left: 0.15rem;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   color: var(--text-secondary);
+  white-space: nowrap;
 }
 
-details.drill { margin-top: 0.2rem; }
-details.drill summary { cursor: pointer; color: var(--text-secondary); font-size: 0.85rem; }
-details.drill ul { margin: 0.3rem 0 0.5rem; padding-left: 1.1rem; }
+details.drill { margin-top: 0.3rem; }
+
+details.drill summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-size: 0.78rem;
+}
+
+details.drill ul {
+  margin: 0.4rem 0 0.5rem;
+  padding-left: 1.1rem;
+  font-family: var(--font-prose);
+  font-size: 0.88rem;
+  max-width: 46rem;
+}
 
 /* Controls exist only where they work: without JavaScript the page is complete and static,
    so a control that would do nothing is never shown (FR-032 — it must open anywhere). */
@@ -242,34 +461,85 @@ details.drill ul { margin: 0.3rem 0 0.5rem; padding-left: 1.1rem; }
 .sort-btn {
   background: none;
   border: 1px solid var(--border);
-  border-radius: 4px;
-  color: inherit;
+  border-radius: 2px;
+  color: var(--text-secondary);
   font: inherit;
-  font-size: 0.78rem;
-  padding: 0 0.3rem;
+  font-size: 0.7rem;
+  padding: 0 0.25rem;
   cursor: pointer;
-  margin-left: 0.25rem;
+  margin-left: 0.3rem;
+  vertical-align: middle;
 }
 
-.sort-btn[aria-pressed="true"] { border-color: var(--text-secondary); font-weight: 700; }
+.sort-btn:hover { color: var(--text-primary); border-color: var(--rule); }
+.sort-btn[aria-pressed="true"] { border-color: var(--keyline); color: var(--text-primary); }
 
-.toolbar { display: flex; gap: 0.5rem; align-items: center; margin: 0.5rem 0; }
+/* Reveal-more. Sits on the line it will shrink, because that line is what it changes. */
+.expand-btn {
+  font-family: var(--font-ui);
+  font-size: 0.78rem;
+  color: var(--text-primary);
+  background: var(--page);
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  padding: 0.1rem 0.55rem;
+  margin-left: 0.6rem;
+  cursor: pointer;
+}
+
+.expand-btn:hover { border-color: var(--keyline); }
+
+.toolbar {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin: 1rem 0 0;
+}
 
 .theme-toggle {
   background: var(--surface-1);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: inherit;
-  font: inherit;
-  font-size: 0.85rem;
-  padding: 0.2rem 0.6rem;
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-size: 0.78rem;
+  padding: 0.25rem 0.7rem;
   cursor: pointer;
 }
 
-footer { margin-top: 3rem; color: var(--text-secondary); font-size: 0.85rem; }
+.theme-toggle:hover { color: var(--text-primary); border-color: var(--keyline); }
+
+/* A keyboard reader must always be able to see where they are (quality floor). */
+:where(a, button, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--series-1);
+  outline-offset: 2px;
+}
+
+footer {
+  margin-top: 4rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--rule);
+  color: var(--text-secondary);
+  font-family: var(--font-figure);
+  font-size: 0.76rem;
+}
+
+@media (max-width: 40rem) {
+  body { padding: 0 0.9rem 3rem; font-size: 15px; }
+  .hero { font-size: 2.1rem; }
+  .legend-label { min-width: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
 
 @media print {
-  body { background: #ffffff; }
+  body { background: #ffffff; color: #000000; }
   .js-only { display: none !important; }
   details.drill { display: none; }
+  .table-wrap { overflow: visible; border: none; }
+  thead th { position: static; }
+  h1, h2 { break-after: avoid; }
+  .chart { break-inside: avoid; }
 }

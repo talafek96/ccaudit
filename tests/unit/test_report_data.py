@@ -15,7 +15,7 @@ from ccaudit.analyse import SessionAnalysis, analyse_transcript
 from ccaudit.config import BUNDLED_PRICING_PATH, load_pricing
 from ccaudit.config.components import CHARGE_COMPONENTS, sig_figs_for
 from ccaudit.model.reconcile import ReconciliationError
-from ccaudit.render.data import SCHEMA_VERSION, build_report_data
+from ccaudit.render.data import SCHEMA_VERSION, build_report_data, collapse_notes
 from tests.fixtures.builder import TranscriptBuilder
 
 PRICING = load_pricing(BUNDLED_PRICING_PATH)
@@ -653,3 +653,47 @@ def _occurrences(text: str, needle: str) -> list[int]:
         positions.append(start)
         start = text.find(needle, start + 1)
     return positions
+
+
+class TestNotesStayReadableAtCorpusScale:
+    """Thirty copies of one limitation is a page that says one thing.
+
+    Analysing a whole machine produced ~30 "this session spans Claude Code versions ..." notes
+    and 8 compaction notes, each differing only in its figures, ahead of anything actionable.
+    They collapse to one line that carries the limitation verbatim and says how widespread it
+    is. Nothing is summed: a combined figure invented from prose would be a made-up number.
+    """
+
+    def test_identical_notes_collapse(self) -> None:
+        assert collapse_notes(["same note.", "same note."]) == ["same note."]
+
+    def test_notes_differing_only_in_figures_collapse_and_are_counted(self) -> None:
+        collapsed = collapse_notes(
+            [
+                "This session spans Claude Code versions 2.1.202, 2.1.205; take care.",
+                "This session spans Claude Code versions 2.1.212, 2.1.220; take care.",
+                "This session spans Claude Code versions 2.1.1, 2.1.2, 2.1.3; take care.",
+            ]
+        )
+        assert len(collapsed) == 1
+        assert collapsed[0].startswith("This session spans Claude Code versions 2.1.202, 2.1.205")
+        assert "and 2 more session(s)" in collapsed[0]
+
+    def test_the_first_instance_survives_verbatim(self) -> None:
+        """The reader still gets a real, checkable example rather than a template."""
+        collapsed = collapse_notes(["About 466,486 tokens left.", "About 4,604,222 tokens left."])
+        assert collapsed[0].startswith("About 466,486 tokens left.")
+
+    def test_genuinely_different_notes_are_kept_apart(self) -> None:
+        notes = ["Rates were published 2026-08-11.", "About 5 tokens left."]
+        assert len(collapse_notes(notes)) == 2
+
+    def test_no_figure_is_invented_by_the_collapse(self) -> None:
+        """The only number added is a count of sessions, never a sum of their figures."""
+        collapsed = collapse_notes(["About 100 tokens left.", "About 200 tokens left."])
+        assert "300" not in collapsed[0]
+
+    def test_it_is_order_preserving_and_deterministic(self) -> None:
+        notes = ["b note 1.", "a note 2.", "b note 3."]
+        assert collapse_notes(notes) == collapse_notes(notes)
+        assert collapse_notes(notes)[0].startswith("b note 1.")

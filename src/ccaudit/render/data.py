@@ -152,6 +152,45 @@ _SORT_KEYS = {
 _MIXED = "(mixed)"
 
 
+# Above these, a list stops informing and starts burying the figures underneath it.
+SESSION_LIST_LIMIT = 6
+VERSION_LIST_LIMIT = 6
+
+
+def summarise_ids(ids: Sequence[str]) -> str:
+    """Name a handful of sessions; count a corpus.
+
+    A whole-machine sweep printed nine hundred UUIDs before the first figure. Nobody reads
+    them, and burying the total under three screens of identifiers is a worse answer than the
+    count — the ids stay in the payload for anyone who wants them, and `ccaudit sessions` lists
+    them. Below the cutoff the names are more useful than the number, so both forms exist and
+    the size of the selection picks between them.
+    """
+    if len(ids) <= SESSION_LIST_LIMIT:
+        return ", ".join(ids)
+    shown = ", ".join(ids[:SESSION_LIST_LIMIT])
+    return f"{len(ids)} sessions ({shown}, and {len(ids) - SESSION_LIST_LIMIT} more)"
+
+
+def summarise_versions(versions: Sequence[str]) -> str:
+    """The span of Claude Code versions, as a range once a full list stops being readable."""
+    if len(versions) <= VERSION_LIST_LIMIT:
+        return ", ".join(versions)
+    return f"{len(versions)} versions from {versions[0]} to {versions[-1]}"
+
+
+def forced_reload_micros(data: Mapping[str, Any]) -> int:
+    """Cost charged to an invalidation event rather than to any item.
+
+    When a prefix-tier change re-writes the whole prompt, the re-write is charged to the change
+    that caused it rather than smeared over the content it re-wrote (FR-081). That makes it a
+    fifth kind of line: attributed, but not to a file. Every surface has to give it its own row,
+    because the item rows plus the remainder are otherwise short by exactly this much — a
+    breakdown that does not add up (Principle X, invariant A1).
+    """
+    return sum(int(event["forced_reload_micros"]) for event in data.get("invalidations", ()))
+
+
 class UnknownGroupingError(ValueError):
     """An unsupported `--by` dimension. Never silently falls back to the default."""
 
@@ -1236,7 +1275,9 @@ def _uncertainty_notes(analyses: Sequence[SessionAnalysis], policy: str) -> list
         f"Shared carry cost is divided by the '{policy}' policy: {describe_policy(policy)} "
         f"A different policy moves per-item figures without changing the total."
     )
-    return _dedup([note for analysis in analyses for note in analysis.limitations] + [policy_note])
+    return collapse_notes(
+        [note for analysis in analyses for note in analysis.limitations] + [policy_note]
+    )
 
 
 def _limitations(
@@ -1270,7 +1311,7 @@ def _limitations(
             f"{', '.join(flagged)}, where they are charged at full rate every turn rather "
             f"than at the cache-read rate."
         )
-    return _dedup(notes)
+    return collapse_notes(notes)
 
 
 def _weakest(current: str, candidate: str, ladder: Sequence[str]) -> str:
@@ -1294,3 +1335,40 @@ def _dedup(values: Sequence[str]) -> list[str]:
             seen.add(value)
             unique.append(value)
     return unique
+
+
+# Digits are what make two instances of the same limitation different strings: "spans versions
+# 2.1.203, 2.1.204" and "spans versions 2.1.207, 2.1.220" are one limitation reported twice.
+_DIGITS = re.compile(r"\d[\d,.]*")
+# ...and a list of them is the same limitation as a longer list of them: "spans versions A, B"
+# and "spans versions A, B, C" differ in how many, not in what they say.
+_NUMBER_LIST = re.compile(r"#(?:[,\s]+#)+")
+
+
+def collapse_notes(values: Sequence[str]) -> list[str]:
+    """Dedup, then fold repeats of the *same* limitation into one line that says how many.
+
+    Exact dedup is not enough across a corpus. Analysing 900 sessions produced 30 copies of
+    "this session spans Claude Code versions ..." and 8 copies of "about N tokens left the
+    conversation before a compaction", each differing only in its numbers — a page of notes
+    that says four things. A reader scrolls past all of it, which means the limitations stop
+    being read at exactly the scale where they matter most.
+
+    Nothing is summed or averaged: inventing a combined figure from prose would be inventing a
+    number. The first instance is shown verbatim and the rest are counted, so the reader learns
+    the limitation, its shape, and how widespread it is.
+    """
+    groups: dict[str, list[str]] = {}
+    for value in _dedup(values):
+        template = _NUMBER_LIST.sub("#", _DIGITS.sub("#", value))
+        groups.setdefault(template, []).append(value)
+    collapsed = []
+    for members in groups.values():
+        if len(members) == 1:
+            collapsed.append(members[0])
+            continue
+        collapsed.append(
+            f"{members[0]} (and {len(members) - 1} more session(s) with the same limitation, "
+            f"differing only in the figures)"
+        )
+    return collapsed

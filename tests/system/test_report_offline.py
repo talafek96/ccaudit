@@ -7,20 +7,34 @@ no fetch of any kind, every figure paired with its share, the remainder still vi
 worded as a bill, no path when redaction was asked for, and the same bytes on every run.
 """
 
+import json
+import math
 import re
-from html import escape
+from html import escape, unescape
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import pytest
 
+from ccaudit.analyse import analyse_transcript
+from ccaudit.config import BUNDLED_PRICING_PATH, load_pricing
 from ccaudit.config.components import ATTRIBUTION_COMPONENTS, CHARGE_COMPONENTS
 from ccaudit.model.reconcile import UNATTRIBUTED_DISPLAY
-from ccaudit.render.report import render_report_html, write_report
+from ccaudit.render.data import build_report_data
+from ccaudit.render.report import (
+    EXPAND_STEP,
+    TOP_ITEMS,
+    forced_reload_micros,
+    render_report_html,
+    write_report,
+)
+from tests.fixtures.builder import TranscriptBuilder
 from tests.unit.test_charts import busy_payload, report_payload, sample_tree
 
 pytestmark = pytest.mark.system
 
 TAGS = re.compile(r"<[^>]+>")
+FIXED_TIME = "2026-08-11T12:00:00+00:00"
 MONEY_SPAN = re.compile(r'<span class="money">')
 MONEY_THEN_SHARE = re.compile(r'<span class="money">[^<]*</span> <span class="share">')
 SVG_TITLE = re.compile(r"<title>(.*?)</title>", re.DOTALL)
@@ -244,3 +258,183 @@ class TestWriting:
         written = write_report(report_payload(), target)
         assert written == target
         assert target.read_text(encoding="utf-8").startswith("<!doctype html>")
+
+
+def expansion_states(html: str) -> list[dict]:
+    """The rendered expansion states, as the script will read them."""
+    match = re.search(r'data-expand-states="([^"]*)"', html)
+    assert match, "the truncation line carries no expansion states"
+    return json.loads(unescape(match.group(1)))
+
+
+class TestProgressiveReveal:
+    """The truncated tail is expandable, and the table still adds up at every step.
+
+    Twelve rows and a "70 other items" line is unreadable when that line is 45% of the spend:
+    the reader can see that most of the money is off-screen and has no way to look at it. So
+    the rest of the rows ship in the file, hidden, and a button reveals them in batches.
+
+    The hazard this creates is the one that matters most here. Revealing a row has to shrink
+    the remainder line by exactly that row's cost, or the table stops reconciling the moment
+    someone clicks — a show-stopper (Principle X, invariant A1). It cannot drift, because the
+    script never computes a figure: every state was rendered in Python and the script only
+    swaps between them.
+    """
+
+    @pytest.fixture(scope="class")
+    @classmethod
+    def many_items(cls) -> str:
+        builder = TranscriptBuilder()
+        builder.add_user_text("read the tree")
+        for index in range(40):
+            tool_id = f"t{index}"
+            builder.add_turn(
+                input_tokens=5,
+                cache_creation_5m=4_000,
+                cache_read=4_000 * index,
+                output_tokens=30,
+                tool_use_ids=(tool_id,),
+            )
+            builder.add_tool_result(
+                tool_use_id=tool_id,
+                file_path=f"/repo/pkg{index % 7}/module_{index}.py",
+                text="x = 1\n" * (300 + index * 20),
+            )
+        with TemporaryDirectory() as tmp:
+            path = builder.write(Path(tmp) / "s.jsonl")
+            analysis = analyse_transcript(path, pricing=load_pricing(BUNDLED_PRICING_PATH))
+        return render_report_html(build_report_data([analysis], generated_at=FIXED_TIME))
+
+    def test_the_hidden_rows_are_in_the_file(self, many_items: str) -> None:
+        """Revealing a row is a display change. Nothing is fetched and nothing is recomputed."""
+        assert many_items.count('data-overflow="1"') > 0
+
+    def test_they_start_hidden_so_the_static_page_is_the_ranked_summary(
+        self, many_items: str
+    ) -> None:
+        for row in re.findall(r"<tr[^>]*data-overflow[^>]*>", many_items):
+            assert "hidden" in row, row
+
+    def test_there_is_a_control_to_reveal_them(self, many_items: str) -> None:
+        assert "expand-btn" in many_items
+        assert "Show " in many_items
+
+    def test_the_control_is_hidden_without_javascript(self, many_items: str) -> None:
+        """The page must stay complete and honest in a browser with scripting off (FR-032)."""
+        button = re.search(r'<button[^>]*class="expand-btn[^"]*"', many_items)
+        assert button and "js-only" in button.group(0)
+
+    def test_every_expansion_state_reconciles(self, many_items: str) -> None:
+        """The invariant the feature could break: each state's figure covers exactly the rows
+        still hidden at that point."""
+        states = expansion_states(many_items)
+        rows = re.findall(r'<tr[^>]*data-overflow="1"[^>]*data-total="(\d+)"', many_items)
+        hidden_micros = [int(value) for value in rows]
+        assert len(states) == math.ceil(len(hidden_micros) / EXPAND_STEP)
+        for index, state in enumerate(states):
+            revealed = index * EXPAND_STEP
+            assert state["count"] == len(hidden_micros) - revealed
+            assert state["micros"] == sum(hidden_micros[revealed:])
+
+    def test_the_first_state_matches_the_line_the_reader_sees(self, many_items: str) -> None:
+        """The rendered line and state zero are the same claim; they must not disagree."""
+        states = expansion_states(many_items)
+        assert states[0]["label"] in TAGS.sub(" ", many_items)
+
+    def test_every_state_figure_is_still_paired_with_its_share(self, many_items: str) -> None:
+        """The honesty rule does not lapse because a figure is delivered by a script."""
+        states = expansion_states(many_items)
+        for state in states:
+            assert MONEY_THEN_SHARE.search(state["figure"]), state
+
+
+class TestTheRenderedTableAddsUp:
+    """The caption's claim, checked against the rendered rows rather than against the payload.
+
+    The payload reconciling is not the same property as the *table* reconciling, and the gap
+    between them is where cost goes missing: forced-reload cost is attributed to an
+    invalidation event rather than to a file, so it appears in `attributed_micros` but has no
+    item row. Before this test the table was silently short by exactly that amount while every
+    payload-level check passed.
+    """
+
+    @pytest.fixture(scope="class")
+    @classmethod
+    def invalidating(cls) -> tuple[dict, str]:
+        builder = TranscriptBuilder()
+        builder.add_user_text("read it")
+        builder.add_turn(
+            model="claude-opus-5",
+            input_tokens=10,
+            cache_creation_5m=9_000,
+            output_tokens=40,
+            tool_use_ids=("t1",),
+        )
+        builder.add_tool_result(
+            tool_use_id="t1", file_path="/repo/src/app.py", text="x = 1\n" * 400
+        )
+        builder.add_turn(model="claude-opus-5", input_tokens=5, cache_read=9_000, output_tokens=30)
+        # Past TOP_ITEMS, so the truncation line and the hidden rows are in play too: both
+        # carry a total, and only one of them may be counted at a time.
+        for index in range(TOP_ITEMS + 4):
+            tool_id = f"x{index}"
+            builder.add_turn(
+                model="claude-opus-5",
+                input_tokens=5,
+                cache_creation_5m=3_000,
+                cache_read=9_000,
+                output_tokens=20,
+                tool_use_ids=(tool_id,),
+            )
+            builder.add_tool_result(
+                tool_use_id=tool_id,
+                file_path=f"/repo/pkg/mod_{index}.py",
+                text="y = 2\n" * (120 + index * 10),
+            )
+        # Switching model invalidates the whole prefix and forces a full re-write, which is
+        # charged to the switch rather than to the file that happened to be resident (FR-081).
+        builder.add_turn(
+            model="claude-sonnet-5", input_tokens=5, cache_creation_5m=14_000, output_tokens=30
+        )
+        builder.add_turn(
+            model="claude-sonnet-5", input_tokens=5, cache_read=14_000, output_tokens=30
+        )
+        with TemporaryDirectory() as tmp:
+            path = builder.write(Path(tmp) / "s.jsonl")
+            analysis = analyse_transcript(path, pricing=load_pricing(BUNDLED_PRICING_PATH))
+        payload = build_report_data([analysis], generated_at=FIXED_TIME)
+        return payload, render_report_html(payload)
+
+    def test_the_fixture_actually_forces_a_reload(self, invalidating: tuple[dict, str]) -> None:
+        """Guard on the guard: a fixture with no invalidation would pass everything vacuously."""
+        payload, _ = invalidating
+        assert forced_reload_micros(payload) > 0
+
+    def test_every_row_in_the_table_sums_to_the_session_total(
+        self, invalidating: tuple[dict, str]
+    ) -> None:
+        payload, html = invalidating
+        # Hidden overflow rows are excluded: the truncation line stands in for them, and
+        # counting both would double the tail. That swap is exactly what the reveal performs.
+        rows = [
+            attributes
+            for attributes in re.findall(r"<tr([^>]*)>", html)
+            if "data-total=" in attributes and "data-overflow" not in attributes
+        ]
+        assert rows, "no rows carried a machine-readable total"
+        totals = [int(match) for row in rows for match in re.findall(r'data-total="(-?\d+)"', row)]
+        assert len(totals) == len(rows)
+        assert sum(totals) == payload["totals"]["cost_micros"]
+
+    def test_the_fixture_actually_truncates(self, invalidating: tuple[dict, str]) -> None:
+        """The other guard: without a truncation line the double-count case is never exercised."""
+        _, html = invalidating
+        assert 'data-overflow="1"' in html
+
+    def test_the_forced_reload_has_its_own_named_row(self, invalidating: tuple[dict, str]) -> None:
+        """Not folded into a file's figure: the finding is what the *change* cost (FR-081)."""
+        _, html = invalidating
+        assert "Re-loading after a change (invalidation)" in html
+
+    def test_a_payload_without_invalidations_grows_no_such_row(self, html: str) -> None:
+        assert "Re-loading after a change" not in html

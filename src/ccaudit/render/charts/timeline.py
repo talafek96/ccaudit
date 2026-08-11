@@ -31,6 +31,8 @@ from ccaudit.render.charts import (
     LABEL_GUTTER,
     ROW_HEIGHT,
     UNATTRIBUTED_SWATCH,
+    common_directory_prefix,
+    elide_prefix,
     figure,
     hatch_defs,
     placeholder,
@@ -116,9 +118,20 @@ def residency_timeline(
         body.append(
             f'<text class="omission" x="0" y="12" text-anchor="start">{escape(omission)}</text>'
         )
+    # One prefix for the whole chart, so the labels stay comparable down the column.
+    shared = common_directory_prefix(
+        [str(span.get("display", span.get("item_id", ""))) for span in drawn]
+    )
     for index, span in enumerate(drawn):
         body.append(
-            _span_row(span=span, chart_id=chart_id, index=index, turn_count=turn_count, top=offset)
+            _span_row(
+                span=span,
+                chart_id=chart_id,
+                index=index,
+                turn_count=turn_count,
+                top=offset,
+                shared_prefix=shared,
+            )
         )
 
     height = ROW_HEIGHT * len(drawn) + AXIS_HEIGHT + offset
@@ -182,7 +195,13 @@ def _turns_held(span: Mapping[str, Any], turn_count: int) -> int:
 
 
 def _span_row(
-    *, span: Mapping[str, Any], chart_id: str, index: int, turn_count: int, top: int = 0
+    *,
+    span: Mapping[str, Any],
+    chart_id: str,
+    index: int,
+    turn_count: int,
+    top: int = 0,
+    shared_prefix: str = "",
 ) -> str:
     """One item's bar, divided into its per-turn lanes, collapsed to runs.
 
@@ -243,7 +262,7 @@ def _span_row(
             row_label(
                 x=LABEL_GUTTER - 10,
                 y=text_y,
-                text=truncate(display, LABEL_LIMIT),
+                text=truncate(elide_prefix(display, shared_prefix), LABEL_LIMIT),
                 title=display,
             ),
             "".join(parts),

@@ -18,7 +18,12 @@ from ccaudit.config import BUNDLED_PRICING_PATH, load_pricing
 from ccaudit.config.components import CHARGE_COMPONENTS
 from ccaudit.model.reconcile import UNATTRIBUTED_DISPLAY
 from ccaudit.money import format_micros
-from ccaudit.render.data import build_report_data
+from ccaudit.render.data import (
+    SESSION_LIST_LIMIT,
+    build_report_data,
+    summarise_ids,
+    summarise_versions,
+)
 from ccaudit.render.terminal import PLAIN_WIDTH, render_report
 from tests.fixtures.builder import TranscriptBuilder
 
@@ -288,3 +293,35 @@ class TestRefusal:
         payload["totals"]["unattributed_micros"] += 1
         with pytest.raises(ValueError, match="does not add up"):
             render(payload)
+
+
+class TestCorpusScaleOutput:
+    """A whole-machine sweep must still lead with the figures.
+
+    Running `--all` over ~900 sessions printed every UUID, then 37 Claude Code versions, then
+    thirty near-identical limitation notes — several screens before the first number. The
+    identifiers are still in the payload and still listed by `ccaudit sessions`; what changes
+    here is that the summary stops being buried under them.
+    """
+
+    def test_a_handful_of_sessions_are_named(self) -> None:
+        ids = [f"session-{index}" for index in range(SESSION_LIST_LIMIT)]
+        assert summarise_ids(ids) == ", ".join(ids)
+
+    def test_a_corpus_is_counted_with_a_sample(self) -> None:
+        ids = [f"session-{index}" for index in range(900)]
+        summary = summarise_ids(ids)
+        assert summary.startswith("900 sessions (session-0, ")
+        assert f"and {900 - SESSION_LIST_LIMIT} more" in summary
+        assert "session-800" not in summary
+
+    def test_nothing_is_dropped_without_saying_how_much(self) -> None:
+        """The count is what makes the elision honest rather than a silent truncation."""
+        assert "900" in summarise_ids([f"s{index}" for index in range(900)])
+
+    def test_a_few_versions_are_listed(self) -> None:
+        assert summarise_versions(["2.1.1", "2.1.2"]) == "2.1.1, 2.1.2"
+
+    def test_many_versions_become_a_range(self) -> None:
+        versions = [f"2.1.{index}" for index in range(40)]
+        assert summarise_versions(versions) == "40 versions from 2.1.0 to 2.1.39"

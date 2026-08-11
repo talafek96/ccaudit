@@ -35,9 +35,10 @@ from rich.markup import escape
 from rich.table import Table
 from rich.text import Text
 
-from ccaudit.config.components import attribution_component
+from ccaudit.config.components import attribution_component, sig_figs_for
 from ccaudit.model.reconcile import UNATTRIBUTED_DISPLAY
 from ccaudit.money import format_micros, format_share
+from ccaudit.render.data import forced_reload_micros, summarise_ids, summarise_versions
 
 # Fixed so captured output does not depend on the terminal that produced it (SC-009).
 PLAIN_WIDTH = 120
@@ -45,6 +46,7 @@ BAR_WIDTH = 10
 ITEM_COLUMN_WIDTH = 28
 BAR_FILLED = "#"
 BAR_EMPTY = "."
+
 
 _UNATTRIBUTED_NOTE = "cost we could not tie to any item"
 _TRUNCATION_LABEL = "other items (not shown)"
@@ -107,7 +109,7 @@ def _render_header(console: Console, data: Mapping[str, Any], *, plain: bool) ->
         f"not an amount charged. Currency: {data['currency']}."
     )
 
-    session_line = f"Sessions: {', '.join(included)}" if included else "Sessions: none"
+    session_line = f"Sessions: {summarise_ids(included)}" if included else "Sessions: none"
     if scope["sessions_excluded_count"]:
         session_line += f"  ({scope['sessions_excluded_count']} excluded from this result)"
     console.print(
@@ -121,11 +123,11 @@ def _render_header(console: Console, data: Mapping[str, Any], *, plain: bool) ->
         skipped = scope["sessions_skipped"]
         console.print(
             f"{len(skipped)} session(s) could not be priced and are not in these figures — "
-            f"they ran on a model this rate table does not cover: {', '.join(skipped)}"
+            f"they ran on a model this rate table does not cover: {summarise_ids(skipped)}"
         )
     if len(scope["producing_versions"]) > 1:
         console.print(
-            f"Spans Claude Code versions {', '.join(scope['producing_versions'])}; "
+            f"Spans Claude Code versions {summarise_versions(scope['producing_versions'])}; "
             f"figures may not be comparable across the boundary."
         )
     if data["redacted"]:
@@ -249,6 +251,20 @@ def _render_items(
             omitted_micros,
             omitted_share,
             omitted_figures,
+        )
+
+    # Attributed, but to a change rather than to a file: a prefix-tier invalidation re-writes
+    # the whole prompt, and that re-write is charged to the change that caused it (FR-081).
+    # Without this line the column is short by exactly that much.
+    forced = forced_reload_micros(data)
+    if forced:
+        events = data["invalidations"]
+        _add_summary_row(
+            table,
+            f"Re-loading after a change (invalidation) — {len(events)} event(s)",
+            forced,
+            _share(forced, totals["cost_micros"]),
+            min(sig_figs_for(str(event["confidence"])) for event in events),
         )
 
     # Cost the exchange caused rather than any file: the prompts, the scaffolding, and what

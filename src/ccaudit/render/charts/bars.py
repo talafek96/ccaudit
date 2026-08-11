@@ -23,6 +23,8 @@ from ccaudit.render.charts import (
     MIN_LABELLED_WIDTH,
     ROW_HEIGHT,
     Slice,
+    common_directory_prefix,
+    elide_prefix,
     figure,
     hatch_defs,
     legend_list,
@@ -151,6 +153,9 @@ def stacked_bars(
             reason="No items were attributed any cost in this selection.",
         )
 
+    # Computed over every row at once, so one chart cuts one prefix and the labels stay
+    # comparable down the column.
+    shared = common_directory_prefix([label for label, _ in rows])
     row_totals = [sum(part.micros for part in parts) for _, parts in rows]
     scale = max(row_totals)
     height = ROW_HEIGHT * len(rows) + 8
@@ -163,7 +168,7 @@ def stacked_bars(
             row_label(
                 x=LABEL_GUTTER - 10,
                 y=text_y,
-                text=truncate(label, ROW_LABEL_LIMIT),
+                text=truncate(elide_prefix(label, shared), ROW_LABEL_LIMIT),
                 title=label,
             )
         )

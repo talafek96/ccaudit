@@ -247,6 +247,36 @@ def row_label(*, x: int, y: int, text: str, anchor: str = "end", title: str = ""
 MIDDLE_TRUNCATION_FLOOR = 8
 
 
+def common_directory_prefix(labels: Sequence[str]) -> str:
+    """The leading path segments every label shares, or "" when they share none.
+
+    Truncation keeps both ends of a label because both carry identity — but a head that reads
+    ``/Users/someone/`` on every row carries none, and spends half the width saying so. Cutting
+    the shared part first is what makes the kept head worth keeping. Whole segments only: half
+    a directory name is a different directory.
+    """
+    paths = [label for label in labels if "/" in label]
+    if len(paths) < 2:
+        return ""
+    segments = [label.split("/")[:-1] for label in paths]
+    shared: list[str] = []
+    for parts in zip(*segments, strict=False):
+        if len({*parts}) != 1:
+            break
+        shared.append(parts[0])
+    # One shared segment is usually just the leading "" of an absolute path — not worth a cut.
+    if len(shared) < 2:
+        return ""
+    return "/".join(shared) + "/"
+
+
+def elide_prefix(label: str, prefix: str) -> str:
+    """Drop a shared leading path, marking the cut so the label is not mistaken for relative."""
+    if prefix and label.startswith(prefix):
+        return "…/" + label[len(prefix) :]
+    return label
+
+
 def truncate(text: str, limit: int) -> str:
     """Shorten a label by removing its middle, keeping both ends.
 
