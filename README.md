@@ -3,11 +3,13 @@
 **Which files cost you the most in a Claude Code session, and why.**
 
 ```sh
-uvx ccaudit
+uvx --from git+https://github.com/talafek96/ccaudit ccaudit
 ```
 
 That's it — no install, no config, no account, no network. It reads your local session
 records and prints a ranked breakdown of where the money went.
+
+(Not on PyPI yet, hence the `--from`. Working in a clone? `uv run ccaudit`.)
 
 ```
 Total (API-equivalent estimate): $140.15

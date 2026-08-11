@@ -1,0 +1,13 @@
+{
+  "name": "ccaudit",
+  "owner": {
+    "name": "Tal Afek"
+  },
+  "plugins": [
+    {
+      "name": "ccaudit",
+      "source": "./src/ccaudit/plugin",
+      "description": "Where did this Claude Code session's money go? Per-file cost attribution, including the cost of keeping content loaded across turns."
+    }
+  ]
+}
