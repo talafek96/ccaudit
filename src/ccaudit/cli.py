@@ -26,6 +26,7 @@ from ccaudit.analyse import SessionAnalysis, analyse_transcript
 from ccaudit.capture import clear_queue, enqueue, read_queue, release_worker_lock
 from ccaudit.config import ccaudit_home, load_pricing, resolve_pricing_path
 from ccaudit.config.refresh import DEFAULT_SOURCE_URL, RefreshError, refresh
+from ccaudit.footprint import measure as measure_footprint
 from ccaudit.ingest.discover import (
     SessionRef,
     discover_sessions,
@@ -123,6 +124,12 @@ def build_parser() -> argparse.ArgumentParser:
     sessions.add_argument(
         "--all", action="store_true", help="Every session, not just this project."
     )
+
+    footprint_parser = subparsers.add_parser(
+        "footprint",
+        help="What ccaudit itself cost this session. It measures its own contribution.",
+    )
+    _add_analysis_options(footprint_parser)
 
     report_parser = subparsers.add_parser(
         "report",
@@ -253,6 +260,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_process_queue()
         if args.command == "sessions":
             return _run_sessions(args)
+        if args.command == "footprint":
+            return _run_footprint(args)
         if args.command == "report":
             return _run_report(args)
         if args.command == "explain":
@@ -501,6 +510,16 @@ def _run_sessions(args: argparse.Namespace) -> int:
             f"{ref.session_id}  {ref.modified_at:%Y-%m-%d %H:%M}  "
             f"{ref.record_count:>6,} records  {ref.byte_size / 1e6:>6.1f} MB  {project}{marker}"
         )
+    return EXIT_OK
+
+
+def _run_footprint(args: argparse.Namespace) -> int:
+    """Disclose the tool's own resident cost rather than asserting it is negligible (FR-056)."""
+    analyses, _ = _analyse_selection(args)
+    console = build_console()
+    for analysis in analyses:
+        for line in measure_footprint(analysis).lines():
+            console.print(line)
     return EXIT_OK
 
 
