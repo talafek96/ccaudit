@@ -11,6 +11,7 @@ will act on it. So it is a distinct code that can never be mistaken for a warnin
 """
 
 import argparse
+import json
 import logging
 import sys
 from collections.abc import Sequence
@@ -18,12 +19,28 @@ from pathlib import Path
 from typing import NoReturn
 
 from ccaudit import __version__
+from ccaudit.analyse import SessionAnalysis, analyse_transcript
 from ccaudit.config import ccaudit_home, load_pricing, resolve_pricing_path
 from ccaudit.config.refresh import DEFAULT_SOURCE_URL, RefreshError, refresh
+from ccaudit.ingest.discover import (
+    SessionRef,
+    discover_sessions,
+    latest_session_for_cwd,
+    sessions_for_project,
+)
+from ccaudit.model.policy import DEFAULT_POLICY, POLICIES
 
 # Raised in the model layer, where the invariant lives; re-exported here because this is where
 # it becomes exit code 3 (Principle I, Principle X, SC-001).
 from ccaudit.model.reconcile import ReconciliationError
+from ccaudit.render.data import build_report_data
+from ccaudit.render.explain import (
+    UnknownFigureError,
+    available_figures,
+    explain,
+    explain_total,
+)
+from ccaudit.render.terminal import build_console, render_report
 
 # The exit-code contract from contracts/cli.md. These are part of the interface: a script that
 # branches on them must keep working, so they are named constants, not literals at call sites.
@@ -81,7 +98,33 @@ def build_parser() -> argparse.ArgumentParser:
         default=0,
         help="raise log detail; repeat for debug.",
     )
+    _add_analysis_options(parser)
     subparsers = parser.add_subparsers(dest="command")
+
+    analyse = subparsers.add_parser(
+        "analyse",
+        help="Analyse an explicit selection of sessions.",
+        aliases=["analyze"],
+    )
+    _add_analysis_options(analyse)
+
+    sessions = subparsers.add_parser("sessions", help="List the sessions that can be analysed.")
+    sessions.add_argument("--project", type=Path, default=None, help="Limit to one project.")
+    sessions.add_argument(
+        "--all", action="store_true", help="Every session, not just this project."
+    )
+
+    explain_parser = subparsers.add_parser(
+        "explain",
+        help="Show how one figure was derived, down to the records that produced it.",
+    )
+    explain_parser.add_argument(
+        "figure",
+        nargs="?",
+        default="total",
+        help="Figure identifier, or a file path. Defaults to the session total.",
+    )
+    _add_analysis_options(explain_parser)
 
     pricing = subparsers.add_parser(
         "pricing",
@@ -118,6 +161,30 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _add_analysis_options(parser: argparse.ArgumentParser) -> None:
+    """Selection and output options, shared by the bare invocation and the subcommands.
+
+    Repeated on the top-level parser on purpose: **zero arguments is a complete invocation**
+    (FR-048), and so is `ccaudit --by category` without naming a subcommand.
+    """
+    parser.add_argument("--session", nargs="+", default=None, help="Explicit session id(s).")
+    parser.add_argument("--project", type=Path, default=None, help="All sessions for a project.")
+    parser.add_argument("--all", action="store_true", help="Every session in the local corpus.")
+    parser.add_argument("--last", type=int, default=None, help="The N most recent in the set.")
+    parser.add_argument("--exclude", nargs="+", default=None, help="Drop session id(s) (FR-063).")
+    parser.add_argument(
+        "--policy",
+        choices=POLICIES,
+        default=DEFAULT_POLICY,
+        help="How shared carry cost is divided among resident items.",
+    )
+    parser.add_argument(
+        "--top", type=int, default=20, help="Item rows to show; cost is never hidden."
+    )
+    parser.add_argument("--json", action="store_true", help="Machine-readable output.")
+    parser.add_argument("--redact", action="store_true", help="Obscure paths, keep the structure.")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Entry point. Translates every failure into its documented exit code."""
     parser = build_parser()
@@ -127,10 +194,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.command == "pricing":
             return _run_pricing(args, parser)
-        # Analysis commands land here as they are implemented; the zero-argument default
-        # (FR-048) is the next one to arrive.
-        parser.print_help()
-        return EXIT_OK
+        if args.command == "sessions":
+            return _run_sessions(args)
+        if args.command == "explain":
+            return _run_explain(args)
+        # Everything else — including the bare, zero-argument invocation — is an analysis.
+        return _run_analyse(args)
     except UsageError as exc:
         print(f"ccaudit: {exc}", file=sys.stderr)
         return EXIT_USAGE
@@ -185,6 +254,126 @@ def configure_logging(verbosity: int = 0) -> None:
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
     _LOGGER.addHandler(file_handler)
+
+
+def select_sessions(args: argparse.Namespace) -> list[SessionRef]:
+    """Resolve the argument set to sessions on disk.
+
+    With no selection at all this is the zero-argument default: the most recent session of the
+    project in the current directory (FR-048). Combining selectors intersects them.
+    """
+    excluded = set(getattr(args, "exclude", None) or ())
+
+    if getattr(args, "session", None):
+        wanted = set(args.session)
+        found = [ref for ref in discover_sessions() if ref.session_id in wanted]
+        missing = wanted - {ref.session_id for ref in found}
+        if missing:
+            raise NoSessionsFound(
+                f"no local records for session(s): {', '.join(sorted(missing))}. "
+                f"Run `ccaudit sessions` to see what is available."
+            )
+        refs = found
+    elif getattr(args, "all", False):
+        refs = discover_sessions()
+    elif getattr(args, "project", None):
+        refs = sessions_for_project(args.project)
+    else:
+        latest = latest_session_for_cwd()
+        if latest is None:
+            raise NoSessionsFound(
+                "no Claude Code sessions found for this project. Run ccaudit from a directory "
+                "where you have used Claude Code, or pass --all to analyse every local session."
+            )
+        refs = [latest]
+
+    refs = [ref for ref in refs if ref.session_id not in excluded]
+    if getattr(args, "last", None):
+        refs = refs[: args.last]
+    if not refs:
+        raise NoSessionsFound("the selection matched no sessions.")
+    return refs
+
+
+def _analyse_selection(args: argparse.Namespace) -> tuple[list[SessionAnalysis], int]:
+    """Analyse the selected sessions, returning them and how many were excluded.
+
+    The exclusion count travels with the result because an exclusion is *part of* the answer:
+    the flag must never become a silent cherry-picking tool (FR-063).
+    """
+    refs = select_sessions(args)
+    pricing = load_pricing()
+    analyses = [
+        analyse_transcript(
+            ref.path,
+            pricing=pricing,
+            policy=args.policy,
+            project_path=str(ref.project_path) if ref.project_path else None,
+            provisional=ref.in_progress,
+        )
+        for ref in refs
+    ]
+    return analyses, len(getattr(args, "exclude", None) or ())
+
+
+def _run_analyse(args: argparse.Namespace) -> int:
+    analyses, excluded = _analyse_selection(args)
+    payload = build_report_data(analyses, redact=args.redact, sessions_excluded_count=excluded)
+    if args.json:
+        print(json.dumps(payload, indent=2, sort_keys=False))
+        return EXIT_OK
+    render_report(payload, console=build_console(), top=args.top)
+    return EXIT_OK
+
+
+def _run_sessions(args: argparse.Namespace) -> int:
+    refs = (
+        discover_sessions()
+        if args.all or args.project is None
+        else sessions_for_project(args.project)
+    )
+    if args.project is not None and not args.all:
+        refs = sessions_for_project(args.project)
+    if not refs:
+        raise NoSessionsFound("no Claude Code sessions found in the local records.")
+
+    console = build_console()
+    console.print(f"{len(refs)} session(s) available\n")
+    for ref in refs:
+        project = ref.project_path or ref.project_dir
+        marker = "  (in progress)" if ref.in_progress else ""
+        console.print(
+            f"{ref.session_id}  {ref.modified_at:%Y-%m-%d %H:%M}  "
+            f"{ref.record_count:>6,} records  {ref.byte_size / 1e6:>6.1f} MB  {project}{marker}"
+        )
+    return EXIT_OK
+
+
+def _run_explain(args: argparse.Namespace) -> int:
+    analyses, _ = _analyse_selection(args)
+    if len(analyses) > 1:
+        raise UsageError(
+            f"explain works on one session at a time; the selection matched {len(analyses)}. "
+            f"Pass --session with a single id."
+        )
+    analysis = analyses[0]
+    console = build_console()
+
+    if args.figure in ("total", "session"):
+        console.print(explain_total(analysis).render())
+        return EXIT_OK
+    try:
+        console.print(explain(analysis, args.figure).render())
+    except UnknownFigureError as exc:
+        # Not an error state: the caller asked for something that is not there, and the useful
+        # response is the list of what is.
+        print(f"ccaudit: {exc}", file=sys.stderr)
+        print(
+            "\nAvailable figures:\n  " + "\n  ".join(available_figures(analysis)[:40]),
+            file=sys.stderr,
+        )
+        return EXIT_USAGE
+    return EXIT_OK
 
 
 def _run_pricing(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:

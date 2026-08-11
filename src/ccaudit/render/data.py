@@ -419,10 +419,15 @@ def _min_cacheable_tokens(pricing: Pricing, model: str, gaps: set[str]) -> int |
 
 def _item_payload(rollup: _ItemRollup, total_micros: int, *, redact: bool) -> dict[str, Any]:
     driver = _uncertainty_driver(rollup)
+    display = _display_name(rollup, redact=redact)
     payload: dict[str, Any] = {
-        "item_id": rollup.item_id,
+        # The item id embeds the path, so under redaction it becomes the pseudonym too.
+        # Blanking `display` and `identity` while leaving the id intact would have published
+        # every path in the very field a consumer keys on — the exact leak FR-043 exists to
+        # prevent, and invisible in a rendered report.
+        "item_id": f"{rollup.kind}:{display}" if redact else rollup.item_id,
         "kind": rollup.kind,
-        "display": _display_name(rollup, redact=redact),
+        "display": display,
         "category": rollup.category,
         "size_tokens": rollup.size_tokens,
         "direct_micros": rollup.direct_micros,
