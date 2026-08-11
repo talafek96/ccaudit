@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from ccaudit.cli import EXIT_INTERRUPTED, EXIT_OK, EXIT_USAGE, main
+from ccaudit.cli import EXIT_INTERRUPTED, EXIT_OK, EXIT_USAGE, main, marimo_command
 from ccaudit.notebook import COMMAND_PLACEHOLDER, NOTEBOOK_SOURCE, ccaudit_command, write_notebook
 
 pytestmark = pytest.mark.system
@@ -173,6 +173,63 @@ class TestTheThrowawayNotebook:
         """Naming the fallback matters: `--out` works with any marimo already on the machine."""
         monkeypatch.setattr("shutil.which", lambda name: None)
         assert main(["notebook"]) == EXIT_USAGE
+
+
+class TestLaunchingMarimo:
+    """`uvx` and `uv tool run` take different arguments, so choosing wrongly runs something else.
+
+    It did. The check was `which("uvx").endswith("uvx")`, which is false for Windows'
+    `uvx.exe`, so the command became `uvx tool run marimo` — and uvx read "tool" as a package
+    name, went to PyPI, installed a project called `tool`, and reported "Package `tool` does
+    not provide any executables". No traceback, no clue.
+    """
+
+    def test_uvx_is_invoked_directly(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("shutil.which", lambda name: f"/usr/bin/{name}")
+        assert marimo_command() == ["/usr/bin/uvx", "marimo"]
+
+    def test_uvx_exe_is_still_uvx(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The bug, in one line: a name is a stem, not the whole file name."""
+        monkeypatch.setattr("shutil.which", lambda name: f"C:\\Users\\dev\\.local\\bin\\{name}.exe")
+        command = marimo_command()
+        assert command is not None
+        assert command[1:] == ["marimo"], command
+
+    def test_uv_alone_uses_tool_run(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("shutil.which", lambda name: None if name == "uvx" else "/usr/bin/uv")
+        assert marimo_command() == ["/usr/bin/uv", "tool", "run", "marimo"]
+
+    def test_no_uv_at_all_is_no_command(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("shutil.which", lambda name: None)
+        assert marimo_command() is None
+
+    def test_something_that_is_not_uvx_is_not_used_as_uvx(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Running an unrelated program with marimo's arguments is how this failed the first
+        time; falling back to `uv` is the only safe answer."""
+        monkeypatch.setattr(
+            "shutil.which",
+            lambda name: "/usr/bin/not-uvx-at-all" if name == "uvx" else "/usr/bin/uv",
+        )
+        assert marimo_command() == ["/usr/bin/uv", "tool", "run", "marimo"]
+
+    def test_the_launched_command_never_says_tool_run_after_uvx(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The exact shape that went wrong, asserted end to end."""
+        seen: list[list[str]] = []
+
+        def capture(command, **kwargs):
+            seen.append([str(part) for part in command])
+            return subprocess.CompletedProcess(command, 0)
+
+        monkeypatch.setattr(subprocess, "run", capture)
+        monkeypatch.setattr("shutil.which", lambda name: f"/usr/bin/{name}.exe")
+        main(["notebook"])
+        assert seen
+        assert "tool" not in seen[0], seen[0]
+        assert seen[0][1] == "marimo", seen[0]
 
 
 class TestTheCommand:

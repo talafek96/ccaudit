@@ -24,7 +24,7 @@ import webbrowser
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any, NoReturn
 
 from ccaudit import __version__
@@ -530,6 +530,31 @@ def _analyse_selection(args: argparse.Namespace, *, cached: bool = True) -> Sele
     )
 
 
+def marimo_command() -> list[str] | None:
+    """How to launch marimo in a sandbox, or ``None`` if uv is not installed.
+
+    ``uvx`` and ``uv tool run`` are the same thing spelled two ways, and which one exists is
+    the only question here — but the two take *different arguments*, so getting the answer
+    wrong does not fail, it runs something else. It did: the check was
+    ``which("uvx").endswith("uvx")``, which is false for Windows' ``uvx.exe``, so the command
+    became ``uvx tool run marimo`` — and uvx read "tool" as a package name and went and
+    installed a PyPI project called ``tool``.
+
+    So the test is on the executable's **name**, read with ``PureWindowsPath`` — which accepts
+    both separator styles and strips the ``.exe`` — rather than with ``Path``, which on POSIX
+    treats a backslash as an ordinary character and would not find the name at all.
+    """
+    uvx = shutil.which("uvx")
+    if uvx is not None and PureWindowsPath(uvx).stem.lower() == "uvx":
+        return [uvx, "marimo"]
+    uv = shutil.which("uv")
+    if uv is not None:
+        return [uv, "tool", "run", "marimo"]
+    # `which("uvx")` found something that is not uvx. Falling back to it as though it were
+    # would run an unrelated program with marimo's arguments.
+    return None
+
+
 def _analyse_fresh(args: argparse.Namespace) -> list[SessionAnalysis]:
     """Analyse the selection without touching the cache.
 
@@ -832,14 +857,13 @@ def _run_notebook(args: argparse.Namespace) -> int:
         )
         return EXIT_OK
 
-    runner = shutil.which("uvx") or shutil.which("uv")
-    if runner is None:
+    command = marimo_command()
+    if command is None:
         raise UsageError(
             "the notebook needs `uvx` to run marimo in a sandbox, and neither uvx nor uv is on "
             "PATH. Install uv (https://docs.astral.sh/uv/), or run `ccaudit notebook --out "
             "notebook.py` and open the file with a marimo you already have."
         )
-    command = [runner, "marimo"] if runner.endswith("uvx") else [runner, "tool", "run", "marimo"]
 
     # A temporary directory rather than a temporary file: marimo writes its own state beside
     # the notebook (`__marimo__/`), and cleaning up the notebook while leaving that behind
