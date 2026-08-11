@@ -13,6 +13,7 @@ will act on it. So it is a distinct code that can never be mistaken for a warnin
 import argparse
 import json
 import logging
+import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -20,11 +21,13 @@ from typing import NoReturn
 
 from ccaudit import __version__
 from ccaudit.analyse import SessionAnalysis, analyse_transcript
+from ccaudit.capture import clear_queue, enqueue, read_queue, release_worker_lock
 from ccaudit.config import ccaudit_home, load_pricing, resolve_pricing_path
 from ccaudit.config.refresh import DEFAULT_SOURCE_URL, RefreshError, refresh
 from ccaudit.ingest.discover import (
     SessionRef,
     discover_sessions,
+    fingerprint_transcript,
     latest_session_for_cwd,
     sessions_for_project,
 )
@@ -41,6 +44,8 @@ from ccaudit.render.explain import (
     explain_total,
 )
 from ccaudit.render.terminal import build_console, render_report
+from ccaudit.store.db import connect
+from ccaudit.store.results import store_result
 
 # The exit-code contract from contracts/cli.md. These are part of the interface: a script that
 # branches on them must keep working, so they are named constants, not literals at call sites.
@@ -126,6 +131,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_analysis_options(explain_parser)
 
+    # Internal, invoked by the plugin's SessionEnd hook and by the detached worker it spawns.
+    # Underscore-prefixed and help-suppressed: these are not a user-facing surface.
+    enqueue_parser = subparsers.add_parser("_enqueue", help=argparse.SUPPRESS)
+    enqueue_parser.add_argument("--session", dest="enqueue_session", default=None)
+    enqueue_parser.add_argument("--transcript", dest="enqueue_transcript", default=None)
+    subparsers.add_parser("_process_queue", help=argparse.SUPPRESS)
+
     pricing = subparsers.add_parser(
         "pricing",
         help="Show or update the rate table figures are imputed from.",
@@ -201,6 +213,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.command == "pricing":
             return _run_pricing(args, parser)
+        if args.command == "_enqueue":
+            return _run_enqueue(args)
+        if args.command == "_process_queue":
+            return _run_process_queue()
         if args.command == "sessions":
             return _run_sessions(args)
         if args.command == "explain":
@@ -335,6 +351,58 @@ def _run_analyse(args: argparse.Namespace) -> int:
         print(json.dumps(payload, indent=2, sort_keys=False))
         return EXIT_OK
     render_report(payload, console=build_console(), top=args.top)
+    return EXIT_OK
+
+
+def _run_enqueue(args: argparse.Namespace) -> int:
+    """Queue a session and return immediately. Never analyses inline (FR-054).
+
+    The session id comes from the flag, or from the environment Claude Code sets for a hook.
+    """
+    session_id = args.enqueue_session or os.environ.get("CLAUDE_SESSION_ID")
+    transcript = args.enqueue_transcript or os.environ.get("CLAUDE_TRANSCRIPT_PATH")
+    return enqueue(session_id, transcript)
+
+
+def _run_process_queue() -> int:
+    """Analyse everything queued and store the results. Runs detached, output goes nowhere.
+
+    Every failure is logged rather than raised: this process has no user attached, and a
+    crashed worker must leave the queue recoverable rather than the session stuck.
+    """
+    try:
+        entries = read_queue()
+        if not entries:
+            return EXIT_OK
+        pricing = load_pricing()
+        connection = connect()
+        try:
+            known: dict[str, SessionRef] = {ref.session_id: ref for ref in discover_sessions()}
+            for entry in entries:
+                found = known.get(entry.session_id)
+                queued_path = Path(entry.transcript_path) if entry.transcript_path else None
+                if found is not None:
+                    target, fingerprint = found.path, found.fingerprint
+                elif queued_path is not None and queued_path.is_file():
+                    target, fingerprint = queued_path, fingerprint_transcript(queued_path)
+                else:
+                    # The records are gone — the session was deleted between the hook firing
+                    # and this worker running. Nothing to analyse and nothing to repair.
+                    _LOGGER.warning("queued session %s has no records; skipping", entry.session_id)
+                    continue
+                analysis = analyse_transcript(target, pricing=pricing)
+                store_result(connection, analysis, fingerprint)
+                _LOGGER.info("stored analysis for %s", analysis.session_id)
+            clear_queue()
+        finally:
+            connection.close()
+    except Exception:
+        # Same deviation as `capture.enqueue`, for the same reason: this worker is detached and
+        # unattended, so a traceback here reaches nobody. Logged in full; the queue entry
+        # survives a crash and the session stays analysable from its records.
+        _LOGGER.exception("queue processing failed")
+    finally:
+        release_worker_lock()
     return EXIT_OK
 
 
