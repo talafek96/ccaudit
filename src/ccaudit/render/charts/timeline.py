@@ -26,6 +26,7 @@ from collections.abc import Mapping, Sequence
 from html import escape
 from typing import Any
 
+from ccaudit.ingest.discover import SHORT_ID_LENGTH
 from ccaudit.render.charts import (
     CHART_WIDTH,
     LABEL_GUTTER,
@@ -122,6 +123,12 @@ def residency_timeline(
     shared = common_directory_prefix(
         [str(span.get("display", span.get("item_id", ""))) for span in drawn]
     )
+    # A span belongs to one session, and a selection can hold many. Twenty-six identically
+    # labelled `skill_listing` bars are twenty-six real spans in twenty-six different sessions
+    # — correct, and unreadable, because nothing on the row said which. The session is added
+    # only where there is more than one, so a single-session chart stays uncluttered.
+    sessions = {str(span.get("session_id")) for span in spans}
+    name_by_session = _session_names(spans) if len(sessions) > 1 else {}
     for index, span in enumerate(drawn):
         body.append(
             _span_row(
@@ -131,6 +138,7 @@ def residency_timeline(
                 turn_count=turn_count,
                 top=offset,
                 shared_prefix=shared,
+                session_name=name_by_session.get(str(span.get("session_id")), ""),
             )
         )
 
@@ -194,6 +202,17 @@ def _turns_held(span: Mapping[str, Any], turn_count: int) -> int:
     return end_turn - int(span["first_turn"]) + 1
 
 
+def _session_names(spans: Sequence[Mapping[str, Any]]) -> dict[str, str]:
+    """Session id -> the short id that tells one span's session from another's.
+
+    The full id would swamp the label; the first block identifies it among the few sessions a
+    selection holds, and the row's tooltip carries the rest.
+    """
+    return {
+        str(span.get("session_id")): str(span.get("session_id"))[:SHORT_ID_LENGTH] for span in spans
+    }
+
+
 def _span_row(
     *,
     span: Mapping[str, Any],
@@ -202,6 +221,7 @@ def _span_row(
     turn_count: int,
     top: int = 0,
     shared_prefix: str = "",
+    session_name: str = "",
 ) -> str:
     """One item's bar, divided into its per-turn lanes, collapsed to runs.
 
@@ -262,8 +282,17 @@ def _span_row(
             row_label(
                 x=LABEL_GUTTER - 10,
                 y=text_y,
-                text=truncate(elide_prefix(display, shared_prefix), LABEL_LIMIT),
-                title=display,
+                # The session goes on the *label*, not only in the tooltip — the complaint this
+                # answers is "why does skill_listing appear so many times", which a hover cannot
+                # answer for twenty-six rows at once. Middle truncation keeps both ends, so the
+                # id survives even when the name is cut.
+                text=truncate(
+                    f"{elide_prefix(display, shared_prefix)} · {session_name}"
+                    if session_name
+                    else elide_prefix(display, shared_prefix),
+                    LABEL_LIMIT,
+                ),
+                title=f"{display} — {session_name}" if session_name else display,
             ),
             "".join(parts),
             (

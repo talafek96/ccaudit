@@ -94,7 +94,20 @@ def icicle(
             "</svg>",
         ]
     )
-    return figure(chart_id=chart_id, title=title, svg=svg, note=note)
+    # The breadcrumb is rendered empty and filled by the script. Without scripting the chart is
+    # the same complete, honest drawing it always was — zooming is an enhancement on top, not
+    # the way the data is reached (FR-032).
+    controls = (
+        '<p class="flame-crumbs js-only" data-flame-crumbs>'
+        '<button type="button" class="flame-crumb" data-flame-reset>All</button></p>'
+    )
+    note = (
+        f"{note} Click a folder to zoom into it; the crumbs above the chart lead back out. "
+        f"Zooming changes the scale, never a figure."
+    ).strip()
+    return figure(
+        chart_id=chart_id, title=title, svg=controls + svg, note=note
+    )
 
 
 def _draw(
@@ -172,19 +185,24 @@ def _node_mark(*, node: Mapping[str, Any], chart_id: str, x: int, width: int, de
     # must never mistake for a folder (FR-040, FR-042).
     fill = f' fill="{swatch_fill(chart_id, UNATTRIBUTED_SWATCH)}"' if remainder else ""
 
-    mark = (
-        f'<g class="mark"><rect class="{css_class}" x="{x}" y="{y}" width="{width}" '
+    # Normalised span of this node across the root, so a zoom can re-lay-out the drawing
+    # without recomputing a single figure: focusing a node is a change of scale, and every
+    # figure below is already rendered and stays exactly as it was.
+    geometry = (
+        f' data-x0="{x / CHART_WIDTH:.6f}" data-x1="{(x + width) / CHART_WIDTH:.6f}"'
+        f' data-depth="{depth}" data-name="{escape(name)}"'
+        f' data-path="{escape(str(node.get("path", name)))}"'
+    )
+    label_text = escape(truncate(name, max(1, width // PIXELS_PER_CHARACTER)))
+    labelled = width >= MIN_LABELLED_NODE
+    return (
+        f'<g class="mark flame-node"{geometry} tabindex="0" role="button">'
+        f'<rect class="{css_class}" x="{x}" y="{y}" width="{width}" '
         f'height="{NODE_HEIGHT - 4}" rx="2" fill-opacity="{opacity}"{fill}></rect>'
+        f'<text class="node-label" x="{x + 4}" y="{y + NODE_HEIGHT // 2}"'
+        f"{'' if labelled else ' visibility="hidden"'}>{label_text}</text>"
         f"<title>{escape(name)} — {escape(money_share_text(total, share, _sig_figs(node)))}"
         f"</title></g>"
-    )
-    if width < MIN_LABELLED_NODE:
-        return mark
-    # A node's name is one path segment, so the identifying part is its head, not its tail.
-    label = truncate(name, max(1, width // PIXELS_PER_CHARACTER))
-    return (
-        f'{mark}<text class="node-label" x="{x + 4}" y="{y + NODE_HEIGHT // 2}">'
-        f"{escape(label)}</text>"
     )
 
 

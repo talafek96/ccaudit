@@ -305,6 +305,32 @@ p { margin: 0.5rem 0; }
   stroke-linejoin: round;
 }
 
+/* Flame-graph crumbs: the path back out of a zoom. */
+.flame-crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+  margin: 0 0 0.4rem;
+}
+
+.flame-crumb {
+  font-family: var(--font-figure);
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  background: var(--surface-1);
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  padding: 0.1rem 0.45rem;
+  cursor: pointer;
+}
+
+.flame-crumb:last-child { color: var(--text-primary); border-color: var(--keyline); }
+.flame-crumb:hover { color: var(--text-primary); }
+.flame-crumbs .flame-crumb + .flame-crumb::before { content: "/ "; color: var(--muted); }
+
+.flame-node:focus-visible rect { stroke: var(--text-primary); stroke-width: 2; }
+
 /* The tooltip. Only ever shown by the script, which is why it has no no-JS appearance: the
    <title> elements it reads are the fallback, and the browser draws those itself. */
 .tip {

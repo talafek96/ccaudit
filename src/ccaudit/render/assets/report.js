@@ -195,4 +195,87 @@
     if (event.key === "Escape") tip.hidden = true;
   });
 
+
+  // Flame-graph zoom. Clicking a node makes it the full width and rescales everything under
+  // it, which is how a flame graph is read: the shape you are looking at is always "100% of
+  // the thing I clicked".
+  //
+  // This moves rectangles. It does not touch a figure — every cost, share and label was
+  // rendered by Python and stays exactly as it was, which is what keeps a zoomed view and the
+  // table underneath it incapable of disagreeing.
+  Array.prototype.forEach.call(document.querySelectorAll("figure.chart svg"), function (svg) {
+    var nodes = Array.prototype.slice.call(svg.querySelectorAll(".flame-node"));
+    if (!nodes.length) return;
+    var crumbs = svg.parentNode.querySelector("[data-flame-crumbs]");
+    var width = svg.viewBox.baseVal.width;
+    var rowHeight = 0;
+    nodes.forEach(function (n) {
+      var d = parseInt(n.dataset.depth, 10);
+      var y = parseFloat(n.querySelector("rect").getAttribute("y"));
+      if (d === 1 && !rowHeight) rowHeight = y;
+    });
+    // Where each node started, so a zoom is always computed from the original layout rather
+    // than from the last one — repeated zooms cannot drift.
+    nodes.forEach(function (n) {
+      n._x0 = parseFloat(n.dataset.x0);
+      n._x1 = parseFloat(n.dataset.x1);
+      n._depth = parseInt(n.dataset.depth, 10);
+      n._label = n.querySelector("text").textContent;
+    });
+
+    var CHARACTER = 7;
+    var trail = [{name: "All", x0: 0, x1: 1, depth: 0}];
+
+    function apply() {
+      var focus = trail[trail.length - 1];
+      var span = focus.x1 - focus.x0;
+      nodes.forEach(function (n) {
+        var inside = n._x0 >= focus.x0 - 1e-9 && n._x1 <= focus.x1 + 1e-9 && n._depth >= focus.depth;
+        n.style.display = inside ? "" : "none";
+        if (!inside) return;
+        var x = (n._x0 - focus.x0) / span * width;
+        var w = (n._x1 - n._x0) / span * width;
+        var rect = n.querySelector("rect");
+        var text = n.querySelector("text");
+        rect.setAttribute("x", x.toFixed(1));
+        rect.setAttribute("width", Math.max(0, w).toFixed(1));
+        rect.setAttribute("y", ((n._depth - focus.depth) * rowHeight).toFixed(1));
+        text.setAttribute("x", (x + 4).toFixed(1));
+        text.setAttribute("y", ((n._depth - focus.depth) * rowHeight + rowHeight / 2).toFixed(1));
+        // Re-fit the label to the node's new width. Text layout, not arithmetic on a figure.
+        var fits = Math.max(0, Math.floor(w / CHARACTER));
+        text.setAttribute("visibility", fits >= 3 ? "visible" : "hidden");
+        text.textContent = n._label.length <= fits ? n._label : n._label.slice(0, Math.max(1, fits - 1)) + "\u2026";
+      });
+      if (!crumbs) return;
+      crumbs.textContent = "";
+      trail.forEach(function (step, index) {
+        var button = document.createElement("button");
+        button.type = "button";
+        button.className = "flame-crumb";
+        button.textContent = step.name;
+        button.addEventListener("click", function () {
+          trail = trail.slice(0, index + 1);
+          apply();
+        });
+        crumbs.appendChild(button);
+      });
+    }
+
+    function focusOn(node) {
+      if (node._x1 - node._x0 <= 0) return;
+      trail.push({name: node.dataset.name || "/", x0: node._x0, x1: node._x1, depth: node._depth});
+      apply();
+    }
+
+    nodes.forEach(function (n) {
+      n.style.cursor = "zoom-in";
+      n.addEventListener("click", function () { focusOn(n); });
+      n.addEventListener("keydown", function (event) {
+        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); focusOn(n); }
+      });
+    });
+    apply();
+  });
+
 })();

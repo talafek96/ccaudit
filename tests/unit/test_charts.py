@@ -801,3 +801,39 @@ class TestTooltipsReadLikeSentences:
         titles = SVG_TITLE.findall(chart)
         assert any("part 0" in t for t in titles), titles
         assert all(t.startswith("spec.md") for t in titles), titles
+
+
+class TestTheFlameGraphCanZoom:
+    """Zooming is a change of scale, so it may move rectangles and must not touch a figure.
+
+    That is what keeps a zoomed view and the table underneath it incapable of disagreeing: the
+    script re-lays-out from each node's original normalised span, which Python emits, and every
+    cost and share stays exactly as it was rendered.
+    """
+
+    def test_each_node_carries_its_normalised_span(self) -> None:
+        html = icicle(chart_id="h", title="t", tree=sample_tree(1_000_000), total_micros=1_000_000)
+        assert 'data-x0="' in html
+        assert 'data-x1="' in html
+        assert 'data-depth="' in html
+
+    def test_the_spans_are_fractions_of_the_root(self) -> None:
+        html = icicle(chart_id="h", title="t", tree=sample_tree(1_000_000), total_micros=1_000_000)
+        for value in re.findall(r'data-x[01]="([\d.]+)"', html):
+            assert 0.0 <= float(value) <= 1.0, value
+
+    def test_a_node_is_reachable_by_keyboard(self) -> None:
+        """A control only a mouse can reach is not a control (quality floor)."""
+        html = icicle(chart_id="h", title="t", tree=sample_tree(1_000_000), total_micros=1_000_000)
+        assert 'tabindex="0"' in html
+        assert 'role="button"' in html
+
+    def test_the_way_back_out_is_rendered(self) -> None:
+        html = icicle(chart_id="h", title="t", tree=sample_tree(1_000_000), total_micros=1_000_000)
+        assert "data-flame-crumbs" in html
+        assert "Click a folder to zoom" in html
+
+    def test_zooming_is_declared_as_scale_only(self) -> None:
+        """The reader is told what a zoom does and does not change."""
+        html = icicle(chart_id="h", title="t", tree=sample_tree(1_000_000), total_micros=1_000_000)
+        assert "never a figure" in html
