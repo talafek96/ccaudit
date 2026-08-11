@@ -74,6 +74,11 @@ carry, overhead, and output. All of it, with the evidence behind it, is in
 [`docs/research/prior-art.md`](docs/research/prior-art.md). Read it before writing or
 reviewing anything that produces a number.
 
+Then read [`docs/research/prior-art-pass-2.md`](docs/research/prior-art-pass-2.md), which
+supersedes pass 1 on three points: the resident instruction context is dominated by tool/MCP
+schemas, not CLAUDE.md (§1.2); compaction eviction is measurable from `compactMetadata`, not a
+guess (§2); and `chars // 4` on image tool results is wrong by ~100× (§5.2).
+
 ## Definition of done
 
 ```sh
@@ -91,3 +96,5 @@ requires explicit human approval.
 - Language conventions — [`.claude/rules/python.md`](.claude/rules/python.md)
 - Git & commit conventions — [`.claude/rules/git-conventions.md`](.claude/rules/git-conventions.md)
 - Prior art, cost model, and known traps — [`docs/research/prior-art.md`](docs/research/prior-art.md)
+- Pass-2 delta: transcript schema ground truth, resident-context measurement, eviction model,
+  presentation prior art — [`docs/research/prior-art-pass-2.md`](docs/research/prior-art-pass-2.md)
