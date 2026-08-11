@@ -64,6 +64,38 @@
 
   Array.prototype.forEach.call(document.querySelectorAll("table[data-sortable]"), sortable);
 
+  // Progressive reveal. The remainder line must shrink by exactly the cost of the rows just
+  // revealed, or the table stops adding up mid-click. So this computes nothing: Python rendered
+  // one label and one figure per expansion state, and the script only swaps between them.
+  Array.prototype.forEach.call(document.querySelectorAll(".expand-btn"), function (button) {
+    var row = button.closest("tr");
+    var body = row.parentNode;
+    var hidden = Array.prototype.filter.call(body.rows, function (candidate) {
+      return candidate.dataset.overflow === "1";
+    });
+    var states = JSON.parse(button.dataset.expandStates);
+    var step = parseInt(button.dataset.expandStep, 10);
+    var shown = 0;
+
+    button.addEventListener("click", function () {
+      hidden.slice(shown, shown + step).forEach(function (candidate) {
+        candidate.hidden = false;
+      });
+      shown = Math.min(shown + step, hidden.length);
+      if (shown >= hidden.length) {
+        // Everything is on the page; the line that stood in for the rest has nothing left to
+        // account for, so it goes rather than sitting at $0.00.
+        row.remove();
+        return;
+      }
+      var state = states[shown / step];
+      row.querySelector(".expand-label").textContent = state.label;
+      row.querySelector("td.num").innerHTML = state.figure;
+      row.dataset.total = state.micros;
+      button.textContent = "Show " + Math.min(step, state.count) + " more";
+    });
+  });
+
   // Theme: the page already answers to the operating system's preference through
   // prefers-color-scheme. This only lets a reader override it for this document, which is what
   // a projector or a printed page tends to need.

@@ -181,7 +181,7 @@ def _node_mark(*, node: Mapping[str, Any], chart_id: str, x: int, width: int, de
     if width < MIN_LABELLED_NODE:
         return mark
     # A node's name is one path segment, so the identifying part is its head, not its tail.
-    label = truncate(name, max(1, width // PIXELS_PER_CHARACTER), keep_tail=False)
+    label = truncate(name, max(1, width // PIXELS_PER_CHARACTER))
     return (
         f'{mark}<text class="node-label" x="{x + 4}" y="{y + NODE_HEIGHT // 2}">'
         f"{escape(label)}</text>"

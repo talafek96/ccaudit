@@ -24,7 +24,12 @@ from typing import Any, NoReturn
 from ccaudit import __version__
 from ccaudit.analyse import SessionAnalysis, analyse_transcript
 from ccaudit.capture import clear_queue, enqueue, read_queue, release_worker_lock
-from ccaudit.config import ccaudit_home, load_pricing, resolve_pricing_path
+from ccaudit.config import (
+    UnknownModelError,
+    ccaudit_home,
+    load_pricing,
+    resolve_pricing_path,
+)
 from ccaudit.config.refresh import DEFAULT_SOURCE_URL, RefreshError, refresh
 from ccaudit.footprint import measure as measure_footprint
 from ccaudit.ingest.discover import (
@@ -391,35 +396,63 @@ def select_sessions(args: argparse.Namespace) -> list[SessionRef]:
     return refs
 
 
-def _analyse_selection(args: argparse.Namespace) -> tuple[list[SessionAnalysis], int]:
-    """Analyse the selected sessions, returning them and how many were excluded.
+def _analyse_selection(
+    args: argparse.Namespace,
+) -> tuple[list[SessionAnalysis], int, list[str]]:
+    """Analyse the selected sessions, returning them, how many were excluded, and what was skipped.
 
     The exclusion count travels with the result because an exclusion is *part of* the answer:
     the flag must never become a silent cherry-picking tool (FR-063).
+
+    **Unpriceable sessions are skipped, not fatal — but only in a sweep.** ``~/.claude`` is a
+    shared directory: other tools write their own sessions into it, and a session run against a
+    model this rate table does not cover cannot be priced at all. Killing a 200-session sweep
+    over one foreign session would be the wrong failure — the answer for the other 199 is still
+    correct and still reconciles. So a sweep names what it skipped and carries on.
+
+    Fail-fast still governs the case where the reader **named** the session (Principle I):
+    ``--session <id>`` is a question about that session, and answering it with a silent skip
+    would hide the reason. A sweep is a different question — "what did everything cost" — and
+    there the honest answer is the total for what could be priced, plus what was left out.
     """
     refs = select_sessions(args)
+    named = bool(getattr(args, "session", None))
     pricing = load_pricing()
-    analyses = [
-        analyse_transcript(
-            ref.path,
-            pricing=pricing,
-            policy=args.policy,
-            project_path=str(ref.project_path) if ref.project_path else None,
-            provisional=ref.in_progress,
+    analyses: list[SessionAnalysis] = []
+    skipped: list[str] = []
+    for ref in refs:
+        try:
+            analyses.append(
+                analyse_transcript(
+                    ref.path,
+                    pricing=pricing,
+                    policy=args.policy,
+                    project_path=str(ref.project_path) if ref.project_path else None,
+                    provisional=ref.in_progress,
+                )
+            )
+        except UnknownModelError as exc:
+            if named:
+                raise
+            skipped.append(f"{ref.session_id} ({exc.model})")
+    if not analyses:
+        raise NoSessionsFound(
+            f"every selected session used a model this rate table cannot price: "
+            f"{', '.join(skipped)}. Run `ccaudit pricing refresh`, or add the model to "
+            f"{resolve_pricing_path()} with its min_cacheable_tokens."
         )
-        for ref in refs
-    ]
-    return analyses, len(getattr(args, "exclude", None) or ())
+    return analyses, len(getattr(args, "exclude", None) or ()), skipped
 
 
 def _run_analyse(args: argparse.Namespace) -> int:
     if getattr(args, "watch", False):
         return _run_watch(args)
-    analyses, excluded = _analyse_selection(args)
+    analyses, excluded, skipped = _analyse_selection(args)
     payload = build_report_data(
         analyses,
         redact=args.redact,
         sessions_excluded_count=excluded,
+        sessions_skipped=skipped,
         group_by=args.group_by,
         sort_by=args.sort_by,
     )
@@ -500,11 +533,12 @@ def _run_watch(args: argparse.Namespace) -> int:
             coverage = "|".join(f"{ref.session_id}:{ref.fingerprint}" for ref in refs)
             if coverage != seen:
                 seen = coverage
-                analyses, excluded = _analyse_selection(args)
+                analyses, excluded, skipped = _analyse_selection(args)
                 payload = build_report_data(
                     analyses,
                     redact=args.redact,
                     sessions_excluded_count=excluded,
+                    sessions_skipped=skipped,
                     group_by=args.group_by,
                 )
                 console.clear()
@@ -588,7 +622,7 @@ def _run_ui(args: argparse.Namespace) -> int:
 
 def _run_footprint(args: argparse.Namespace) -> int:
     """Disclose the tool's own resident cost rather than asserting it is negligible (FR-056)."""
-    analyses, _ = _analyse_selection(args)
+    analyses, _, _ = _analyse_selection(args)
     console = build_console()
     for analysis in analyses:
         for line in measure_footprint(analysis).lines():
@@ -598,11 +632,12 @@ def _run_footprint(args: argparse.Namespace) -> int:
 
 def _run_report(args: argparse.Namespace) -> int:
     """Write the shareable report — one file, opens offline, no tooling required (FR-032)."""
-    analyses, excluded = _analyse_selection(args)
+    analyses, excluded, skipped = _analyse_selection(args)
     payload = build_report_data(
         analyses,
         redact=args.redact,
         sessions_excluded_count=excluded,
+        sessions_skipped=skipped,
         group_by=args.group_by,
         sort_by=args.sort_by,
     )
@@ -624,7 +659,7 @@ def _run_report(args: argparse.Namespace) -> int:
 
 
 def _run_explain(args: argparse.Namespace) -> int:
-    analyses, _ = _analyse_selection(args)
+    analyses, _, _ = _analyse_selection(args)
     if len(analyses) > 1:
         raise UsageError(
             f"explain works on one session at a time; the selection matched {len(analyses)}. "

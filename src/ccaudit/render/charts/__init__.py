@@ -229,23 +229,40 @@ def tick_label(*, x: int, y: int, text: str, anchor: str = "middle") -> str:
     return f'<text class="tick" x="{x}" y="{y}" text-anchor="{anchor}">{escape(text)}</text>'
 
 
-def row_label(*, x: int, y: int, text: str, anchor: str = "end") -> str:
-    """A row's name, in the gutter beside its bar."""
-    return f'<text class="row-label" x="{x}" y="{y}" text-anchor="{anchor}">{escape(text)}</text>'
+def row_label(*, x: int, y: int, text: str, anchor: str = "end", title: str = "") -> str:
+    """A row's name, in the gutter beside its bar.
+
+    ``title`` is the untruncated name, shown as a native tooltip on hover. A shortened label
+    that offers no way back to the full one makes two different files look like the same row,
+    so any caller that truncates must pass the original here.
+    """
+    tip = f"<title>{escape(title)}</title>" if title and title != text else ""
+    return (
+        f'<text class="row-label" x="{x}" y="{y}" text-anchor="{anchor}">{escape(text)}{tip}</text>'
+    )
 
 
-def truncate(text: str, limit: int, *, keep_tail: bool = True) -> str:
-    """Shorten a label, keeping the end that identifies it.
+# Below this, a middle ellipsis leaves too few characters on either side to identify anything,
+# so the label degrades to a single head fragment instead of two useless ones.
+MIDDLE_TRUNCATION_FLOOR = 8
 
-    A path's tail is what distinguishes it — its head is shared with everything else in the
-    repository — so the ellipsis goes at the front by default. A bare name is the other way
-    round: "unattributed" cut to its tail reads "…uted", which identifies nothing.
+
+def truncate(text: str, limit: int) -> str:
+    """Shorten a label by removing its middle, keeping both ends.
+
+    Both ends carry identity and neither alone is enough: the tail distinguishes a path from
+    its siblings ("…/model/lanes.py"), while the head says which tree it is in — two files
+    named ``__init__.py`` in different packages are one indistinguishable row without it. So
+    the cut goes where the least information is, in the middle, and the full name travels with
+    the label as a tooltip rather than being lost.
     """
     if limit <= 1 or len(text) <= limit:
         return text
-    if keep_tail:
-        return "…" + text[-(limit - 1) :]
-    return text[: limit - 1] + "…"
+    if limit < MIDDLE_TRUNCATION_FLOOR:
+        return text[: limit - 1] + "…"
+    head = (limit - 1) // 2
+    tail = limit - 1 - head
+    return text[:head] + "…" + text[-tail:]
 
 
 def placeholder(*, chart_id: str, title: str, reason: str) -> str:

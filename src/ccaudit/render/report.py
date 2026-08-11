@@ -66,6 +66,10 @@ RECONCILES_SENTENCE = (
 # never cost.
 TOP_ITEMS = 12
 
+# How many further rows one "Show more" reveals. The rest stay collapsed, because the point of
+# the truncation is that a 400-row table is unreadable, not that the rows are secret.
+EXPAND_STEP = 25
+
 _TRUNCATION_LABEL = "other items (not shown)"
 _UNATTRIBUTED_NOTE = "cost we could not tie to any item"
 
@@ -165,6 +169,13 @@ def _header(data: Mapping[str, Any]) -> str:
         parts.append(
             f'<p class="meta">{scope["sessions_excluded_count"]} session(s) were excluded from '
             f"this result.</p>"
+        )
+    if scope.get("sessions_skipped"):
+        skipped = scope["sessions_skipped"]
+        parts.append(
+            f'<p class="banner">{len(skipped)} session(s) could not be priced and are not in '
+            f"these figures — they ran on a model this rate table does not cover: "
+            f"{escape(', '.join(skipped))}</p>"
         )
     if len(scope["producing_versions"]) > 1:
         parts.append(
@@ -427,13 +438,10 @@ def _items_table(
 
     body = "".join(_item_row(item, total) for item in shown)
     if omitted:
-        omitted_micros = sum(item["total_micros"] for item in omitted)
-        body += _summary_row(
-            label=f"{len(omitted)} {_TRUNCATION_LABEL}",
-            micros=omitted_micros,
-            share=_share(omitted_micros, total),
-            sig_figs=min(item["display_sig_figs"] for item in omitted),
-        )
+        # The hidden rows are rendered, not withheld: revealing one is a display change, never a
+        # recomputation. Their figures were priced in Python like every other row.
+        body += "".join(_item_row(item, total, overflow=True) for item in omitted)
+        body += _remainder_row(omitted, total)
     for component in data["attribution"]:
         if component["per_item"]:
             continue
@@ -458,7 +466,51 @@ def _items_table(
     )
 
 
-def _item_row(item: Mapping[str, Any], total: int) -> str:
+def _remainder_row(omitted: Sequence[Mapping[str, Any]], total: int) -> str:
+    """The "N other items" line, plus every state it will pass through as rows are revealed.
+
+    **Why the states are precomputed.** Revealing a row has to decrease this line by exactly
+    that row's cost, or the table stops adding up the moment a reader clicks — and a breakdown
+    that does not reconcile is a show-stopper (Principle X, invariant A1). Doing that
+    subtraction in JavaScript would mean a second implementation of ``format_micros`` and its
+    significant-figure rule living in a language where money is a float. So every state is
+    rendered here, in Python, from the same primitives as every other figure, and the script
+    only swaps between strings it was handed. It cannot compute a figure, so it cannot compute
+    a wrong one.
+    """
+    states = []
+    for revealed in range(0, len(omitted), EXPAND_STEP):
+        rest = omitted[revealed:]
+        micros = sum(item["total_micros"] for item in rest)
+        states.append(
+            {
+                "count": len(rest),
+                "micros": micros,
+                "label": f"{len(rest)} {_TRUNCATION_LABEL}",
+                "figure": money_share_html(
+                    micros,
+                    _share(micros, total),
+                    min(item["display_sig_figs"] for item in rest),
+                ),
+            }
+        )
+    micros = sum(item["total_micros"] for item in omitted)
+    payload = escape(json.dumps(states), quote=True)
+    button = (
+        f'<button type="button" class="expand-btn js-only" data-expand-step="{EXPAND_STEP}" '
+        f'data-expand-states="{payload}">Show {min(EXPAND_STEP, len(omitted))} more</button>'
+    )
+    return (
+        f'<tr class="summary truncation" data-pinned="1" data-name="{escape(states[0]["label"])}" '
+        f'data-total="{micros}">'
+        f'<td><span class="expand-label">{escape(states[0]["label"])}</span> {button}</td>'
+        f"<td></td><td></td><td></td>"
+        f'<td class="num">{states[0]["figure"]}</td>'
+        f"<td></td><td></td></tr>"
+    )
+
+
+def _item_row(item: Mapping[str, Any], total: int, *, overflow: bool = False) -> str:
     figures = item["display_sig_figs"]
     display = str(item["display"])
     flags = ""
@@ -467,8 +519,11 @@ def _item_row(item: Mapping[str, Any], total: int) -> str:
             f' <span class="flag">too small to cache on '
             f"{escape(', '.join(item['never_cacheable_on']))}</span>"
         )
+    # `hidden` and not a CSS class: a reader with scripting off sees the same twelve rows and
+    # the same remainder line, so the static page is still complete and still reconciles.
+    marker = ' data-overflow="1" hidden' if overflow else ""
     return (
-        f'<tr data-name="{escape(display)}" data-size="{item["size_tokens"]}" '
+        f'<tr{marker} data-name="{escape(display)}" data-size="{item["size_tokens"]}" '
         f'data-direct="{item["direct_micros"]}" data-carry="{item["carry_micros"]}" '
         f'data-total="{item["total_micros"]}" data-reads="{item["reads"]}" '
         f'data-turns="{item["turns_resident"]}">'

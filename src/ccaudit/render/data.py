@@ -165,6 +165,7 @@ def build_report_data(
     *,
     redact: bool = False,
     sessions_excluded_count: int = 0,
+    sessions_skipped: Sequence[str] = (),
     generated_at: str | None = None,
     group_by: str = DEFAULT_GROUPING,
     sort_by: str = DEFAULT_SORT,
@@ -225,7 +226,7 @@ def build_report_data(
         "group_by": group_by,
         "sort_by": sort_by,
         "redacted": redact,
-        "scope": _scope(analyses, sessions_excluded_count),
+        "scope": _scope(analyses, sessions_excluded_count, sessions_skipped),
         "totals": {**totals, "uncertainty_notes": _uncertainty_notes(analyses, policy)},
         "components": _components(analyses, totals["cost_micros"]),
         # How the charges were *concluded* to divide up, as opposed to how they were incurred.
@@ -401,7 +402,9 @@ def _totals(analyses: Sequence[SessionAnalysis]) -> dict[str, Any]:
     }
 
 
-def _scope(analyses: Sequence[SessionAnalysis], excluded: int) -> dict[str, Any]:
+def _scope(
+    analyses: Sequence[SessionAnalysis], excluded: int, skipped: Sequence[str] = ()
+) -> dict[str, Any]:
     versions: set[str] = set()
     for analysis in analyses:
         versions |= analysis.parsed.producing_versions
@@ -409,6 +412,9 @@ def _scope(analyses: Sequence[SessionAnalysis], excluded: int) -> dict[str, Any]
         "sessions_included": sorted(a.session_id for a in analyses),
         # Exclusion is part of the result, never a hidden input (FR-063).
         "sessions_excluded_count": excluded,
+        # Sessions a sweep could not price at all — a foreign model in a shared ~/.claude. They
+        # are named rather than counted: "3 skipped" tells a reader nothing they can act on.
+        "sessions_skipped": list(skipped),
         "covered_through_turn": sum(len(a.timeline.turns) for a in analyses),
         "provisional": any(a.provisional for a in analyses),
         "producing_versions": sorted(versions),

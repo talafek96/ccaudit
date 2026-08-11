@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from ccaudit.cli import EXIT_NO_SESSIONS, EXIT_OK, main
+from ccaudit.config import UnknownModelError
 from tests.fixtures.builder import TranscriptBuilder
 
 pytestmark = pytest.mark.system
@@ -136,3 +137,72 @@ class TestProjectSelection:
             assert (
                 totals["attributed_micros"] + totals["unattributed_micros"] == totals["cost_micros"]
             ), args
+
+
+class TestForeignSessions:
+    """`~/.claude` is a shared directory. Another tool's session must not kill the sweep.
+
+    A user running an experiment through a different provider ends up with transcripts this
+    rate table cannot price at all. Before this, one of those aborted `--all` with a traceback
+    and the user got nothing for any of their real sessions. Skipping is right — but a skip is
+    missing money, so it is named in the output, never swallowed (Principle I).
+    """
+
+    @pytest.fixture
+    def with_foreign(self, corpus: Path) -> Path:
+        builder = TranscriptBuilder(session_id="foreign-1", project_path="/repo/alpha")
+        builder.add_turn(
+            model="cursor-grok-4.5-medium",
+            input_tokens=30,
+            cache_creation_5m=2_000,
+            output_tokens=50,
+        )
+        builder.write_to_project_tree(corpus)
+        return corpus
+
+    def test_a_sweep_skips_it_instead_of_crashing(
+        self, with_foreign: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        data = payload(capsys, "--all")
+        assert set(data["scope"]["sessions_included"]) == set(SESSIONS)
+
+    def test_the_skip_is_named_in_the_output(
+        self, with_foreign: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Counted is not enough: the reader needs the id and the model to act on it."""
+        data = payload(capsys, "--all")
+        skipped = data["scope"]["sessions_skipped"]
+        assert len(skipped) == 1
+        assert "foreign-1" in skipped[0]
+        assert "cursor-grok-4.5-medium" in skipped[0]
+
+    def test_the_terminal_output_says_the_figures_are_missing_that_session(
+        self, with_foreign: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        assert main(["--all"]) == EXIT_OK
+        prose = " ".join(capsys.readouterr().out.split())
+        assert "could not be priced and are not in these figures" in prose
+        assert "foreign-1" in prose
+
+    def test_the_remaining_sessions_still_reconcile(
+        self, with_foreign: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A skip must subtract a whole session, never leave a partial one in the total."""
+        totals = payload(capsys, "--all")["totals"]
+        assert totals["attributed_micros"] + totals["unattributed_micros"] == totals["cost_micros"]
+        individually = sum(
+            payload(capsys, "--session", session_id)["totals"]["cost_micros"]
+            for session_id in SESSIONS
+        )
+        assert totals["cost_micros"] == individually
+
+    def test_naming_that_session_alone_still_fails_loudly(self, with_foreign: Path) -> None:
+        """Fail-fast where it matters: asked about that session, "0 sessions" hides the reason."""
+        with pytest.raises(UnknownModelError, match="cursor-grok-4.5-medium"):
+            main(["--session", "foreign-1"])
+
+    def test_a_selection_of_only_foreign_sessions_is_an_empty_result(
+        self, with_foreign: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        assert main(["--all", "--exclude", *SESSIONS]) == EXIT_NO_SESSIONS
+        assert "cannot price" in capsys.readouterr().err

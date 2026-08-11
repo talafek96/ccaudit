@@ -85,7 +85,15 @@ class UnknownModelError(KeyError):
 
     Deliberately fatal (Principle I). Defaulting to a neighbouring model's rate would produce
     a plausible, confidently wrong figure — the exact failure this tool exists to prevent.
+
+    ``model`` carries the offending id so a caller sweeping a whole corpus can name the session
+    it skipped without parsing the message. ``~/.claude`` holds sessions from other tools too,
+    and one of those must not be able to kill a run over everything else.
     """
+
+    def __init__(self, message: str, *, model: str) -> None:
+        super().__init__(message)
+        self.model = model
 
 
 class MissingThresholdError(KeyError):
@@ -200,7 +208,8 @@ class Pricing:
             f"no pricing for model {model_id!r} in {self.source_path}. "
             f"Known models: {sorted(self.models)}. Add the model to pricing.toml — including "
             f"its min_cacheable_tokens, which must be looked up rather than guessed from the "
-            f"version ordering (it is not monotonic)."
+            f"version ordering (it is not monotonic).",
+            model=model_id,
         )
 
     def min_cacheable_tokens(self, model_id: str) -> int:

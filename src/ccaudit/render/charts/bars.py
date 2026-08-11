@@ -159,7 +159,14 @@ def stacked_bars(
     for index, ((label, parts), row_total) in enumerate(zip(rows, row_totals, strict=True)):
         y = index * ROW_HEIGHT
         text_y = y + ROW_BAR_HEIGHT + 2
-        body.append(row_label(x=LABEL_GUTTER - 10, y=text_y, text=truncate(label, ROW_LABEL_LIMIT)))
+        body.append(
+            row_label(
+                x=LABEL_GUTTER - 10,
+                y=text_y,
+                text=truncate(label, ROW_LABEL_LIMIT),
+                title=label,
+            )
+        )
         bar_width = 0 if scale <= 0 else ROW_BAR_WIDTH * row_total // scale
         widths = partition(bar_width, [part.micros for part in parts])
         x = LABEL_GUTTER

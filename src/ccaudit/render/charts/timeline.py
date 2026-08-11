@@ -240,7 +240,12 @@ def _span_row(
     turns_held = end_turn - first_turn + 1
     return "".join(
         [
-            row_label(x=LABEL_GUTTER - 10, y=text_y, text=truncate(display, LABEL_LIMIT)),
+            row_label(
+                x=LABEL_GUTTER - 10,
+                y=text_y,
+                text=truncate(display, LABEL_LIMIT),
+                title=display,
+            ),
             "".join(parts),
             (
                 f'<text class="row-value" x="{CHART_WIDTH}" y="{text_y}" text-anchor="end">'

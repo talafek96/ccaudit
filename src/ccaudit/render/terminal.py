@@ -114,6 +114,15 @@ def _render_header(console: Console, data: Mapping[str, Any], *, plain: bool) ->
         f"{session_line}  ·  {scope['covered_through_turn']} turns  ·  "
         f"carry split: {data['policy']}"
     )
+    # A skipped session is missing money, so it is stated up front with the scope rather than
+    # in the footnotes: a reader comparing this total against a bill needs to know what is
+    # not in it, and which sessions to go and look at.
+    if scope.get("sessions_skipped"):
+        skipped = scope["sessions_skipped"]
+        console.print(
+            f"{len(skipped)} session(s) could not be priced and are not in these figures — "
+            f"they ran on a model this rate table does not cover: {', '.join(skipped)}"
+        )
     if len(scope["producing_versions"]) > 1:
         console.print(
             f"Spans Claude Code versions {', '.join(scope['producing_versions'])}; "
