@@ -17,19 +17,24 @@ PRICING = load_pricing(BUNDLED_PRICING_PATH)
 
 
 def busy_session() -> TranscriptBuilder:
-    """A session with the shapes that actually break things, not just a happy path."""
+    """A session with the shapes that actually break things, not just a happy path.
+
+    The files are deliberately **above** the 512-token cacheability minimum for this model. A
+    fixture built from smaller files puts every item in the sub-threshold lane, where carry is
+    never shared — which quietly makes any test about carry splitting vacuous.
+    """
     builder = TranscriptBuilder()
     builder.add_user_text("audit the config")
     builder.add_turn(
         input_tokens=420, cache_creation_1h=12_000, output_tokens=310, tool_use_ids=("t1",)
     )
-    builder.add_tool_result(tool_use_id="t1", file_path="/repo/src/app.py", text="x = 1\n" * 200)
+    builder.add_tool_result(tool_use_id="t1", file_path="/repo/src/app.py", text="x = 1\n" * 2_000)
     builder.add_ui_noise(4)
     builder.add_turn(input_tokens=37, cache_read=12_400, output_tokens=95, tool_use_ids=("t2",))
     builder.add_tool_result(
-        tool_use_id="t2", file_path="/repo/docs/guide.md", text="# Guide\n" * 90
+        tool_use_id="t2", file_path="/repo/docs/guide.md", text="# Guide\n" * 1_200
     )
-    builder.add_at_mention(display_path="/repo/CLAUDE.md", content="# Rules\n" * 40)
+    builder.add_at_mention(display_path="/repo/CLAUDE.md", content="# Rules\n" * 400)
     builder.add_turn(input_tokens=11, cache_creation_5m=3_100, cache_read=12_400, output_tokens=71)
     builder.add_turn(input_tokens=9, cache_read=15_500, output_tokens=1_204, is_sidechain=True)
     builder.add_turn(input_tokens=3, cache_read=15_500, output_tokens=44)

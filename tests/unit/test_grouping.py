@@ -5,7 +5,6 @@ or drop cost. A per-folder view that quietly loses a file looks entirely plausib
 which is exactly why it is checked rather than assumed.
 """
 
-
 import pytest
 
 from ccaudit.analyse import SessionAnalysis, analyse_transcript

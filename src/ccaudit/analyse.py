@@ -114,7 +114,15 @@ def analyse_transcript(
     )
 
     session_id = parsed.session_id or path.stem
-    attribution = attribute_session(session_id, timeline, resolved_pricing, policy=policy)
+    attribution = attribute_session(
+        session_id,
+        timeline,
+        resolved_pricing,
+        policy=policy,
+        # Attachments carry the tool-schema and skill-listing deltas that make a prefix
+        # change observable; without them a forced reload has no detectable cause.
+        attachments=parsed.attachments,
+    )
     checked = reconcile(
         attribution.attributions,
         attribution.total_micros,

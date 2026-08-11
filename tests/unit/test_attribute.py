@@ -119,11 +119,14 @@ class TestComponentTargets:
         assert len(direct) == 1
         assert direct[0].target_id.endswith("/repo/a.py")
 
-    def test_the_reshow_charge_is_carry_across_the_resident_set(self, tmp_path: Path) -> None:
+    def test_the_reshow_charge_is_carry_across_the_cached_items(self, tmp_path: Path) -> None:
+        """Both files must be settled in the cache — content being written pays the write
+        rate, not the read rate, so it is not in the cached lane on the turn it arrives."""
         builder = TranscriptBuilder()
         builder.add_turn(output_tokens=10, tool_use_ids=("t1", "t2"))
         builder.add_tool_result(tool_use_id="t1", file_path="/repo/a.py")
         builder.add_tool_result(tool_use_id="t2", file_path="/repo/b.py")
+        builder.add_turn(cache_creation_5m=2_000, output_tokens=10)
         builder.add_turn(cache_read=20_000, output_tokens=10)
         result = analyse(builder, tmp_path)
 
@@ -150,6 +153,7 @@ class TestConservation:
         builder.add_turn(output_tokens=10, tool_use_ids=("t1", "t2"))
         builder.add_tool_result(tool_use_id="t1", file_path="/repo/a.py")
         builder.add_tool_result(tool_use_id="t2", file_path="/repo/b.py")
+        builder.add_turn(cache_creation_5m=2_000, output_tokens=10)
         builder.add_turn(cache_read=50_000, output_tokens=10)
 
         proportional = analyse(builder, tmp_path, policy="proportional")
@@ -206,6 +210,7 @@ class TestProvenance:
         builder = TranscriptBuilder()
         builder.add_turn(output_tokens=10, tool_use_ids=("t1",))
         builder.add_tool_result(tool_use_id="t1", file_path="/repo/a.py")
+        builder.add_turn(cache_creation_5m=1_000, output_tokens=10)
         builder.add_turn(cache_read=10_000, output_tokens=10)
         result = analyse(builder, tmp_path)
 

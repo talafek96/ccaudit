@@ -57,7 +57,7 @@ class TestSessionTotals:
         could have been attributed to — cost with no resident item to explain it.
         """
         assert analysis.reconciliation.unattributed_micros == 1_000
-        assert analysis.reconciliation.unattributed_share == pytest.approx(0.0276, abs=0.0005)
+        assert analysis.reconciliation.unattributed_share == pytest.approx(0.0255, abs=0.0005)
 
 
 class TestPerTurnCharges:
@@ -80,7 +80,7 @@ class TestPerTurnCharges:
         assert analysis.attribution.charges[1].cache_write_micros == 6_250
 
     def test_the_read_rate_is_a_tenth(self, analysis) -> None:
-        assert analysis.attribution.charges[3].cache_read_micros == 1_000  # 2,000 x 0.5
+        assert analysis.attribution.charges[4].cache_read_micros == 1_000  # 2,000 x 0.5
 
 
 class TestPerItem:
@@ -107,10 +107,29 @@ class TestPerItem:
             assert totals[item_id]["carry"] == expected["carry"], item_id
 
     def test_the_uneven_carry_split_conserves_its_pool(self, analysis) -> None:
-        """167 + 333 = 500. A naive proportional split floors to 499 and loses a micro-dollar."""
-        carry = [a for a in analysis.attribution.attributions if a.component == "carry"]
-        assert sum(a.cost_micros for a in carry) == 500
-        assert sorted(a.cost_micros for a in carry) == [167, 333]
+        """Turn 3: 167 + 333 = 500. A naive floor gives 499 and loses a micro-dollar."""
+        turn_three = [
+            a
+            for a in analysis.attribution.attributions
+            if a.component == "carry" and a.turn_index == 3
+        ]
+        assert sum(a.cost_micros for a in turn_three) == 500
+        assert sorted(a.cost_micros for a in turn_three) == [167, 333]
+
+    def test_content_being_written_is_not_also_charged_the_read_rate(self, analysis) -> None:
+        """Turn 2: b.md is being written, so the whole read charge belongs to a.py.
+
+        Charging both would bill one piece of content twice, at two different rates, in one
+        turn (docs/cost-model.md §5.2).
+        """
+        turn_two = [
+            a
+            for a in analysis.attribution.attributions
+            if a.component == "carry" and a.turn_index == 2
+        ]
+        assert len(turn_two) == 1
+        assert turn_two[0].target_id.endswith("/repo/src/a.py")
+        assert turn_two[0].cost_micros == 500
 
     def test_load_counts_and_residency_are_unchanged(self, analysis) -> None:
         """The US2 distinction: read repeatedly vs read once and carried."""

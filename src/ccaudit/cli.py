@@ -16,6 +16,7 @@ import logging
 import os
 import sys
 import time
+import webbrowser
 from collections.abc import Sequence
 from pathlib import Path
 from typing import NoReturn
@@ -44,6 +45,7 @@ from ccaudit.render.explain import (
     explain,
     explain_total,
 )
+from ccaudit.render.report import write_report
 from ccaudit.render.terminal import build_console, render_report
 from ccaudit.store.db import connect
 from ccaudit.store.results import store_result
@@ -121,6 +123,24 @@ def build_parser() -> argparse.ArgumentParser:
     sessions.add_argument(
         "--all", action="store_true", help="Every session, not just this project."
     )
+
+    report_parser = subparsers.add_parser(
+        "report",
+        help="Write a self-contained HTML report that opens offline, anywhere.",
+    )
+    report_parser.add_argument(
+        "--out",
+        type=Path,
+        default=Path("ccaudit-report.html"),
+        help="Where to write the report.",
+    )
+    report_parser.add_argument(
+        "--open",
+        dest="open_report",
+        action="store_true",
+        help="Open the report once written.",
+    )
+    _add_analysis_options(report_parser)
 
     explain_parser = subparsers.add_parser(
         "explain",
@@ -233,6 +253,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_process_queue()
         if args.command == "sessions":
             return _run_sessions(args)
+        if args.command == "report":
+            return _run_report(args)
         if args.command == "explain":
             return _run_explain(args)
         # Everything else — including the bare, zero-argument invocation — is an analysis.
@@ -479,6 +501,32 @@ def _run_sessions(args: argparse.Namespace) -> int:
             f"{ref.session_id}  {ref.modified_at:%Y-%m-%d %H:%M}  "
             f"{ref.record_count:>6,} records  {ref.byte_size / 1e6:>6.1f} MB  {project}{marker}"
         )
+    return EXIT_OK
+
+
+def _run_report(args: argparse.Namespace) -> int:
+    """Write the shareable report — one file, opens offline, no tooling required (FR-032)."""
+    analyses, excluded = _analyse_selection(args)
+    payload = build_report_data(
+        analyses,
+        redact=args.redact,
+        sessions_excluded_count=excluded,
+        group_by=args.group_by,
+    )
+    path = write_report(payload, args.out)
+    console = build_console()
+    console.print(f"Wrote {path}")
+    console.print(
+        "It is self-contained: it opens in any browser with no network and no tooling. "
+        "Every figure in it is an API-equivalent cost estimate, not an amount charged."
+    )
+    if not args.redact:
+        console.print(
+            "It contains file paths from your sessions. Re-run with --redact before sharing "
+            "it outside the team."
+        )
+    if args.open_report:
+        webbrowser.open(path.resolve().as_uri())
     return EXIT_OK
 
 

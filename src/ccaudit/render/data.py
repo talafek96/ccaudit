@@ -162,12 +162,14 @@ def build_report_data(
         # remainder does not reach the total, and a reader is left with a silent gap.
         "attribution": _attribution(analyses, totals["cost_micros"]),
         "items": items,
-        # Deferred to later milestones (US4-US6). Emitted empty so a consumer can branch on
-        # "not yet computed" rather than on a missing key, and so nothing is invented here.
+        # Forced reloads, charged to the change that caused them rather than to the content
+        # they re-wrote (FR-081). This is what answers "what did adding that server cost me?"
+        "invalidations": _invalidations(analyses),
+        # Deferred to later milestones. Emitted empty so a consumer can branch on "not yet
+        # computed" rather than on a missing key, and so nothing is invented here.
         "tree": {},
         "turns": [],
         "residency": [],
-        "invalidations": [],
         "comparison": {},
         "diagnostics": {
             "unparseable_records": sum(a.parsed.unparseable_count for a in analyses),
@@ -216,8 +218,15 @@ def _assert_adds_up(payload: dict[str, Any]) -> None:
         )
     item_direct = sum(item["direct_micros"] for item in payload["items"])
     item_carry = sum(item["carry_micros"] for item in payload["items"])
+    # A forced reload is `direct` cost charged to the *change* that caused it rather than to
+    # any file (FR-081), so it is part of the direct total but never part of any item row. It
+    # has to be added back here, and shown as its own line, or the printed table falls short
+    # of the total with nothing explaining the gap.
+    reload_direct = sum(event["forced_reload_micros"] for event in payload["invalidations"])
     concluded_by_id = {c["id"]: c["cost_micros"] for c in payload["attribution"]}
-    if item_direct != concluded_by_id["direct"] or item_carry != concluded_by_id["carry"]:
+    if item_direct + reload_direct != concluded_by_id["direct"] or (
+        item_carry != concluded_by_id["carry"]
+    ):
         raise ReconciliationError(
             f"per-item figures do not partition the item-level conclusions: direct "
             f"{item_direct} vs {concluded_by_id['direct']}, carry {item_carry} vs "
@@ -299,6 +308,31 @@ def _components(analyses: Sequence[SessionAnalysis], total_micros: int) -> list[
         }
         for component in CHARGE_COMPONENTS
     ]
+
+
+def _invalidations(analyses: Sequence[SessionAnalysis]) -> list[dict[str, Any]]:
+    """Prefix changes that forced content back into the cache, and what each cost.
+
+    The `detail` is deliberately user-facing ("MCP server 'playwright' added") rather than a
+    tier number: the finding is "adding that server cost $X in forced re-writes", not
+    "CLAUDE.md got more expensive" (FR-081).
+    """
+    rows = [
+        {
+            "session_id": analysis.session_id,
+            "turn": event.turn_index,
+            "tier": event.tier,
+            "trigger": event.trigger,
+            "detail": event.detail,
+            "forced_reload_micros": event.forced_reload_micros,
+            "items_reloaded": event.items_reloaded,
+            "basis": event.basis,
+            "confidence": event.confidence,
+        }
+        for analysis in analyses
+        for event in analysis.attribution.invalidations
+    ]
+    return sorted(rows, key=lambda row: (row["session_id"], row["turn"]))
 
 
 def _attribution(analyses: Sequence[SessionAnalysis], total_micros: int) -> list[dict[str, Any]]:

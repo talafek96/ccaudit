@@ -1,0 +1,423 @@
+"""Contract on the hand-written SVG charts.
+
+A chart is where a breakdown that does not add up is hardest to catch: nobody measures the
+pixels. So the geometry itself is the thing pinned here — the segments of a bar sum to the bar,
+the children of a node sum to the node, and the unattributed remainder is drawn whenever it is
+non-zero rather than tidied away for looking untidy (FR-040).
+
+The payload builder below is shared with ``tests/system/test_report_offline.py``. It builds the
+report-data shape by hand, from the component registry rather than from re-typed labels, so
+these tests pin the renderer and only the renderer.
+"""
+
+import re
+from html import escape
+from typing import Any
+
+import pytest
+
+from ccaudit.config.components import ATTRIBUTION_COMPONENTS, CHARGE_COMPONENTS, sig_figs_for
+from ccaudit.model.reconcile import UNATTRIBUTED_DISPLAY
+from ccaudit.render.charts import (
+    SERIES_SLOT_COUNT,
+    UNATTRIBUTED_SWATCH,
+    Slice,
+    partition,
+    series_swatch,
+)
+from ccaudit.render.charts.bars import composition_bar, cumulative_sparkline, stacked_bars
+from ccaudit.render.charts.hierarchy import icicle
+from ccaudit.render.charts.timeline import residency_timeline
+
+RECT = re.compile(r'<rect class="slice[^"]*"[^>]*?width="(\d+)"')
+NODE = re.compile(r'<rect class="node(?: [^"]*)?" x="(\d+)" y="(\d+)" width="(\d+)"')
+
+FIXED_TIME = "2026-08-11T12:00:00+00:00"
+
+
+def slices(*amounts: int, total: int) -> list[Slice]:
+    """Categorical slices summing to ``total``, with the remainder last where one is given."""
+    return [
+        Slice(
+            label=f"part {index}",
+            micros=amount,
+            share=amount / total if total else 0.0,
+            sig_figs=2,
+            swatch=series_swatch(index),
+        )
+        for index, amount in enumerate(amounts)
+    ]
+
+
+def report_payload(
+    *,
+    redact: bool = False,
+    unattributed: int = 150_000,
+    items: int = 3,
+    turns: list[dict[str, Any]] | None = None,
+    residency: list[dict[str, Any]] | None = None,
+    tree: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """A hand-built report-data payload that reconciles exactly.
+
+    Written out rather than produced by the pipeline so the renderer's contract does not move
+    when the model layer does; the arithmetic below is checked by ``assert`` at the end, which
+    is the same invariant ``build_report_data`` enforces.
+    """
+    direct_per_item = 200_000
+    carry_per_item = 300_000
+    overhead = 400_000
+    output = 250_000
+    attributed = items * (direct_per_item + carry_per_item) + overhead + output
+    total = attributed + unattributed
+
+    item_rows = []
+    for index in range(items):
+        display = f"redacted-{index:08x}.md" if redact else f"/repo/docs/file{index}.md"
+        item_total = direct_per_item + carry_per_item
+        row: dict[str, Any] = {
+            "item_id": f"file:{display}",
+            "kind": "file",
+            "display": display,
+            "category": "docs",
+            "size_tokens": 900 + index,
+            "direct_micros": direct_per_item,
+            "carry_micros": carry_per_item,
+            "total_micros": item_total,
+            "share": item_total / total,
+            "reads": 2,
+            "turns_resident": 11 + index,
+            "lanes": {
+                "cached_micros": carry_per_item,
+                "uncached_micros": 0,
+                "loading_micros": direct_per_item,
+            },
+            "never_cacheable_on": ["claude-opus-4-6"] if index == 0 else [],
+            "basis": "measured",
+            "confidence": "medium",
+            "display_sig_figs": sig_figs_for("medium"),
+            "uncertainty": {
+                "low_micros": direct_per_item,
+                "high_micros": item_total + carry_per_item,
+                "driver": "carry_split_policy",
+            },
+            "per_session": [{"session_id": "session-a", "total_micros": item_total}],
+        }
+        if not redact:
+            row["identity"] = display
+        item_rows.append(row)
+
+    concluded = {
+        "direct": items * direct_per_item,
+        "carry": items * carry_per_item,
+        "overhead": overhead,
+        "output": output,
+    }
+    charge = {
+        "fresh_input": overhead,
+        "cache_write": items * direct_per_item,
+        "cache_read": items * carry_per_item + unattributed,
+        "output": output,
+    }
+
+    payload: dict[str, Any] = {
+        "schema_version": "1.0",
+        "generated_at": FIXED_TIME,
+        "tool_version": "0.0.0",
+        "cost_basis": "api_equivalent_estimate",
+        "currency": "USD",
+        "policy": "proportional",
+        "redacted": redact,
+        "scope": {
+            "sessions_included": ["session-a"],
+            "sessions_excluded_count": 0,
+            "covered_through_turn": 12,
+            "provisional": False,
+            "producing_versions": ["1.2.3"],
+        },
+        "totals": {
+            "cost_micros": total,
+            "attributed_micros": attributed,
+            "unattributed_micros": unattributed,
+            "attributed_share": attributed / total if total else 0.0,
+            "unattributed_share": unattributed / total if total else 0.0,
+            "tokens": {
+                "fresh_input": 1000,
+                "cache_write": 20000,
+                "cache_read": 90000,
+                "output": 3000,
+            },
+            "confidence": "high",
+            "display_sig_figs": sig_figs_for("high"),
+            "uncertainty_notes": [
+                "Prices are imputed from published list rates, not billed amounts.",
+                "Shared carry cost is divided by the 'proportional' policy.",
+            ],
+        },
+        "components": [
+            {
+                "id": component.id,
+                "technical_name": component.technical_name,
+                "plain_name": component.plain_name,
+                "description": component.description,
+                "tokens": 1000,
+                "cost_micros": charge[component.id],
+                "share": charge[component.id] / total if total else 0.0,
+                "confidence": "high",
+                "display_sig_figs": sig_figs_for("high"),
+            }
+            for component in CHARGE_COMPONENTS
+        ],
+        "attribution": [
+            {
+                "id": component.id,
+                "technical_name": component.technical_name,
+                "plain_name": component.plain_name,
+                "description": component.description,
+                "per_item": component.id in ("direct", "carry"),
+                "cost_micros": concluded[component.id],
+                "share": concluded[component.id] / total if total else 0.0,
+                "confidence": "medium",
+                "display_sig_figs": sig_figs_for("medium"),
+            }
+            for component in ATTRIBUTION_COMPONENTS
+        ],
+        "items": item_rows,
+        "tree": tree or {},
+        "turns": turns or [],
+        "residency": residency or [],
+        "invalidations": [],
+        "comparison": {},
+        "diagnostics": {
+            "unparseable_records": 2,
+            "anchor_reconciliation": [],
+            "limitations": ["Some resident instruction content never reaches the transcript."],
+            "estimated_figures": 0,
+        },
+    }
+    assert payload["totals"]["attributed_micros"] + unattributed == total
+    return payload
+
+
+def sample_tree(total: int) -> dict[str, Any]:
+    """A folder tree with a remainder node at the root, as the contract specifies."""
+    return {
+        "name": "/",
+        "path": "/",
+        "flat_micros": 0,
+        "total_micros": total,
+        "share": 1.0,
+        "children": [
+            {
+                "name": "repo",
+                "path": "/repo",
+                "flat_micros": 100_000,
+                "total_micros": total - 150_000,
+                "share": (total - 150_000) / total,
+                "children": [
+                    {
+                        "name": "docs",
+                        "path": "/repo/docs",
+                        "flat_micros": total - 250_000,
+                        "total_micros": total - 250_000,
+                        "share": (total - 250_000) / total,
+                        "children": [],
+                    }
+                ],
+            },
+            {
+                "name": UNATTRIBUTED_SWATCH,
+                "path": UNATTRIBUTED_SWATCH,
+                "flat_micros": 150_000,
+                "total_micros": 150_000,
+                "share": 150_000 / total,
+                "children": [],
+            },
+        ],
+    }
+
+
+class TestGeometryAddsUp:
+    def test_partition_conserves_the_extent(self) -> None:
+        assert sum(partition(720, [1, 7, 13, 0])) == 720
+
+    def test_partition_of_nothing_is_nothing(self) -> None:
+        assert partition(0, [3, 4]) == [0, 0]
+
+    def test_a_negative_extent_is_a_broken_invariant(self) -> None:
+        with pytest.raises(ValueError, match="non-negative"):
+            partition(-1, [1])
+
+    def test_composition_segments_fill_the_bar_exactly(self) -> None:
+        html = composition_bar(
+            chart_id="c",
+            title="t",
+            slices=slices(37, 900_001, 12, total=900_050),
+            total_micros=900_050,
+        )
+        assert sum(int(width) for width in RECT.findall(html)) == 720
+
+    def test_a_composition_that_does_not_add_up_is_refused(self) -> None:
+        """The same defect as a table that does not add up, and far harder to spot."""
+        with pytest.raises(ValueError, match="do not add up"):
+            composition_bar(
+                chart_id="c", title="t", slices=slices(10, 20, total=30), total_micros=31
+            )
+
+    def test_each_stacked_row_partitions_its_own_bar(self) -> None:
+        rows = [
+            ("a", slices(700_000, 300_000, total=1_000_000)),
+            ("b", slices(1, 999_999, total=1_000_000)),
+        ]
+        html = stacked_bars(
+            chart_id="s",
+            title="t",
+            rows=rows,
+            legend=slices(700_001, 1_299_999, total=2_000_000),
+            total_micros=2_000_000,
+        )
+        widths = [int(width) for width in RECT.findall(html)]
+        # Both rows are the same size, so both fill the full track; every segment is accounted
+        # for in one row or the other.
+        assert sum(widths) == 2 * (720 - 210 - 150)
+
+    def test_icicle_children_partition_their_parent(self) -> None:
+        total = 1_000_000
+        html = icicle(chart_id="h", title="t", tree=sample_tree(total), total_micros=total)
+        nodes = [(int(x), int(y), int(width)) for x, y, width in NODE.findall(html)]
+        depth_one = [node for node in nodes if node[1] == 26]
+        assert sum(width for _, _, width in depth_one) + _own_width(html, 26) == 720
+
+
+class TestTheRemainderIsAlwaysDrawn:
+    def test_the_unattributed_slice_is_emitted_when_non_zero(self) -> None:
+        parts = [
+            Slice("work", 900_000, 0.9, 2, series_swatch(0)),
+            Slice(UNATTRIBUTED_DISPLAY, 100_000, 0.1, 2, UNATTRIBUTED_SWATCH),
+        ]
+        html = composition_bar(chart_id="c", title="t", slices=parts, total_micros=1_000_000)
+        assert escape(UNATTRIBUTED_DISPLAY) in html
+        assert "url(#c-hatch)" in html
+
+    def test_a_zero_remainder_keeps_its_legend_entry(self) -> None:
+        """Zero is a finding too — the row stays, it just has no width."""
+        parts = [
+            Slice("work", 1_000_000, 1.0, 2, series_swatch(0)),
+            Slice(UNATTRIBUTED_DISPLAY, 0, 0.0, 2, UNATTRIBUTED_SWATCH),
+        ]
+        html = composition_bar(chart_id="c", title="t", slices=parts, total_micros=1_000_000)
+        assert escape(UNATTRIBUTED_DISPLAY) in html
+        assert sum(int(width) for width in RECT.findall(html)) == 720
+
+    def test_the_remainder_node_is_textured_in_the_icicle(self) -> None:
+        html = icicle(chart_id="h", title="t", tree=sample_tree(1_000_000), total_micros=1_000_000)
+        assert "node--remainder" in html
+        assert "url(#h-hatch)" in html
+
+
+class TestNothingIsInvented:
+    def test_an_absent_tree_says_so(self) -> None:
+        html = icicle(chart_id="h", title="t", tree={}, total_micros=1_000)
+        assert "Not yet available" in html
+        assert "<rect" not in html
+
+    def test_absent_residency_says_so(self) -> None:
+        html = residency_timeline(chart_id="r", title="t", spans=[], turn_count=10)
+        assert "Not yet available" in html
+
+    def test_absent_turns_say_so(self) -> None:
+        html = cumulative_sparkline(chart_id="a", title="t", turns=[], total_micros=10, sig_figs=2)
+        assert "Not yet available" in html
+
+    def test_a_zero_cost_composition_does_not_crash(self) -> None:
+        html = composition_bar(chart_id="c", title="t", slices=[], total_micros=0)
+        assert "Not yet available" in html
+
+
+class TestEveryDistinctionSurvivesGreyscale:
+    def test_slices_are_numbered_and_named_in_the_legend(self) -> None:
+        html = composition_bar(
+            chart_id="c", title="t", slices=slices(60, 40, total=100), total_micros=100
+        )
+        assert "1. part 0" in html
+        assert "2. part 1" in html
+
+    def test_every_mark_carries_a_native_tooltip(self) -> None:
+        html = composition_bar(
+            chart_id="c", title="t", slices=slices(60, 40, total=100), total_micros=100
+        )
+        assert html.count("<title>") == 2
+
+    def test_a_ninth_series_is_refused_rather_than_recycled(self) -> None:
+        with pytest.raises(ValueError, match="fixed"):
+            series_swatch(SERIES_SLOT_COUNT)
+
+
+class TestResidency:
+    def test_a_span_still_resident_runs_to_the_axis_end(self) -> None:
+        spans = [
+            {
+                "item_id": "file:/repo/CLAUDE.md",
+                "display": "CLAUDE.md",
+                "first_turn": 1,
+                "last_turn": None,
+                "weight_tokens": 900,
+                "end_reason": None,
+                "lane_by_turn": ["loading"] + ["cached"] * 9,
+            }
+        ]
+        html = residency_timeline(chart_id="r", title="t", spans=spans, turn_count=10)
+        assert "still in context when the session ended" in html
+        assert sum(int(width) for width in RECT.findall(html)) == 720 - 210 - 130
+
+    def test_a_backwards_span_is_a_broken_invariant(self) -> None:
+        spans = [{"item_id": "x", "display": "x", "first_turn": 5, "last_turn": 2}]
+        with pytest.raises(ValueError, match="not a span"):
+            residency_timeline(chart_id="r", title="t", spans=spans, turn_count=10)
+
+    def test_the_full_rate_lane_is_textured_not_only_coloured(self) -> None:
+        spans = [
+            {
+                "item_id": "x",
+                "display": "x",
+                "first_turn": 1,
+                "last_turn": 2,
+                "lane_by_turn": ["uncached", "uncached"],
+                "end_reason": "evicted",
+            }
+        ]
+        html = residency_timeline(chart_id="r", title="t", spans=spans, turn_count=2)
+        assert "url(#r-hatch)" in html
+
+
+class TestAccumulation:
+    def test_compaction_events_are_marked_and_named(self) -> None:
+        turns = [
+            {"ordinal": 1, "cost_micros": 100, "compaction": {"occurred": False}},
+            {"ordinal": 2, "cost_micros": 400, "compaction": {"occurred": True}},
+            {"ordinal": 3, "cost_micros": 500, "compaction": {"occurred": False}},
+        ]
+        html = cumulative_sparkline(
+            chart_id="a", title="t", turns=turns, total_micros=1_000, sig_figs=2
+        )
+        assert "compacted (turn 2)" in html
+        assert "spark-event" in html
+
+    def test_turns_that_do_not_reach_the_total_are_refused(self) -> None:
+        """The curve ends at 100% by definition; anything else contradicts the total."""
+        turns = [{"ordinal": 1, "cost_micros": 100, "compaction": {"occurred": False}}]
+        with pytest.raises(ValueError, match="per-turn figures sum to"):
+            cumulative_sparkline(chart_id="a", title="t", turns=turns, total_micros=999, sig_figs=2)
+
+    def test_a_single_turn_still_draws(self) -> None:
+        turns = [{"ordinal": 1, "cost_micros": 100, "compaction": {"occurred": False}}]
+        html = cumulative_sparkline(
+            chart_id="a", title="t", turns=turns, total_micros=100, sig_figs=2
+        )
+        assert "spark-line" in html
+
+
+def _own_width(html: str, y: int) -> int:
+    """The width of the 'own cost' block on a given row, or zero when there is none."""
+    pattern = re.compile(rf'<rect class="node node--own" x="\d+" y="{y}" width="(\d+)"')
+    return sum(int(width) for width in pattern.findall(html))

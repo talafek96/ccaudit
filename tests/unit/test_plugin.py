@@ -63,9 +63,7 @@ class TestSessionEndHook:
         """
         hooks = json.loads((PLUGIN / "hooks" / "hooks.json").read_text(encoding="utf-8"))
         commands = [
-            entry["command"]
-            for group in hooks["hooks"]["SessionEnd"]
-            for entry in group["hooks"]
+            entry["command"] for group in hooks["hooks"]["SessionEnd"] for entry in group["hooks"]
         ]
         assert commands == ["ccaudit _enqueue"]
         assert not any("analyse" in command or "report" in command for command in commands)
