@@ -609,7 +609,7 @@ def _item_row(item: Mapping[str, Any], total: int, *, overflow: bool = False) ->
         f'data-total="{item["total_micros"]}" data-reads="{item["reads"]}" '
         f'data-turns="{item["turns_resident"]}">'
         f'<td>{escape(display)} <span class="flag">{escape(str(item["category"]))}</span>'
-        f"{flags}{_drilldown(item, total)}</td>"
+        f"{flags}{_parts_details(item)}{_drilldown(item, total)}</td>"
         f'<td class="num">{item["size_tokens"]:,}</td>'
         f'<td class="num">'
         f"{money_share_html(item['direct_micros'], _share(item['direct_micros'], total), figures, of_total=False)}</td>"
@@ -622,16 +622,17 @@ def _item_row(item: Mapping[str, Any], total: int, *, overflow: bool = False) ->
     )
 
 
-def _parts_lines(item: Mapping[str, Any], figures: int) -> list[str]:
+def _parts_details(item: Mapping[str, Any]) -> str:
     """What a composite item is made of — for the skill catalogue, the skills.
 
     "Skills: $67" is not an answer anyone can act on. This says which, and which of them came
     with a plugin: those are not the reader's to edit, so they are the part of the bill that
     changes by uninstalling something rather than by writing less.
     """
+    figures = int(item["display_sig_figs"])
     parts = item.get("parts") or []
     if not parts:
-        return []
+        return ""
     plugin_micros = sum(int(p["cost_micros"]) for p in parts if p["origin"] == "plugin")
     rows = "".join(
         f"<li>{escape(str(part['name']))} — "
@@ -645,16 +646,14 @@ def _parts_lines(item: Mapping[str, Any], figures: int) -> list[str]:
         if plugin_micros
         else "; all of them are yours"
     )
-    return [
-        (
-            f"<li><details class='drill'><summary>{escape(summary)}</summary>"
-            f"<ul>{rows}</ul>"
-            f"<p class='meta'>Each skill's share is its share of the listing text. The listing "
-            f"is cached as one block, so this divides that block's cost — it does not change "
-            f"how any of it was priced.</p>"
-            f"</details></li>"
-        )
-    ]
+    return (
+        f'<details class="drill drill--parts"><summary>{escape(summary)}</summary>'
+        f"<ul>{rows}</ul>"
+        f'<p class="meta">A skill\'s share is its share of the listing text. The listing is '
+        f"cached as one block, so this divides that block's cost and does not change how any "
+        f"of it was priced.</p>"
+        f"</details>"
+    )
 
 
 def _drilldown(item: Mapping[str, Any], total: int) -> str:
@@ -670,8 +669,7 @@ def _drilldown(item: Mapping[str, Any], total: int) -> str:
     def figure_html(micros: int) -> str:
         return money_share_html(micros, _share(micros, total), figures, of_total=False)
 
-    lines = list(_parts_lines(item, figures))
-    lines += [
+    lines = [
         (
             f"<li>Basis: {escape(str(item['basis']))}; confidence: "
             f"{escape(str(item['confidence']))}, so figures are shown to {figures} significant "
@@ -827,7 +825,48 @@ def _comparison_section(data: Mapping[str, Any]) -> str:
         total_micros=total,
         note=str(comparison.get("note", "")),
     )
-    return f"<h2>Always-present content versus files you read</h2>{chart}"
+    return (
+        f"<h2>Always-present content versus files you read</h2>{chart}"
+        f"{_comparison_members(comparison, data)}"
+    )
+
+
+def _comparison_members(comparison: Mapping[str, Any], data: Mapping[str, Any]) -> str:
+    """Which items are behind each bar.
+
+    "Instruction files: $6.68" beside an $86 "Skills" bar reads as *CLAUDE.md is not in here* —
+    it is, and a label alone gives a reader no way to find that out. Every bar opens to the
+    items it is made of, dearest first.
+    """
+    figures = int(data["totals"]["display_sig_figs"])
+    total = int(data["totals"]["cost_micros"])
+    blocks: list[str] = []
+    for key in ("resident_instruction", "work_driven_reads", "unassigned"):
+        for entry in comparison.get(key, []) or []:
+            members = entry.get("members") or []
+            if not members:
+                continue
+            rows = "".join(
+                f"<li>{escape(str(member['name']))} \u2014 "
+                + money_share_html(
+                    int(member["cost_micros"]),
+                    _share(int(member["cost_micros"]), total),
+                    figures,
+                    of_total=False,
+                )
+                + "</li>"
+                for member in members
+            )
+            blocks.append(
+                f'<details class="drill drill--parts"><summary>'
+                f"{escape(str(entry['label']))} \u2014 {len(members)} item(s), "
+                f"{escape(format_micros(int(entry['cost_micros']), figures))}"
+                f"</summary><ul>{rows}</ul></details>"
+            )
+    if not blocks:
+        return ""
+    joined = "".join(blocks)
+    return f'<div class="member-lists">{joined}</div>'
 
 
 def _notes_section(data: Mapping[str, Any]) -> str:

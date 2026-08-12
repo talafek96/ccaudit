@@ -298,7 +298,7 @@ def build_report_data(
         "tree": _tree(rollups, attribution, invalidations, totals, redact=redact),
         "turns": _turns(ordered),
         "residency": residency,
-        "comparison": _comparison(rollups, totals["cost_micros"]),
+        "comparison": _comparison(rollups, totals["cost_micros"], redact=redact),
         # Per session, so a multi-session selection can be read as "which sessions cost what"
         # rather than only as one merged total. Empty for a single session, where the section
         # would restate the headline.
@@ -1032,7 +1032,9 @@ def _sessions(
     return rows
 
 
-def _comparison(rollups: Sequence[_ItemRollup], total_micros: int) -> dict[str, Any]:
+def _comparison(
+    rollups: Sequence[_ItemRollup], total_micros: int, *, redact: bool = False
+) -> dict[str, Any]:
     """Always-resident instruction content against work-driven file reads (FR-037, §6).
 
     The question the tool was commissioned to settle splits in two, and the two halves have
@@ -1052,14 +1054,26 @@ def _comparison(rollups: Sequence[_ItemRollup], total_micros: int) -> dict[str, 
         "work_driven_reads": {},
         "unassigned": {},
     }
+    # What each bar is made of. "Instruction files: $6.68" beside an $86 "Skills" bar reads as
+    # "CLAUDE.md is not in here" — it *is*, and naming the members is the only way a reader can
+    # see that. Kept alongside the totals rather than derived later, because the bucketing rule
+    # lives here and re-deriving it in a renderer would be a second copy of it.
+    members: dict[str, dict[str, list[dict[str, Any]]]] = {side: {} for side in buckets}
     for rollup in rollups:
         side, label = _comparison_side(rollup)
         entry = buckets[side].setdefault(label, [0, 0])
         entry[0] += rollup.size_tokens
         entry[1] += rollup.total_micros
+        members[side].setdefault(label, []).append(
+            {
+                "name": _display_for(rollup.item_id, rollup.identity, redact=redact),
+                "cost_micros": rollup.total_micros,
+                "tokens": rollup.size_tokens,
+            }
+        )
 
     comparison: dict[str, Any] = {
-        side: _comparison_entries(buckets[side], total_micros)
+        side: _comparison_entries(buckets[side], total_micros, members[side])
         for side in ("resident_instruction", "work_driven_reads")
     }
     note = (
@@ -1071,7 +1085,9 @@ def _comparison(rollups: Sequence[_ItemRollup], total_micros: int) -> dict[str, 
     if buckets["unassigned"]:
         # Naming what would not divide is the point of the section. Folding it into whichever
         # side looked plausible is exactly the move that would make the answer unfalsifiable.
-        comparison["unassigned"] = _comparison_entries(buckets["unassigned"], total_micros)
+        comparison["unassigned"] = _comparison_entries(
+            buckets["unassigned"], total_micros, members["unassigned"]
+        )
         note += (
             " Content that is neither an instruction item nor a file read is listed separately "
             "under 'unassigned' rather than counted on either side."
@@ -1100,7 +1116,9 @@ def _comparison_side(rollup: _ItemRollup) -> tuple[str, str]:
 
 
 def _comparison_entries(
-    bucket: Mapping[str, Sequence[int]], total_micros: int
+    bucket: Mapping[str, Sequence[int]],
+    total_micros: int,
+    members: Mapping[str, list[dict[str, Any]]] | None = None,
 ) -> list[dict[str, Any]]:
     ranked = sorted(bucket.items(), key=lambda pair: (-pair[1][1], pair[0]))
     return [
@@ -1109,6 +1127,12 @@ def _comparison_entries(
             "tokens": tokens,
             "cost_micros": micros,
             "share": _share(micros, total_micros),
+            # The items behind the bar, dearest first. A label alone cannot tell a reader that
+            # "Instruction files" is where their CLAUDE.md went.
+            "members": sorted(
+                (members or {}).get(label, []),
+                key=lambda row: (-int(row["cost_micros"]), str(row["name"])),
+            ),
         }
         for label, (tokens, micros) in ranked
     ]

@@ -305,6 +305,18 @@ p { margin: 0.5rem 0; }
   stroke-linejoin: round;
 }
 
+/* A breakdown offered on the row itself, rather than buried inside the provenance drill-down
+   where a reader looking for it concluded it did not exist. */
+.drill--parts > summary { color: var(--text-primary); font-weight: 600; }
+.drill--parts > summary::marker { color: var(--series-1); }
+
+.member-lists {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+  gap: 0.4rem 1.25rem;
+  margin: 0.5rem 0 1rem;
+}
+
 /* Flame-graph crumbs: the path back out of a zoom. */
 .flame-crumbs {
   display: flex;
@@ -619,3 +631,39 @@ footer {
   h1, h2 { break-after: avoid; }
   .chart { break-inside: avoid; }
 }
+
+/* Colour mode. Cause answers "what kind of cost is this"; category answers "what kind of
+   thing is this". Both are legitimate readings of the same points, and neither is a default
+   worth forcing, so the switch sits on the chart rather than in a settings panel. */
+.fill-switch {
+  display: none;
+  gap: 0.35rem;
+  margin: 0 0 0.5rem;
+}
+
+.js .fill-switch { display: flex; }
+
+.fill-btn {
+  font-family: var(--font-figure);
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  background: var(--page);
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  padding: 0.15rem 0.6rem;
+  cursor: pointer;
+}
+
+/* The pressed state is a weight and a fill, not a hue alone (FR-042). */
+.fill-btn[aria-pressed="true"] {
+  color: var(--text-primary);
+  font-weight: 700;
+  background: var(--band);
+  border-color: var(--keyline);
+}
+
+/* `.legend` sets a display, which outranks the `hidden` attribute's UA rule. Without this the
+   hidden legend still draws, and two keys to one drawing is worse than none. */
+.legend[hidden] { display: none; }

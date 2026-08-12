@@ -24,6 +24,8 @@ from ccaudit.render.data import build_report_data
 from ccaudit.render.report import (
     EXPAND_STEP,
     TOP_ITEMS,
+    _comparison_members,
+    _parts_details,
     forced_reload_micros,
     render_report_html,
     write_report,
@@ -439,3 +441,81 @@ class TestTheRenderedTableAddsUp:
 
     def test_a_payload_without_invalidations_grows_no_such_row(self, html: str) -> None:
         assert "Re-loading after a change" not in html
+
+
+class TestABarOpensToWhatIsInside:
+    """A label is not evidence.
+
+    "Instruction files — $6.68" beside an $86 "Skills" bar reads as *CLAUDE.md is not counted*,
+    and a reader given only the label has no way to find out that it is. Likewise a composite
+    item drawn as one row ("skill_listing") hides the 25 skills whose costs it is the sum of.
+    Both must open to their members, on the surface where the figure appears.
+    """
+
+    def test_a_composite_item_opens_to_its_parts(self) -> None:
+        item = {
+            "display_sig_figs": 6,
+            "parts": [
+                {
+                    "name": "dataviz",
+                    "cost_micros": 300_000,
+                    "share_of_item": 0.6,
+                    "origin": "plugin",
+                    "plugin": "claude-plugins-official",
+                },
+                {
+                    "name": "loop",
+                    "cost_micros": 200_000,
+                    "share_of_item": 0.4,
+                    "origin": "not stated",
+                    "plugin": "",
+                },
+            ],
+        }
+        details = _parts_details(item)
+        assert details.startswith("<details")
+        assert "dataviz" in details and "loop" in details
+
+    def test_an_item_with_no_parts_grows_no_empty_control(self) -> None:
+        """A control that opens onto nothing is worse than no control."""
+        assert _parts_details({"display_sig_figs": 6, "parts": []}) == ""
+
+    def test_a_comparison_bar_opens_to_the_items_behind_it(self) -> None:
+        comparison = {
+            "resident_instruction": [
+                {
+                    "label": "Instruction files",
+                    "cost_micros": 500_000,
+                    "members": [
+                        {"name": "/repo/CLAUDE.md", "cost_micros": 300_000},
+                        {"name": "/home/.claude/CLAUDE.md", "cost_micros": 200_000},
+                    ],
+                }
+            ]
+        }
+        data = {"totals": {"display_sig_figs": 6, "cost_micros": 1_000_000}}
+        members = _comparison_members(comparison, data)
+        assert "/repo/CLAUDE.md" in members
+        assert "/home/.claude/CLAUDE.md" in members
+
+    def test_a_bar_with_no_members_grows_no_empty_control(self) -> None:
+        comparison = {"resident_instruction": [{"label": "Skills", "cost_micros": 0}]}
+        data = {"totals": {"display_sig_figs": 6, "cost_micros": 1_000_000}}
+        assert _comparison_members(comparison, data) == ""
+
+    def test_the_members_are_ordered_by_cost_so_the_dearest_is_first(self) -> None:
+        comparison = {
+            "resident_instruction": [
+                {
+                    "label": "Instruction files",
+                    "cost_micros": 500_000,
+                    "members": [
+                        {"name": "dear.md", "cost_micros": 400_000},
+                        {"name": "cheap.md", "cost_micros": 100_000},
+                    ],
+                }
+            ]
+        }
+        data = {"totals": {"display_sig_figs": 6, "cost_micros": 1_000_000}}
+        members = _comparison_members(comparison, data)
+        assert members.index("dear.md") < members.index("cheap.md")
