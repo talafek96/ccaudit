@@ -67,6 +67,39 @@
   // Progressive reveal. The remainder line must shrink by exactly the cost of the rows just
   // revealed, or the table stops adding up mid-click. So this computes nothing: Python rendered
   // one label and one figure per expansion state, and the script only swaps between them.
+  // Rows grow into place one after another, so the table reads as unrolling rather than as
+  // jumping by a block. The CSS holds a waiting row collapsed (`backwards`), which is the one
+  // fill-mode on this page that can hide content — so every row is also released on a timer.
+  // If the animation never runs, never finishes, or is dropped by the browser, the timer still
+  // strips the class and the row is left in its ordinary, fully visible state.
+  var UNROLL_MS = 420;
+  var UNROLL_STAGGER_MS = 26;
+  // Capped: past a handful of rows the stagger stops reading as a roll and starts reading as
+  // a queue, and the last row's wait is what the safety timer has to cover.
+  var UNROLL_MAX_STEPS = 8;
+
+  function unroll(rows) {
+    rows.forEach(function (row, index) {
+      var delay = Math.min(index, UNROLL_MAX_STEPS) * UNROLL_STAGGER_MS;
+      Array.prototype.forEach.call(row.cells, function (cell) {
+        cell.style.animationDelay = delay + "ms";
+      });
+      row.classList.add("row-arriving");
+
+      var released = false;
+      function release() {
+        if (released) return;
+        released = true;
+        row.classList.remove("row-arriving");
+        Array.prototype.forEach.call(row.cells, function (cell) {
+          cell.style.animationDelay = "";
+        });
+      }
+      row.addEventListener("animationend", release, {once: true});
+      window.setTimeout(release, delay + UNROLL_MS + 400);
+    });
+  }
+
   Array.prototype.forEach.call(document.querySelectorAll(".expand-btn"), function (button) {
     var row = button.closest("tr");
     var body = row.parentNode;
@@ -78,21 +111,16 @@
     var shown = 0;
 
     button.addEventListener("click", function () {
+      var arriving = [];
       hidden.slice(shown, shown + step).forEach(function (candidate) {
         candidate.hidden = false;
         // Marked, not merely unhidden. Anything else that hides and shows rows — the UI's row
         // filter — has to tell a row the reader revealed from one that is still accounted for
         // by the truncation line, or it will show both and the table will double-count.
         candidate.dataset.revealed = "1";
-        // Purely a cue that these rows are the ones that just arrived. The class is removed
-        // as soon as the animation ends, and the CSS behind it uses no fill-mode, so a row is
-        // fully visible before the animation starts and after it finishes. An effect that can
-        // leave a figure invisible is not worth having (see report.css).
-        candidate.classList.add("row-arriving");
-        candidate.addEventListener("animationend", function () {
-          candidate.classList.remove("row-arriving");
-        }, {once: true});
+        arriving.push(candidate);
       });
+      unroll(arriving);
       shown = Math.min(shown + step, hidden.length);
       // Revealed rows arrive unhidden, which undoes any filter the exploring shell has on.
       // This file knows nothing about filtering and should not — it says what happened, and

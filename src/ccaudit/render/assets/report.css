@@ -1261,45 +1261,43 @@ main > .chart + .chart { margin-top: 1rem; }
   max-width: 78ch;
 }
 
-/* ── Rows arriving ─────────────────────────────────────────────────────────────────────
-   "Show 25 more" used to teleport: twenty-five rows appeared at once and the eye had no idea
-   which part of the table had changed. They now slide in from just above their resting place
-   and fade up, so the growth is legible as growth.
+/* ── Rows unrolling ───────────────────────────────────────────────────────────────────
+   "Show 25 more" used to teleport, and a plain fade did not fix it: the rows appeared at
+   their full height and the table still jumped by the whole block at once. What reads as
+   growth is the rows *taking up space they did not have* — each one unrolling from nothing to
+   its own height, pushing everything below it down as it goes.
 
-   Read the fill-mode carefully, because the last animation on this page rendered the report
-   blank. There is **no** `animation-fill-mode` here, and no delay. Outside the animation's
-   running window a row is styled entirely by its ordinary rules — fully opaque, in position.
-   The animation can only ever affect a row *while it is playing*, which means:
+   Height is animated through the cells, because a table row's own height is not reliably
+   animatable: a `<td>` with no vertical padding and no line box has no height, so animating
+   `padding-block` and `line-height` from zero grows the row from nothing. The keyframe
+   declares only `from` — the `to` end is whatever the row's ordinary rules already say, so
+   the effect works at any row height without anything hard-coded.
 
-     - a browser that does not run it shows the rows immediately;
-     - an interrupted or dropped animation leaves a visible row, not a hidden one;
-     - `animationend` removes the class, so nothing lingers in a transitional state.
+   ── Why this one is allowed a fill-mode ────────────────────────────────────────────────
+   The rows are staggered, so each waits its turn; `backwards` is what holds a waiting row
+   collapsed instead of letting it pop to full height and then snap shut. That is the same
+   property that rendered this report blank once, so it is bounded three ways:
 
-   Fail-open, by construction rather than by testing. And it animates opacity and transform
-   only — never height, and never anything on a bar or a mark whose length encodes a value. */
+     1. the stagger is capped in report.js, so the longest wait is a fraction of a second;
+     2. `animationend` removes the class;
+     3. report.js also removes it on a timer, so a row recovers even if `animationend` never
+        fires at all — a browser that silently declines to run the animation cannot leave a
+        row collapsed.
+
+   Fail-open is not assumed here; it is enforced by the timer. */
 
 @media (prefers-reduced-motion: no-preference) {
-  @keyframes row-arriving {
+  @keyframes row-unroll {
     from {
       opacity: 0;
-      /* Small on purpose. A long slide is a row travelling past its neighbours, which reads
-         as the table reordering rather than as rows being added to the end of it. */
-      transform: translateY(-6px);
-    }
-    to {
-      opacity: 1;
-      transform: none;
+      padding-block: 0;
+      line-height: 0;
     }
   }
 
-  tr.row-arriving {
-    animation: row-arriving 240ms cubic-bezier(0.22, 0.61, 0.36, 1);
-  }
-
-  /* A table row is not a transformable box in every engine, so the cells carry the movement
-     where the row cannot. Both are declared; whichever the browser honours, the effect is the
-     same and neither can leave anything invisible. */
   tr.row-arriving > td {
-    animation: row-arriving 240ms cubic-bezier(0.22, 0.61, 0.36, 1);
+    animation: row-unroll 420ms cubic-bezier(0.16, 0.84, 0.44, 1) backwards;
+    /* The cell's own content must not spill out of a cell that is briefly zero-height. */
+    overflow: hidden;
   }
 }
