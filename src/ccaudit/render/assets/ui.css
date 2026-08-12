@@ -579,3 +579,61 @@
   border-radius: 999px;
   letter-spacing: 0.08em;
 }
+
+/* ══════════════════════════════════════════════════════════════════════════════════════
+   PRESENCE — the shell, given the same face as the document it wraps.
+   ══════════════════════════════════════════════════════════════════════════════════════ */
+
+.ui {
+  position: relative;
+  z-index: 10;
+}
+
+/* The bar earns a full-bleed identity: the brand in the accent, a live dot on the state. */
+.ui-bar {
+  box-shadow: var(--lift-2, none);
+}
+
+.ui-brand {
+  color: var(--accent, var(--text-primary));
+  font-weight: 700;
+}
+
+.ui-mode::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 0.42rem;
+  vertical-align: 0.08em;
+  border-radius: 50%;
+  background: var(--accent, currentColor);
+  box-shadow: 0 0 0 3px var(--accent-soft, transparent);
+}
+
+/* A panel heading sitting on its own hairline, with the accent claiming the first inch —
+   the same masthead device as the document, so shell and page read as one thing. */
+.ui-panel-head {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.5rem;
+  margin-bottom: 0.7rem;
+  position: relative;
+}
+
+.ui-panel-head::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: -1px;
+  width: 2.6rem;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent, var(--rule));
+}
+
+.ui-panel {
+  position: relative;
+  background:
+    radial-gradient(140% 120% at 0% 0%, var(--accent-soft) 0%, transparent 55%),
+    var(--surface-1);
+}

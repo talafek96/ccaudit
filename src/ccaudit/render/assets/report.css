@@ -1057,3 +1057,170 @@ details.drill > summary:hover { color: var(--accent); }
     scroll-behavior: auto !important;
   }
 }
+
+/* ══════════════════════════════════════════════════════════════════════════════════════
+   PRESENCE — the layer that is meant to be noticed from across the room.
+
+   The refinement above is close-range craft: tracking, depth, focus rings. Correct, and
+   invisible at a glance. This layer gives the document a face. Still presentation only, and
+   still bound by the same rule — nothing here touches a mark whose size or length encodes a
+   value.
+   ══════════════════════════════════════════════════════════════════════════════════════ */
+
+/* ── The paper ─────────────────────────────────────────────────────────────────────────
+   An actual working paper, not a metaphor in a comment: engineering-pad ruling, at an
+   opacity where you feel it and never read it. Two gradients, no image, no request. */
+
+body {
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 28px 28px, 28px 28px;
+  background-position: -1px -1px, -1px -1px;
+  background-attachment: fixed;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) body { background-blend-mode: overlay; }
+}
+
+main {
+  /* The sheet the ruling sits under, so the page reads as paper on a desk rather than as a
+     grid with text floating over it. */
+  background: color-mix(in srgb, var(--page) 88%, transparent);
+  backdrop-filter: blur(1px);
+  -webkit-backdrop-filter: blur(1px);
+}
+
+/* ── The masthead ──────────────────────────────────────────────────────────────────────*/
+
+h1 {
+  font-family: var(--font-prose);
+  font-size: clamp(2rem, 1.1rem + 3.4vw, 3.4rem);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  margin-bottom: 0.35rem;
+}
+
+/* A rule that is the accent for its first inch and the page's own rule after — a masthead
+   mark, not a border. */
+h1::after {
+  content: "";
+  display: block;
+  height: 3px;
+  margin-top: 0.7rem;
+  border-radius: 2px;
+  background: linear-gradient(
+    to right,
+    var(--accent) 0 4.5rem,
+    var(--rule) 4.5rem 100%
+  );
+}
+
+/* ── Numbered sections ─────────────────────────────────────────────────────────────────
+   A working paper has numbered exhibits. The counter is generated, so it cannot fall out of
+   step with the sections the way a hand-typed number would. */
+
+main { counter-reset: exhibit; }
+
+/* Scoped to the document. The exploring shell has headings too, and numbering them made
+   "01 Sessions" and "01 View" — the chrome is not an exhibit, and a number that repeats is
+   worse than no number. */
+main h2 {
+  counter-increment: exhibit;
+  display: flex;
+  align-items: baseline;
+  gap: 0.7rem;
+}
+
+main h2::before {
+  content: counter(exhibit, decimal-leading-zero);
+  font-family: var(--font-figure);
+  font-size: 1.55em;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0;
+  /* Outlined rather than filled: a number that is furniture, not a figure to read. */
+  color: transparent;
+  -webkit-text-stroke: 1.3px var(--accent);
+  opacity: 0.85;
+}
+
+/* ── The headline figure ───────────────────────────────────────────────────────────────
+   The one number the whole document reconciles to, set at the size of that claim. */
+
+/* The double rule under this figure is the accountant's mark for "everything above
+   reconciles to this", and the original rule already draws it — on `.hero` itself, which is
+   `inline-block` so the rule stops where the number does. Only the size changes here.
+   Overriding the display to flex stretched that rule across the whole panel and added a
+   second one under the figure: the domain's own notation, said twice and pointing at the
+   wrong width. */
+.hero {
+  font-size: clamp(2.6rem, 1.4rem + 5vw, 5rem);
+  letter-spacing: -0.045em;
+  margin: 0.2rem 0 0.5rem;
+}
+
+.hero .share {
+  font-family: var(--font-ui);
+  font-size: 0.95rem;
+  letter-spacing: 0.02em;
+}
+
+/* ── Panels as exhibits ────────────────────────────────────────────────────────────────*/
+
+.panel {
+  position: relative;
+  overflow: hidden;
+}
+
+/* A coloured spine down the left edge. One device, applied once, so the eye learns that a
+   spine means "this block is a stated conclusion". */
+.panel::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: linear-gradient(to bottom, var(--accent), transparent 85%);
+}
+
+/* ── Charts ────────────────────────────────────────────────────────────────────────────
+   Framed, and lit from behind in dark mode so a plot reads as an illuminated panel rather
+   than as ink on the same flat black as everything else. */
+
+.chart {
+  position: relative;
+  background:
+    radial-gradient(120% 100% at 50% 0%, var(--accent-soft) 0%, transparent 60%),
+    var(--surface-1);
+}
+
+.chart-title {
+  font-family: var(--font-ui);
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: -0.008em;
+}
+
+/* ── Motion ────────────────────────────────────────────────────────────────────────────
+   Sections arrive as you reach them. `animation-timeline` is progressive: where it is not
+   supported nothing animates and nothing is missing, which is the only acceptable way to
+   make an entrance depend on a browser feature. */
+
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    @keyframes exhibit-in {
+      from { opacity: 0; transform: translateY(14px); }
+      to { opacity: 1; transform: none; }
+    }
+
+    /* Applied to the section container only. Never to a chart's inner marks: a bar that
+       animates its own length is a bar that is briefly the wrong length. */
+    main > .panel,
+    main > .chart {
+      animation: exhibit-in linear both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 32%;
+    }
+  }
+}
