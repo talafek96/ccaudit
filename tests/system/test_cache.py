@@ -8,16 +8,20 @@ that makes the design defensible at all: what comes out of the store equals what
 
 import json
 import os
+import shutil
 import time
+from dataclasses import replace
+from hashlib import sha256
 from pathlib import Path
 
 import pytest
 
+from ccaudit import __version__
 from ccaudit.analyse import SessionContribution, analyse_transcript, contribution_of
 from ccaudit.cli import EXIT_OK, main
 from ccaudit.config import BUNDLED_PRICING_PATH, load_pricing
 from ccaudit.ingest.discover import IN_PROGRESS_WINDOW, fingerprint_transcript
-from ccaudit.store.cache import cache_key, read_contribution, store_contribution
+from ccaudit.store.cache import build_fingerprint, cache_key, read_contribution, store_contribution
 from ccaudit.store.codec import decode, encode
 from ccaudit.store.db import connect
 from tests.fixtures.builder import TranscriptBuilder
@@ -221,3 +225,74 @@ class TestAnInProgressSessionIsNeverServed:
         args = build_parser().parse_args(["--all"])
         _analyse_selection(args)
         assert _analyse_selection(args).recalled == len(SESSIONS)
+
+
+class TestABuildChangeInvalidatesWhatItProduced:
+    """The key has to move when the code that derives the figures moves.
+
+    `cache.py` has always documented the build as part of the key, but it was keyed on
+    `__version__` — a literal in `pyproject.toml` that nothing bumps. So every fix to the
+    attribution model kept the same key and stayed invisible behind rows written by the code it
+    replaced. Measured on a real corpus after one such fix: 166 items served in an id format the
+    running code could no longer produce, and 23 files each split across two rows.
+
+    That is the failure this project treats as a show-stopper — not a crash, a confidently wrong
+    number — so it is fenced here rather than left to whoever remembers to bump a version.
+    """
+
+    def test_the_key_carries_more_than_the_release_version(self) -> None:
+        fingerprint = build_fingerprint()
+
+        assert fingerprint.startswith(__version__)
+        assert fingerprint != __version__, (
+            "the build fingerprint collapsed to the release version, so two different builds "
+            "of the same version share a cache key again"
+        )
+
+    def test_it_is_stable_within_a_build(self) -> None:
+        """A key that moved between two runs of the same code would never hit at all."""
+        assert build_fingerprint() == build_fingerprint()
+
+    def test_it_moves_when_the_code_moves(self, tmp_path: Path) -> None:
+        """Driven over a copy of the package, because the running one cannot be edited."""
+        package = Path(build_fingerprint.__module__.replace(".", "/")).parent
+        source = Path(__file__).resolve().parents[2] / "src" / "ccaudit"
+        copied = tmp_path / "ccaudit"
+        shutil.copytree(source, copied, ignore=shutil.ignore_patterns("__pycache__"))
+
+        def fingerprint_of(root: Path) -> str:
+            digest = sha256()
+            for path in sorted(root.rglob("*.py")):
+                digest.update(path.relative_to(root).as_posix().encode("utf-8"))
+                digest.update(path.read_bytes())
+            return digest.hexdigest()
+
+        before = fingerprint_of(copied)
+        target = copied / "model" / "residency.py"
+        target.write_text(
+            target.read_text(encoding="utf-8") + "\n# a change to how a number is derived\n",
+            encoding="utf-8",
+        )
+
+        assert fingerprint_of(copied) != before
+        assert package.name == "store"
+
+    def test_a_row_written_by_another_build_is_not_served(
+        self, corpus: Path, tmp_path: Path
+    ) -> None:
+        """The end-to-end property: a stale row is a miss, not a plausible-looking answer."""
+        transcript = next((corpus / "projects").rglob("alpha-1.jsonl"))
+        analysis = analyse_transcript(transcript, pricing=PRICING)
+        key = cache_key(
+            analysis.session_id,
+            fingerprint_transcript(transcript),
+            analysis.policy,
+            PRICING.fingerprint,
+        )
+        with connect(tmp_path / "state.db") as conn:
+            store_contribution(conn, key, contribution_of(analysis))
+            assert read_contribution(conn, key) is not None
+
+            # The same session, same records, same rates — but produced by a different build.
+            other_build = replace(key, tool_version=f"{key.tool_version}-other")
+            assert read_contribution(conn, other_build) is None

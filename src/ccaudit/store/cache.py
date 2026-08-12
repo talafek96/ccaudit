@@ -27,8 +27,11 @@ is always safe and always correct (invariant S3, FR-110).
 import json
 import sqlite3
 import zlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from functools import cache
+from hashlib import sha256
+from pathlib import Path
 
 from ccaudit import __version__
 from ccaudit.analyse import SessionContribution
@@ -43,6 +46,28 @@ from ccaudit.store.results import iso_timestamp, result_id_for
 _COMPRESSION_LEVEL = 6
 
 
+@cache
+def build_fingerprint() -> str:
+    """What produced these figures: the release version, plus a hash of the code behind it.
+
+    Computed once per process from the package's own source. Reading ~90 small files costs a
+    few milliseconds; serving a figure derived by code that no longer exists costs the thing
+    this tool is for.
+
+    Falls back to the version alone if the source cannot be read — a packaging arrangement
+    without readable sources should degrade to the old behaviour, not fail to start.
+    """
+    root = Path(__file__).resolve().parent.parent
+    digest = sha256()
+    try:
+        for path in sorted(root.rglob("*.py")):
+            digest.update(path.relative_to(root).as_posix().encode("utf-8"))
+            digest.update(path.read_bytes())
+    except OSError:
+        return __version__
+    return f"{__version__}+{digest.hexdigest()[:12]}"
+
+
 @dataclass(frozen=True)
 class CacheKey:
     """Everything a stored figure depends on. A difference in any part is a miss."""
@@ -51,7 +76,13 @@ class CacheKey:
     fingerprint: str
     policy: str
     pricing_fingerprint: str
-    tool_version: str = __version__
+    # Not the release version alone. `__version__` is a literal in `pyproject.toml` that
+    # nothing bumps automatically, so a build that changed how a number is derived kept the
+    # same key and every fix stayed invisible behind stale rows — measured on a real corpus,
+    # 166 items served in an id format the current code cannot even produce. The build
+    # fingerprint below moves whenever the code that produces the figures moves, which is the
+    # property this field was always documented as having.
+    tool_version: str = field(default_factory=lambda: build_fingerprint())
 
 
 def cache_key(
