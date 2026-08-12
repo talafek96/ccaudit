@@ -430,10 +430,17 @@
   top: 0;
   z-index: 20;
   border-radius: var(--ui-radius) var(--ui-radius) 0 0;
-  /* Opaque, not blurred. A *sticky* backdrop filter is the worst case of the technique: the
-     backdrop it samples is the entire scrolling document, re-blurred every frame. It looked
-     good and it stopped the page rendering. */
-  background: var(--surface-1);
+  /* Frosted, so the bar reads as a layer over the document rather than as a lid on it —
+     you can see the page continue underneath as it scrolls past.
+
+     This was removed once on the theory that it had stopped the page rendering. It had not:
+     that was a browser update mid-session. Recorded because the removal looked justified and
+     was not, and because the real caveat is narrower than the one I invented — a sticky
+     backdrop filter re-samples what is behind it as the page scrolls, which is worth spending
+     on one small bar and would not be worth spending on the document itself. */
+  background: color-mix(in srgb, var(--surface-1) 78%, transparent);
+  backdrop-filter: saturate(1.7) blur(14px);
+  -webkit-backdrop-filter: saturate(1.7) blur(14px);
   border-bottom: 1px solid var(--border);
 }
 
