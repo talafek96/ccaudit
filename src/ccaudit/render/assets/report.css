@@ -743,3 +743,21 @@ tr.filtered-out { display: none; }
   stroke-width: 1;
   shape-rendering: crispEdges;
 }
+
+/* Log axes are ruled at every power of ten *and* at the 2..9 inside each decade. The minor
+   lines are unlabelled and fainter: their spacing is what tells a reader the axis multiplies,
+   and at full strength nine of them per decade would compete with the points. */
+.gridline--minor { opacity: 0.4; }
+
+/* The chosen grouping's meaning, under its control. */
+.section-note {
+  /* Its own line under the controls. `flex-basis` alone lost to the note's own max-width and
+     left it wedged between the two controls, pushing the filter off to the right. */
+  width: 100%;
+  order: 99;
+  margin: 0.1rem 0 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+  max-width: 62ch;
+}
+.grouping-meaning[hidden] { display: none; }

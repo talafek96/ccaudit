@@ -306,6 +306,14 @@
       scope.querySelectorAll('.grouped').forEach(function (block) {
         block.hidden = block.getAttribute('data-grouping') !== select.value;
       });
+      // The explanation follows the choice, so what the rows now mean is on screen rather
+      // than one hover away.
+      var controls = select.closest('[data-section-controls]');
+      if (controls) {
+        controls.querySelectorAll('.grouping-meaning').forEach(function (note) {
+          note.hidden = note.getAttribute('data-grouping') !== select.value;
+        });
+      }
       // The rows on screen changed, so anything filtering them has to look again.
       document.dispatchEvent(new CustomEvent('ccaudit:rows-revealed'));
     });

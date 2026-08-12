@@ -221,7 +221,13 @@ def separators(boundaries: Sequence[int], *, y: int, height: int) -> str:
     )
 
 
-def gridlines(positions: Sequence[int], *, span: tuple[int, int], vertical: bool = True) -> str:
+def gridlines(
+    positions: Sequence[int],
+    *,
+    span: tuple[int, int],
+    vertical: bool = True,
+    css_class: str = "gridline",
+) -> str:
     """Faint reference lines at ``positions``, spanning ``span``.
 
     A bar you can only compare to its neighbours answers "which is biggest"; a bar crossed by
@@ -234,11 +240,11 @@ def gridlines(positions: Sequence[int], *, span: tuple[int, int], vertical: bool
     low, high = span
     if vertical:
         return "".join(
-            f'<line class="gridline" x1="{at}" y1="{low}" x2="{at}" y2="{high}"></line>'
+            f'<line class="{css_class}" x1="{at}" y1="{low}" x2="{at}" y2="{high}"></line>'
             for at in positions
         )
     return "".join(
-        f'<line class="gridline" x1="{low}" y1="{at}" x2="{high}" y2="{at}"></line>'
+        f'<line class="{css_class}" x1="{low}" y1="{at}" x2="{high}" y2="{at}"></line>'
         for at in positions
     )
 

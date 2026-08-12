@@ -226,6 +226,27 @@ def _grid(max_reads: int, min_cost: int, max_cost: int) -> str:
         drawn_x.append(x)
         parts.append(tick_label(x=x, y=PLOT_BOTTOM + 14, text=f"{reads:,}"))
         parts.append(gridlines([x], span=(PLOT_TOP, PLOT_BOTTOM)))
+    parts.append(
+        gridlines(
+            [
+                _log_scale(value, 0, max_reads, PLOT_LEFT, PLOT_RIGHT)
+                for value in _minor_values(1, max_reads)
+            ],
+            span=(PLOT_TOP, PLOT_BOTTOM),
+            css_class="gridline gridline--minor",
+        )
+    )
+    parts.append(
+        gridlines(
+            [
+                _log_scale(value, min_cost, max_cost, PLOT_BOTTOM, PLOT_TOP)
+                for value in _minor_values(min_cost, max_cost)
+            ],
+            span=(PLOT_LEFT, PLOT_RIGHT),
+            vertical=False,
+            css_class="gridline gridline--minor",
+        )
+    )
     drawn_y: list[int] = []
     for cost in _money_ticks(min_cost, max_cost):
         y = _log_scale(cost, min_cost, max_cost, PLOT_BOTTOM, PLOT_TOP)
@@ -237,6 +258,27 @@ def _grid(max_reads: int, min_cost: int, max_cost: int) -> str:
         )
         parts.append(gridlines([y], span=(PLOT_LEFT, PLOT_RIGHT), vertical=False))
     return "".join(parts)
+
+
+def _minor_values(lowest: float, highest: float) -> list[float]:
+    """The 2..9 subdivisions inside each decade of a log range.
+
+    A log axis ruled only at the powers of ten leaves a decade-wide gap in which every position
+    is a guess — and on this plot most of the points live inside one such gap. The subdivisions
+    go unlabelled: their spacing is the information, and nine numbers per decade would bury the
+    ones that matter.
+    """
+    if lowest <= 0 or highest <= lowest:
+        return []
+    values: list[float] = []
+    decade = 10.0 ** math.floor(math.log10(lowest))
+    while decade <= highest:
+        for multiple in range(2, 10):
+            value = decade * multiple
+            if lowest < value < highest:
+                values.append(value)
+        decade *= 10
+    return values
 
 
 def _money_ticks(lowest: int, highest: int) -> list[int]:

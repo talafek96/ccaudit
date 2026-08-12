@@ -48,6 +48,7 @@ from ccaudit.render.charts.hierarchy import icicle
 from ccaudit.render.charts.scatter import cause_scatter, session_bars
 from ccaudit.render.charts.timeline import residency_timeline
 from ccaudit.render.data import (
+    GROUPING_DESCRIPTIONS,
     GROUPINGS,
     forced_reload_micros,
     summarise_ids,
@@ -357,13 +358,23 @@ def section_controls(*extra: str, filterable: bool = False) -> str:
 def _grouping_switch(by_grouping: Mapping[str, Any], active: str) -> str:
     """The per-section regroup control. Inert without scripting, so it is hidden until it works."""
     options = "".join(
-        f'<option value="{escape(name)}"{" selected" if name == active else ""}>'
+        f'<option value="{escape(name)}" title="{escape(GROUPING_DESCRIPTIONS.get(name, ""))}"'
+        f"{' selected' if name == active else ''}>"
         f"{escape(name)} ({len(by_grouping[name])})</option>"
+        for name in by_grouping
+    )
+    # The description of the *chosen* dimension is shown, not only offered on hover: a reader
+    # who has to hover each option to find out what it does has been handed a puzzle.
+    meanings = "".join(
+        f'<span class="grouping-meaning" data-grouping="{escape(name)}"'
+        f"{'' if name == active else ' hidden'}>{escape(GROUPING_DESCRIPTIONS.get(name, ''))}"
+        "</span>"
         for name in by_grouping
     )
     return (
         '<label class="section-control js-only"><span>Group these rows by</span>'
         f'<select class="regroup" data-target="items">{options}</select></label>'
+        f'<p class="section-note js-only">{meanings}</p>'
     )
 
 

@@ -20,6 +20,7 @@ from ccaudit.model.reconcile import ReconciliationError
 from ccaudit.render.data import (
     ANALYSED_SESSION_METRICS,
     CHEAP_SESSION_METRICS,
+    GROUPING_DESCRIPTIONS,
     GROUPINGS,
     SESSION_METRICS,
     build_report_data,
@@ -486,3 +487,35 @@ class TestThePickerCanBeRanked:
             assert server.facts is None
         finally:
             server.server_close()
+
+
+class TestEveryChoiceExplainsItself:
+    """A control whose options have to be guessed is one people pick at random and misread.
+
+    Added after "what is the difference between item and file?" was asked twice — the answer
+    existed only in my head and in a source comment, which is the same as not existing.
+    """
+
+    def test_every_grouping_has_a_description(self) -> None:
+        for grouping in GROUPINGS:
+            assert GROUPING_DESCRIPTIONS.get(grouping, "").strip(), grouping
+
+    def test_the_descriptions_reach_the_page(self, payload: dict) -> None:
+        html = render_report_html(payload)
+        for grouping in GROUPINGS:
+            assert escape(GROUPING_DESCRIPTIONS[grouping]) in html, grouping
+
+    def test_the_chosen_one_is_shown_not_merely_offered(self, payload: dict) -> None:
+        """Hovering each option in turn to find out what it does is a puzzle, not a control."""
+        html = render_report_html(payload)
+        active = f'<span class="grouping-meaning" data-grouping="{payload["group_by"]}">'
+        assert active in html
+        assert 'data-grouping="category" hidden>' in html
+
+    def test_item_and_file_say_where_they_differ_rather_than_implying_a_gap(self) -> None:
+        """They coincide on a corpus where every path resolved. Saying so beats a distinction
+        the reader goes looking for and cannot find."""
+        for grouping in ("item", "file"):
+            assert "identical" in GROUPING_DESCRIPTIONS[grouping] or (
+                "same rows" in GROUPING_DESCRIPTIONS[grouping]
+            ), grouping

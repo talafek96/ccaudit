@@ -149,6 +149,40 @@ class _ItemRollup:
 # every-level-of-the-hierarchy view (FR-034) is the `tree` section, where a node can carry both
 # its own cost and its subtree's without the two being summed together.
 GROUPINGS: tuple[str, ...] = ("item", "file", "folder", "ext", "category")
+
+# What each dimension means, in the words a reader needs to choose between them. Defined here
+# beside the dimensions themselves (Principle IX) and rendered wherever the choice is offered:
+# a control whose options have to be guessed is one people pick at random and then misread.
+#
+# `item` and `file` differ only where one name covers more than one thing — a path that could
+# not be resolved and so means something different per project, or an injected item being shown
+# per project. On a corpus where every path resolved, they produce the same rows, and saying so
+# is more useful than implying a distinction the reader will go looking for.
+GROUPING_DESCRIPTIONS: dict[str, str] = {
+    "item": (
+        "One row per distinct thing that was in context, exactly as recorded — the ungrouped "
+        "view. Two things with the same name stay apart here: an unresolved path that means a "
+        "different file in each project, or injected content being shown per project. Where "
+        "every path resolved, this and 'file' show the same rows."
+    ),
+    "file": (
+        "One row per name, merging anything that shares it. Differs from 'item' only where the "
+        "same name covered more than one thing — otherwise the two are identical."
+    ),
+    "folder": (
+        "One row per directory, holding the files sitting *directly* in it. Not everything "
+        "beneath it: a file counted once for every folder above it would be counted many times "
+        "in one table. The folder tree further down shows the everything-beneath figure."
+    ),
+    "ext": (
+        "One row per file extension — .md against .py against .json. The view that answers "
+        "'what kind of file is this spend going to'."
+    ),
+    "category": (
+        "One row per category — docs, source, specs, tool schemas. The coarsest view, and the "
+        "one that fits on a slide."
+    ),
+}
 DEFAULT_GROUPING = "item"
 
 # Ranking measures (contracts/cli.md). Sorting only reorders rows — it can never change what
