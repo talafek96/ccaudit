@@ -761,3 +761,299 @@ tr.filtered-out { display: none; }
   max-width: 62ch;
 }
 .grouping-meaning[hidden] { display: none; }
+
+/* ══════════════════════════════════════════════════════════════════════════════════════
+   REFINEMENT LAYER — presentation only.
+
+   Nothing below changes what is shown, what is hidden, or what anything measures. It is the
+   craft pass over the working-paper direction declared at the top of this file: the concept
+   was right, the execution was flat. The moves are the ones that separate a document from a
+   page of defaults — an optical type scale, layered rather than drawn depth, a single accent
+   with a job, and motion that acknowledges a click without animating a figure.
+
+   Two rules held throughout:
+
+   **The eight categorical series are untouched.** Their order and their never-carrying-
+   meaning-by-colour-alone are accessibility invariants (FR-040, FR-042), not taste.
+
+   **Nothing here can move a number.** No transform on a bar, no scale on a mark, no gradient
+   across a length that encodes a value — a bar that is 3px longer because it is prettier is a
+   lie told in CSS. Depth goes on containers; motion goes on controls.
+   ══════════════════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* One accent, used only where something is interactive or currently chosen. A second
+     accent would make neither mean anything. */
+  --accent: #1f6feb;
+  --accent-soft: rgba(31, 111, 235, 0.1);
+  --accent-ring: rgba(31, 111, 235, 0.4);
+
+  /* Depth as light, not as a drawn edge: a near-invisible ambient layer plus a tighter
+     contact shadow. One border-coloured hairline keeps the edge crisp on light. */
+  --lift-1:
+    0 0 0 1px rgba(18, 22, 26, 0.04),
+    0 1px 2px rgba(18, 22, 26, 0.05),
+    0 4px 12px -6px rgba(18, 22, 26, 0.12);
+  --lift-2:
+    0 0 0 1px rgba(18, 22, 26, 0.05),
+    0 2px 4px rgba(18, 22, 26, 0.06),
+    0 12px 28px -10px rgba(18, 22, 26, 0.18);
+
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --radius: 10px;
+  --radius-sm: 6px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    --accent: #5b9bff;
+    --accent-soft: rgba(91, 155, 255, 0.14);
+    --accent-ring: rgba(91, 155, 255, 0.45);
+    /* On a dark surface a shadow is nearly invisible, so depth is carried by a lighter top
+       edge instead — the way a raised surface actually catches light. */
+    --lift-1:
+      inset 0 1px 0 rgba(255, 255, 255, 0.04),
+      0 1px 2px rgba(0, 0, 0, 0.5);
+    --lift-2:
+      inset 0 1px 0 rgba(255, 255, 255, 0.06),
+      0 8px 28px -12px rgba(0, 0, 0, 0.75);
+  }
+}
+
+:root[data-theme="dark"] {
+  --accent: #5b9bff;
+  --accent-soft: rgba(91, 155, 255, 0.14);
+  --accent-ring: rgba(91, 155, 255, 0.45);
+  --lift-1:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 1px 2px rgba(0, 0, 0, 0.5);
+  --lift-2:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 8px 28px -12px rgba(0, 0, 0, 0.75);
+}
+
+/* ── Type ──────────────────────────────────────────────────────────────────────────────
+   A scale that responds to the viewport, so the document reads at a laptop width and does
+   not become a column of confetti on a wide monitor. */
+
+body {
+  font-optical-sizing: auto;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1 {
+  font-size: clamp(1.6rem, 1.1rem + 1.6vw, 2.35rem);
+  line-height: 1.12;
+  /* Display sizes need negative tracking; the same letterspacing that suits body text makes
+     a headline look loose. */
+  letter-spacing: -0.021em;
+  text-wrap: balance;
+}
+
+h2 {
+  font-size: 0.78rem;
+  letter-spacing: 0.13em;
+  /* The section mark: a hairline that starts at full strength and dissolves, so it reads as
+     a rule the heading sits on rather than as a box drawn round it. */
+  padding-bottom: 0.5rem;
+  border-bottom: 0;
+  background-image: linear-gradient(to right, var(--rule), transparent 78%);
+  background-repeat: no-repeat;
+  background-position: 0 100%;
+  background-size: 100% 1px;
+}
+
+h3 { letter-spacing: -0.008em; }
+
+.lede,
+p {
+  text-wrap: pretty;
+}
+
+.lede {
+  font-size: 1.02rem;
+  line-height: 1.62;
+  color: var(--text-secondary);
+  max-width: 68ch;
+}
+
+/* Figures are data: lock the digit widths so a column stays a column, and stop a browser
+   turning "1/2" or "-" into something clever. */
+.money,
+.row-value,
+.share,
+td,
+th {
+  font-variant-numeric: tabular-nums lining-nums;
+  font-feature-settings: "tnum" 1, "lnum" 1;
+}
+
+.money { letter-spacing: -0.012em; }
+
+.share {
+  color: var(--muted);
+  font-size: 0.92em;
+}
+
+/* ── Surfaces ──────────────────────────────────────────────────────────────────────────
+   Panels and charts stop being rectangles with a 1px outline and become sheets on a desk. */
+
+.panel,
+.chart {
+  border-radius: var(--radius);
+  box-shadow: var(--lift-1);
+  transition: box-shadow 220ms var(--ease);
+}
+
+.chart:hover { box-shadow: var(--lift-2); }
+
+.chart--placeholder {
+  /* A chart that could not be drawn should read as a stated gap, not as a broken panel. */
+  background-image: repeating-linear-gradient(
+    135deg,
+    transparent 0 9px,
+    var(--band) 9px 10px
+  );
+}
+
+/* ── Controls ──────────────────────────────────────────────────────────────────────────
+   Every interactive thing gets the same vocabulary: a soft resting state, an accent on
+   hover, and a ring on keyboard focus that never appears on a mouse click. */
+
+button,
+select,
+input,
+summary {
+  transition:
+    background-color 140ms var(--ease),
+    border-color 140ms var(--ease),
+    box-shadow 140ms var(--ease),
+    color 140ms var(--ease);
+}
+
+:where(button, select, input, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+:where(button, select, input, summary):focus:not(:focus-visible) { outline: none; }
+
+.sort-btn,
+.expand-btn,
+.fill-btn,
+.flame-crumb {
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  cursor: pointer;
+}
+
+.sort-btn:hover,
+.expand-btn:hover,
+.fill-btn:hover,
+.flame-crumb:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.fill-btn[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.section-control select,
+.row-filter {
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  color: var(--text-primary);
+}
+
+.section-control select:hover,
+.row-filter:hover { border-color: var(--accent); }
+
+/* Checkboxes inherit the accent instead of the OS blue, so the page has one interactive
+   colour rather than two. */
+input[type="checkbox"] { accent-color: var(--accent); }
+
+.tag-chip {
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem 0.1rem 0.35rem;
+  border: 1px solid transparent;
+  transition: background-color 140ms var(--ease), border-color 140ms var(--ease);
+}
+
+.tag-chip:hover {
+  border-color: var(--border);
+  background: var(--accent-soft);
+}
+
+/* ── The ledger ────────────────────────────────────────────────────────────────────────
+   Greenbar stays. What it gains is a row that responds to the cursor, so a reader tracking
+   a figure across ten columns can see which line they are on. */
+
+tbody tr { transition: background-color 120ms var(--ease); }
+
+tbody tr:hover { background: var(--accent-soft); }
+
+th {
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+/* ── Drill-downs ───────────────────────────────────────────────────────────────────────
+   A disclosure that looks like one, and turns rather than jumping. */
+
+summary { cursor: pointer; }
+
+summary::marker,
+summary::-webkit-details-marker { color: var(--muted); }
+
+details.drill > summary:hover { color: var(--accent); }
+
+/* ── Marks ─────────────────────────────────────────────────────────────────────────────
+   Hover feedback on chart marks is opacity and stroke only. Never geometry: a mark that
+   grows on hover is a mark whose size no longer means what the legend says it means. */
+
+.mark { transition: opacity 140ms var(--ease); }
+
+.flame-node rect { transition: opacity 140ms var(--ease); }
+
+.flame-node:hover rect { opacity: 0.86; }
+
+.gridline { opacity: 0.62; }
+
+/* ── Chrome ────────────────────────────────────────────────────────────────────────────
+   Selection and scrollbars in the page's own palette rather than the browser's. */
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--text-primary);
+}
+
+* { scrollbar-color: var(--rule) transparent; scrollbar-width: thin; }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--rule);
+  border-radius: 999px;
+  border: 2px solid var(--page);
+}
+::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+/* Someone who has asked their machine for less movement gets none of it. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

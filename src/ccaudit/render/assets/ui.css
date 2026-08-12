@@ -412,3 +412,170 @@
   max-width: 30rem;
 }
 .ui-sessions-table th[data-metric="name"] { width: 100%; }
+
+/* ══════════════════════════════════════════════════════════════════════════════════════
+   REFINEMENT LAYER — presentation only, and only for the exploring shell.
+
+   The shell is chrome around a document, so it should read as chrome: it sits on the page
+   rather than in it, it stays out of the way while scrolling, and it never competes with the
+   figures it wraps. Nothing here changes a control's behaviour or what any of them show.
+   ══════════════════════════════════════════════════════════════════════════════════════ */
+
+/* ── The bar ───────────────────────────────────────────────────────────────────────────
+   Pinned, and translucent over whatever scrolls beneath it, so the reader never loses the
+   stop button or the sense of being in a temporary tool. */
+
+.ui-bar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  border-radius: var(--ui-radius) var(--ui-radius) 0 0;
+  background: color-mix(in srgb, var(--surface-1) 82%, transparent);
+  backdrop-filter: saturate(1.6) blur(12px);
+  -webkit-backdrop-filter: saturate(1.6) blur(12px);
+  border-bottom: 1px solid var(--border);
+}
+
+.ui-brand {
+  letter-spacing: 0.16em;
+  font-weight: 600;
+}
+
+/* "exploring" is a state, so it is dressed as a live badge rather than as a label. */
+.ui-mode {
+  border-radius: 999px;
+  padding: 0.12rem 0.55rem;
+  border: 1px solid var(--accent-ring, var(--border));
+  color: var(--accent, var(--text-secondary));
+  background: var(--accent-soft, transparent);
+  font-size: 0.7rem;
+  letter-spacing: 0.14em;
+}
+
+/* ── Panels ────────────────────────────────────────────────────────────────────────────
+   Sheets, like the charts they sit above, with the heading treated as a tab rather than as
+   a line of shouting. */
+
+.ui-panel {
+  border-radius: var(--ui-radius);
+  box-shadow: var(--lift-1, none);
+  transition: box-shadow 220ms var(--ease, ease);
+}
+
+.ui-panel:focus-within { box-shadow: var(--lift-2, none); }
+
+.ui-panel-head h2 {
+  font-size: 0.7rem;
+  letter-spacing: 0.15em;
+  color: var(--muted);
+}
+
+.ui-hint {
+  max-width: 74ch;
+  line-height: 1.55;
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────────────────────
+   One shape, three weights: primary carries the accent, quiet borrows it on hover. */
+
+.ui-btn {
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition:
+    background-color 140ms var(--ease, ease),
+    border-color 140ms var(--ease, ease),
+    color 140ms var(--ease, ease),
+    box-shadow 140ms var(--ease, ease),
+    transform 90ms var(--ease, ease);
+}
+
+.ui-btn:hover {
+  border-color: var(--accent, var(--rule));
+  color: var(--accent, var(--text-primary));
+  background: var(--accent-soft, transparent);
+}
+
+/* A press should be felt. One pixel is enough — more reads as a bouncing toy. */
+.ui-btn:active { transform: translateY(1px); }
+
+.ui-btn--primary {
+  background: var(--accent, var(--series-1));
+  border-color: transparent;
+  color: #fff;
+  font-weight: 600;
+  box-shadow: var(--lift-1, none);
+}
+
+.ui-btn--primary:hover {
+  background: var(--accent, var(--series-1));
+  color: #fff;
+  filter: brightness(1.08);
+  box-shadow: var(--lift-2, none);
+}
+
+/* ── The session table ─────────────────────────────────────────────────────────────────
+   A dense grid, so the work goes into making a row trackable and the header unambiguous. */
+
+.ui-sessions-table thead th {
+  z-index: 2;
+  background: color-mix(in srgb, var(--surface-1) 92%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border-bottom: 1px solid var(--rule);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+
+.ui-session-row { transition: background-color 120ms var(--ease, ease); }
+
+.ui-session-row:hover { background: var(--accent-soft, rgba(128, 128, 128, 0.08)); }
+
+/* The row you have chosen is the one the figures below describe, so it is marked on the
+   edge — a tint alone is lost the moment the cursor sits on a different row. */
+.ui-session-row:has(input:checked) {
+  box-shadow: inset 3px 0 0 var(--accent, var(--series-1));
+}
+
+.ui-sortable {
+  transition: color 140ms var(--ease, ease);
+}
+
+.ui-sortable:hover { color: var(--accent, var(--text-primary)); text-decoration: none; }
+
+.ui-sortable[aria-sort] { color: var(--accent, var(--text-primary)); }
+
+.ui-table-scroll {
+  border-radius: var(--ui-radius);
+  border: 1px solid var(--border);
+}
+
+/* ── Inputs ────────────────────────────────────────────────────────────────────────────*/
+
+.ui-input {
+  border-radius: var(--ui-radius, 6px);
+  transition:
+    border-color 140ms var(--ease, ease),
+    box-shadow 140ms var(--ease, ease);
+}
+
+.ui-input:hover { border-color: var(--accent, var(--rule)); }
+
+.ui-input:focus-visible {
+  outline: none;
+  border-color: var(--accent, var(--rule));
+  box-shadow: 0 0 0 3px var(--accent-ring, transparent);
+}
+
+.ui-check { cursor: pointer; }
+
+.ui-check:hover { color: var(--text-primary); }
+
+/* The running badge is a fact about the data, not decoration: it says these figures are of
+   a session that has not finished. It should catch the eye and then stop. */
+.ui-tag {
+  border-radius: 999px;
+  letter-spacing: 0.08em;
+}
