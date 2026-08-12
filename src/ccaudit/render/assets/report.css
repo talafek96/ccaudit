@@ -667,3 +667,19 @@ footer {
 /* `.legend` sets a display, which outranks the `hidden` attribute's UA rule. Without this the
    hidden legend still draws, and two keys to one drawing is worse than none. */
 .legend[hidden] { display: none; }
+
+/* What a pathless item is. Sits under the name because that is the thing it explains, and in
+   the prose face because it is a sentence, not a figure. */
+.what-it-is {
+  max-width: 46rem;
+  margin: 0.2rem 0 0;
+  font-family: var(--font-prose);
+}
+
+/* A tag explains itself on hover and is a filter control in the exploring shell. The cursor
+   says which of the two you are getting: a question mark where the tag only explains, a
+   pointer where clicking it also filters. */
+.flag[data-tag] { cursor: help; }
+.ui-shell .flag[data-tag] { cursor: pointer; }
+.ui-shell .flag[data-tag]:hover { border-color: var(--keyline); color: var(--text-primary); }
+.flag[data-tag]:focus-visible { outline: 2px solid var(--series-1); outline-offset: 1px; }

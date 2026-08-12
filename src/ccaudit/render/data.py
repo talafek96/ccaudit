@@ -41,8 +41,14 @@ from ccaudit.config import (
     CHARGE_COMPONENTS,
     sig_figs_for,
 )
+from ccaudit.config.categories import (
+    INJECTED_ITEM_DESCRIPTIONS,
+    MIXED_CATEGORY,
+    injected_name,
+)
 from ccaudit.config.components import BASIS_VALUES, CONFIDENCE_VALUES, attribution_component
 from ccaudit.ingest.discover import SHORT_ID_LENGTH
+from ccaudit.ingest.tokens import CHARACTERS_PER_TOKEN_ESTIMATE, CHARACTERS_PER_TOKEN_RANGE
 from ccaudit.model.policy import describe as describe_policy
 from ccaudit.model.reconcile import ReconciliationError
 from ccaudit.model.residency import ItemPart
@@ -153,8 +159,6 @@ _SORT_KEYS = {
     "direct": lambda r: r.direct_micros,
     "reads": lambda r: r.reads,
 }
-
-_MIXED = "(mixed)"
 
 
 # Above these, a list stops informing and starts burying the figures underneath it.
@@ -1182,9 +1186,9 @@ def _regroup(rollups: list[_ItemRollup], group_by: str) -> list[_ItemRollup]:
         target.basis = _weakest(target.basis, rollup.basis, BASIS_VALUES)
         target.confidence = _weakest(target.confidence, rollup.confidence, CONFIDENCE_VALUES)
         if target.category != rollup.category:
-            target.category = _MIXED
+            target.category = MIXED_CATEGORY
         if target.kind != rollup.kind:
-            target.kind = _MIXED
+            target.kind = MIXED_CATEGORY
 
     return sorted(merged.values(), key=lambda r: (-r.total_micros, r.item_id))
 
@@ -1276,6 +1280,10 @@ def _item_payload(rollup: _ItemRollup, total_micros: int, *, redact: bool) -> di
         # which is one cached block listing many skills — "Skills: $67" cannot answer *which*
         # skills, nor which of them arrive with a plugin and are not the reader's to change.
         "parts": _item_parts(rollup),
+        # What this item *is*, for the few items that are not a file the reader can go and look
+        # at. A row reading "skill_listing" names a record key, not a thing, and a reader who
+        # cannot tell what a line item is cannot check the figure against it (Principle X).
+        "what_it_is": INJECTED_ITEM_DESCRIPTIONS.get(rollup.identity, ""),
     }
     if not redact:
         payload["identity"] = rollup.identity
@@ -1360,19 +1368,27 @@ def _uncertainty_driver(rollup: _ItemRollup) -> str:
 def _uncertainty_range(rollup: _ItemRollup, driver: str) -> dict[str, int]:
     """The band the driver could move this figure through.
 
-    The width is the part of the figure the driver controls: the whole of it for an estimated
-    size, the shared carry for a policy choice, the direct join otherwise. This is a *lower
-    bound* on the true range — under the exclusive policy an item that was alone in context
-    can be charged more than its proportional share — and it is deliberately not presented as
-    a confidence interval, which would imply a distribution nobody measured.
+    The width is the part of the figure the driver controls: the shared carry for a policy
+    choice, the direct join otherwise. This is a *lower bound* on the true range — under the
+    exclusive policy an item that was alone in context can be charged more than its
+    proportional share — and it is deliberately not presented as a confidence interval, which
+    would imply a distribution nobody measured.
+
+    An estimated size is the one driver whose error is *characterised*, so it gets a real band
+    rather than a symmetric guess. The figure comes from ``chars // 4``; the true ratio spans
+    :data:`CHARACTERS_PER_TOKEN_RANGE`, so the cost scales by 4/5 to 4/3. It used to take the
+    whole figure as the width, which reported a $45 item as "$0.00 to $89" — and $0.00 is a
+    claim, not a caution: this content demonstrably occupied a cached block that was charged
+    every turn. Overstating a range is as dishonest as understating one.
     """
     total = rollup.total_micros
     if driver == "size_estimate":
-        width = total
-    elif driver == "carry_split_policy":
-        width = rollup.carry_micros
-    else:
-        width = rollup.direct_micros
+        low_ratio, high_ratio = CHARACTERS_PER_TOKEN_RANGE
+        return {
+            "low_micros": total * CHARACTERS_PER_TOKEN_ESTIMATE // high_ratio,
+            "high_micros": total * CHARACTERS_PER_TOKEN_ESTIMATE // low_ratio,
+        }
+    width = rollup.carry_micros if driver == "carry_split_policy" else rollup.direct_micros
     return {"low_micros": max(0, total - width), "high_micros": total + width}
 
 
@@ -1386,7 +1402,14 @@ def _display_for(item_id: str, identity: str, *, redact: bool) -> str:
 
     The single place a name is pseudonymised — the tree and the residency timeline name the
     same items, and two hashing rules would put the same file under two names.
+
+    An injected item keeps its plain name even under redaction: it is the same content in every
+    session on every machine, so it identifies nothing about this user, and hashing it would
+    destroy a figure the reader needs while protecting nothing.
     """
+    injected = injected_name(identity)
+    if injected is not None:
+        return injected
     if not redact:
         return identity
     return f"{_pseudonym(item_id)}{PurePosixPath(identity).suffix}"

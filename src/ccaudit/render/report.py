@@ -32,6 +32,7 @@ from html import escape
 from pathlib import Path
 from typing import Any
 
+from ccaudit.config.categories import MIXED_CATEGORY, tag_description
 from ccaudit.config.components import attribution_component, sig_figs_for
 from ccaudit.model.reconcile import UNATTRIBUTED_DISPLAY
 from ccaudit.money import format_micros
@@ -591,15 +592,57 @@ def _remainder_row(omitted: Sequence[Mapping[str, Any]], total: int) -> str:
     )
 
 
+def _what_it_is(item: Mapping[str, Any]) -> str:
+    """What a pathless item actually is, said on the row.
+
+    Most rows name a file the reader can open. A few name content Claude Code injects, and for
+    those the row is the only place the reader can learn what they are looking at — "Skill
+    listing" is a better name than `skill_listing`, but it still does not say that the listing
+    is the *menu* of skills rather than the skills themselves.
+    """
+    what = str(item.get("what_it_is") or "")
+    if not what:
+        return ""
+    return f'<p class="meta what-it-is">{escape(what)}</p>'
+
+
+def flag(label: str, tag: str, **values: str) -> str:
+    """One tag, carrying its own explanation and the key a reader can filter by.
+
+    A tag is a compression — "too small to cache on claude-opus-5" is four facts in six words —
+    and a compression the reader cannot expand is jargon, which Principle X calls a defect. The
+    sentence comes from the one registry in `config/categories.py`; `data-tip` is what the
+    page's balloon reads, and the native `title` is the fallback for a reader with no scripting.
+    """
+    tip = tag_description(tag, **values)
+    return (
+        f' <span class="flag" data-tag="{escape(tag)}" data-tip="{escape(tip)}" '
+        f'title="{escape(tip)}" tabindex="0">{escape(label)}</span>'
+    )
+
+
+def _item_tags(item: Mapping[str, Any]) -> list[tuple[str, str]]:
+    """Every tag on an item's row, as (label, key) — the one place the set is decided."""
+    category = str(item["category"])
+    tags = [(category, "mixed" if category == MIXED_CATEGORY else category)]
+    if item["never_cacheable_on"]:
+        models = ", ".join(item["never_cacheable_on"])
+        tags.append((f"too small to cache on {models}", "uncacheable"))
+    return tags
+
+
 def _item_row(item: Mapping[str, Any], total: int, *, overflow: bool = False) -> str:
     figures = item["display_sig_figs"]
     display = str(item["display"])
-    flags = ""
-    if item["never_cacheable_on"]:
-        flags = (
-            f' <span class="flag">too small to cache on '
-            f"{escape(', '.join(item['never_cacheable_on']))}</span>"
+    tags = _item_tags(item)
+    flags = "".join(
+        flag(
+            label,
+            key,
+            model=", ".join(item["never_cacheable_on"]),
         )
+        for label, key in tags
+    )
     # `hidden` and not a CSS class: a reader with scripting off sees the same twelve rows and
     # the same remainder line, so the static page is still complete and still reconciles.
     marker = ' data-overflow="1" hidden' if overflow else ""
@@ -607,9 +650,12 @@ def _item_row(item: Mapping[str, Any], total: int, *, overflow: bool = False) ->
         f'<tr{marker} data-name="{escape(display)}" data-size="{item["size_tokens"]}" '
         f'data-direct="{item["direct_micros"]}" data-carry="{item["carry_micros"]}" '
         f'data-total="{item["total_micros"]}" data-reads="{item["reads"]}" '
+        # The filter matches against this, so a reader can ask for every uncacheable row the
+        # same way they ask for every row whose name contains "spec".
+        f'data-tags="{escape(" ".join(key for _, key in tags))}" '
         f'data-turns="{item["turns_resident"]}">'
-        f'<td>{escape(display)} <span class="flag">{escape(str(item["category"]))}</span>'
-        f"{flags}{_parts_details(item)}{_drilldown(item, total)}</td>"
+        f"<td>{escape(display)}{flags}"
+        f"{_what_it_is(item)}{_parts_details(item)}{_drilldown(item, total)}</td>"
         f'<td class="num">{item["size_tokens"]:,}</td>'
         f'<td class="num">'
         f"{money_share_html(item['direct_micros'], _share(item['direct_micros'], total), figures, of_total=False)}</td>"
@@ -637,7 +683,7 @@ def _parts_details(item: Mapping[str, Any]) -> str:
     rows = "".join(
         f"<li>{escape(str(part['name']))} — "
         f"{money_share_html(int(part['cost_micros']), float(part['share_of_item']), figures, of_total=False)}"
-        f"{" <span class='flag'>from plugin " + escape(str(part['plugin'])) + '</span>' if part['origin'] == 'plugin' else ''}"
+        f"{flag('from plugin ' + str(part['plugin']), 'plugin', plugin=str(part['plugin'])) if part['origin'] == 'plugin' else ''}"
         f"</li>"
         for part in parts
     )

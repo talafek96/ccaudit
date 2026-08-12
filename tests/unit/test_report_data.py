@@ -13,9 +13,20 @@ import pytest
 
 from ccaudit.analyse import SessionAnalysis, analyse_transcript
 from ccaudit.config import BUNDLED_PRICING_PATH, load_pricing
+from ccaudit.config.categories import (
+    INJECTED_ITEM_DESCRIPTIONS,
+    INJECTED_ITEM_NAMES,
+    injected_name,
+)
 from ccaudit.config.components import CHARGE_COMPONENTS, sig_figs_for
 from ccaudit.model.reconcile import ReconciliationError
-from ccaudit.render.data import SCHEMA_VERSION, build_report_data, collapse_notes
+from ccaudit.render.data import (
+    SCHEMA_VERSION,
+    _ItemRollup,
+    _uncertainty_range,
+    build_report_data,
+    collapse_notes,
+)
 from tests.fixtures.builder import TranscriptBuilder
 
 PRICING = load_pricing(BUNDLED_PRICING_PATH)
@@ -703,3 +714,68 @@ class TestNotesStayReadableAtCorpusScale:
         notes = ["b note 1.", "a note 2.", "b note 3."]
         assert collapse_notes(notes) == collapse_notes(notes)
         assert collapse_notes(notes)[0].startswith("b note 1.")
+
+
+def _estimated_rollup(total_micros: int) -> _ItemRollup:
+    """An item whose size came from a character count — all of its cost, so the band is total."""
+    return _ItemRollup(
+        item_id="skill:-:skill_listing",
+        kind="skill",
+        identity="skill_listing",
+        category="skill",
+        size_tokens=2898,
+        direct_micros=total_micros,
+        basis="estimated",
+        confidence="low",
+    )
+
+
+class TestAnItemSaysWhatItIs:
+    """A row that names a record key names nothing a reader can check the figure against.
+
+    `skill_listing` was rendered verbatim as an item's name. It is jargon — worse, it is
+    *misleading* jargon, because it reads as "the skills" when it is the menu of them. A plain
+    name and a sentence saying what the thing is are both defined once, in the config registry.
+    """
+
+    def test_an_injected_item_gets_its_plain_name(self) -> None:
+        assert injected_name("skill_listing") == "Skill listing"
+        assert injected_name("deferred_tools_delta") == "Tool schemas"
+
+    def test_a_file_keeps_its_own_path_as_its_name(self) -> None:
+        assert injected_name("/repo/CLAUDE.md") is None
+
+    def test_every_named_injected_item_also_says_what_it_is(self) -> None:
+        """A better label that still leaves a reader guessing has solved nothing."""
+        assert set(INJECTED_ITEM_NAMES) == set(INJECTED_ITEM_DESCRIPTIONS)
+        for identity, description in INJECTED_ITEM_DESCRIPTIONS.items():
+            assert len(description) > 40, identity
+
+    def test_the_skill_listing_says_it_is_the_menu_and_not_the_skills(self) -> None:
+        """The whole misreading this text exists to prevent."""
+        assert "menu" in INJECTED_ITEM_DESCRIPTIONS["skill_listing"]
+        assert "only loaded once it is used" in INJECTED_ITEM_DESCRIPTIONS["skill_listing"]
+
+
+class TestTheRangeOnAnEstimatedSizeIsCharacterised:
+    """A band from zero is a claim, not a caution.
+
+    The size range used to take the whole figure as its width, so a $45 item was reported as
+    "$0.00 to $89". Zero says the content might have cost nothing, which is false — it occupied
+    a cached block that was charged on every turn. Overstating a range is as dishonest as
+    understating one (Principle X), and a range that says nothing is an absent figure.
+    """
+
+    def test_the_low_end_is_not_zero_for_a_priced_item(self) -> None:
+        band = _uncertainty_range(_estimated_rollup(45_000_000), "size_estimate")
+        assert band["low_micros"] > 0
+
+    def test_the_band_follows_the_ratio_the_estimate_rests_on(self) -> None:
+        """chars/4 against a true ratio of 3 to 5 scales the cost by 4/5 to 4/3."""
+        band = _uncertainty_range(_estimated_rollup(60_000_000), "size_estimate")
+        assert band["low_micros"] == 48_000_000
+        assert band["high_micros"] == 80_000_000
+
+    def test_the_figure_itself_is_inside_its_own_band(self) -> None:
+        band = _uncertainty_range(_estimated_rollup(45_000_000), "size_estimate")
+        assert band["low_micros"] <= 45_000_000 <= band["high_micros"]
