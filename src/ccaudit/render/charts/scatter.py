@@ -33,6 +33,8 @@ from ccaudit.render.charts import (
     CHART_WIDTH,
     SERIES_SLOT_COUNT,
     figure,
+    gridlines,
+    money_gridline_values,
     money_share_text,
     placeholder,
     series_swatch,
@@ -198,7 +200,11 @@ def cause_scatter(
 
 
 def _grid(max_reads: int, min_cost: int, max_cost: int) -> str:
-    """Axis lines and ticks, labelled with real values rather than with log positions."""
+    """Axis lines, gridlines, and ticks, labelled with real values rather than log positions.
+
+    Both axes are logarithmic, so the gap between two points says nothing on its own — the
+    lines are what turn a cloud of dots into readable values.
+    """
     parts = [
         (
             f'<line class="axis" x1="{PLOT_LEFT}" y1="{PLOT_TOP}" x2="{PLOT_LEFT}" '
@@ -219,6 +225,7 @@ def _grid(max_reads: int, min_cost: int, max_cost: int) -> str:
             continue
         drawn_x.append(x)
         parts.append(tick_label(x=x, y=PLOT_BOTTOM + 14, text=f"{reads:,}"))
+        parts.append(gridlines([x], span=(PLOT_TOP, PLOT_BOTTOM)))
     drawn_y: list[int] = []
     for cost in _money_ticks(min_cost, max_cost):
         y = _log_scale(cost, min_cost, max_cost, PLOT_BOTTOM, PLOT_TOP)
@@ -228,6 +235,7 @@ def _grid(max_reads: int, min_cost: int, max_cost: int) -> str:
         parts.append(
             tick_label(x=PLOT_LEFT - 6, y=y + 4, text=format_micros(cost, 2), anchor="end")
         )
+        parts.append(gridlines([y], span=(PLOT_LEFT, PLOT_RIGHT), vertical=False))
     return "".join(parts)
 
 
@@ -331,9 +339,23 @@ def session_bars(
     gutter = 260
     value_gutter = 210
     span = CHART_WIDTH - gutter - value_gutter
-    height = row_height * len(sessions) + 10
+    ruled = money_gridline_values(widest)
+    plot_bottom = row_height * len(sessions)
+    height = plot_bottom + (28 if ruled else 10)
 
-    body = []
+    # Ruled in money like the item bars, so "which session cost the most" and "how much did it
+    # cost" are both answerable from the same picture.
+    body = [
+        gridlines([gutter + span * value // widest for value in ruled], span=(0, plot_bottom)),
+        "".join(
+            tick_label(
+                x=gutter + span * value // widest,
+                y=plot_bottom + 15,
+                text=format_micros(value, 2),
+            )
+            for value in ruled
+        ),
+    ]
     for index, row in enumerate(sessions):
         y = index * row_height
         total = int(row["cost_micros"])

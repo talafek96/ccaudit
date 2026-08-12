@@ -22,6 +22,7 @@ turn's left edge and the last turn's right edge, both computed by the identical 
 and a report nobody can email is a report that failed FR-032 however correct its figures are.
 """
 
+import math
 from collections.abc import Mapping, Sequence
 from html import escape
 from typing import Any
@@ -35,6 +36,7 @@ from ccaudit.render.charts import (
     common_directory_prefix,
     elide_prefix,
     figure,
+    gridlines,
     hatch_defs,
     placeholder,
     row_label,
@@ -151,13 +153,29 @@ def residency_timeline(
     # Rows, not spans: several spans of one item share a row.
     height = ROW_HEIGHT * len(rows) + AXIS_HEIGHT + offset
     axis_y = ROW_HEIGHT * len(rows) + 6 + offset
+    # Turn markers across the tracks. "This file was resident from turn 1 to turn 1612" is
+    # only legible against a ruled axis; with the two end labels alone, a bar's start and end
+    # can be seen but not read.
+    ruled = _turn_ticks(turn_count)
     axis = "".join(
         [
+            gridlines(
+                [LABEL_GUTTER + TRACK_WIDTH * turn // turn_count for turn in ruled],
+                span=(offset, axis_y),
+            ),
             (
                 f'<line class="axis" x1="{LABEL_GUTTER}" y1="{axis_y}" '
                 f'x2="{LABEL_GUTTER + TRACK_WIDTH}" y2="{axis_y}"></line>'
             ),
             tick_label(x=LABEL_GUTTER, y=axis_y + 14, text="turn 1", anchor="start"),
+            "".join(
+                tick_label(
+                    x=LABEL_GUTTER + TRACK_WIDTH * turn // turn_count,
+                    y=axis_y + 14,
+                    text=f"{turn:,}",
+                )
+                for turn in ruled
+            ),
             tick_label(
                 x=LABEL_GUTTER + TRACK_WIDTH,
                 y=axis_y + 14,
@@ -183,6 +201,26 @@ def residency_timeline(
     legend = _lane_legend()
     caption = f"{omission} {note}".strip() if omission else note
     return figure(chart_id=chart_id, title=title, svg=svg, legend=legend, note=caption)
+
+
+def _turn_ticks(turn_count: int) -> list[int]:
+    """Round turn numbers to rule the track with, excluding the ends.
+
+    The ends already carry "turn 1" and "turn N"; a tick beside either would overprint it. The
+    step is a round number a reader would say out loud rather than an arithmetic fraction of
+    however many turns this session happened to run to.
+    """
+    if turn_count < 8:
+        return []
+    rough = turn_count / 5
+    magnitude = 10 ** math.floor(math.log10(rough))
+    for multiple in (1, 2, 2.5, 5, 10):
+        step = int(magnitude * multiple)
+        if step >= rough:
+            break
+    # Kept clear of both ends so a gridline label never lands on "turn 1" or "turn N".
+    margin = turn_count * 0.06
+    return [turn for turn in range(step, turn_count, step) if margin < turn < turn_count - margin]
 
 
 def _select(

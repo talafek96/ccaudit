@@ -23,6 +23,7 @@ from ccaudit.model.reconcile import ReconciliationError
 from ccaudit.render.data import (
     ANALYSED_SESSION_METRICS,
     SCHEMA_VERSION,
+    UNRECORDED_PROJECT,
     _ItemRollup,
     _uncertainty_range,
     build_report_data,
@@ -825,6 +826,45 @@ class TestAnInjectedItemIsOneThingUnlessAsked:
 
         displays = sorted(item["display"] for item in self.listings(payload))
         assert displays == ["Skill listing — /repo/alpha", "Skill listing — /repo/beta"]
+
+    def test_the_residency_chart_follows_the_same_choice(self, tmp_path: Path) -> None:
+        """Every surface names an item the same way, or the page contradicts itself.
+
+        The residency spans are named from the un-collapsed model, so they kept saying "Skill
+        listing" while the table above them had been split by project — the chart then folded
+        the three into one "Skill listing x3" bar, in the one view the reader had just asked to
+        see apart.
+        """
+        corpus = self.corpus(tmp_path)
+
+        merged = build_report_data(corpus, generated_at=FIXED_TIME)
+        merged_names = {
+            row["display"] for row in merged["residency"] if "Skill listing" in row["display"]
+        }
+        assert merged_names == {"Skill listing"}
+
+        split = build_report_data(corpus, generated_at=FIXED_TIME, merge_injected=False)
+        split_names = {
+            row["display"] for row in split["residency"] if "Skill listing" in row["display"]
+        }
+        assert split_names == {"Skill listing — /repo/alpha", "Skill listing — /repo/beta"}
+
+    def test_an_unrecorded_project_is_named_rather_than_left_blank(self, tmp_path: Path) -> None:
+        """Two labelled rows beside one bare one reads as a third, unidentifiable thing."""
+        builder = TranscriptBuilder()
+        builder.add_turn(input_tokens=50, cache_creation_5m=9_000, output_tokens=20)
+        builder.add_skill_listing(names=["demo"], content="skill: demo\n" * 60)
+        builder.add_turn(input_tokens=5, cache_read=9_400, output_tokens=15)
+        # Written with no project path at all, which is what a session started outside any
+        # recorded directory produces.
+        analysis = analyse_transcript(
+            builder.write(tmp_path / "nowhere.jsonl"), pricing=PRICING, policy="proportional"
+        )
+
+        payload = build_report_data([analysis], generated_at=FIXED_TIME, merge_injected=False)
+
+        (listing,) = [i for i in payload["items"] if i["identity"] == "skill_listing"]
+        assert listing["display"] == f"Skill listing — {UNRECORDED_PROJECT}"
 
     def test_merging_moves_no_money(self, tmp_path: Path) -> None:
         """The whole point: collapsing rows may only join them (Principle X)."""

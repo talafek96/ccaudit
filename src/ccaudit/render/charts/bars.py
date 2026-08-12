@@ -23,8 +23,10 @@ from ccaudit.render.charts import (
     ROW_HEIGHT,
     Slice,
     figure,
+    gridlines,
     hatch_defs,
     legend_list,
+    money_gridline_values,
     money_share_text,
     partition,
     placeholder,
@@ -42,6 +44,9 @@ TICK_BASELINE = BAR_HEIGHT + 18
 COMPOSITION_HEIGHT = TICK_BASELINE + 6
 
 ROW_BAR_HEIGHT = 14
+
+# Room under the bars for the money scale the gridlines are labelled with.
+TICK_ROW_HEIGHT = 18
 
 # The three columns of a row: label, bar, figure. Sized from measurement, not from taste —
 # the value column was 150 and the widest label it has to hold ("$77.12 (12.9% of total)") is
@@ -213,9 +218,18 @@ def stacked_bars(
     row_totals = [sum(part.micros for part in parts) for _, parts in rows]
     items = ranked if ranked is not None else len(rows)
     scale = max(row_totals[:items], default=0) or max(row_totals, default=0)
-    height = ROW_HEIGHT * len(rows) + 8
+    # Ruled before anything else is drawn, so every bar sits on top of the scale rather than
+    # under it. The lines follow the item scale, which is what the bars are drawn against.
+    ruled = money_gridline_values(scale)
+    plot_bottom = ROW_HEIGHT * len(rows)
+    height = plot_bottom + (8 + TICK_ROW_HEIGHT if ruled else 8)
 
-    body: list[str] = []
+    body: list[str] = [
+        gridlines(
+            [ROW_LABEL_GUTTER + ROW_BAR_WIDTH * value // scale for value in ruled],
+            span=(0, plot_bottom),
+        )
+    ]
     for index, ((label, parts), row_total) in enumerate(zip(rows, row_totals, strict=True)):
         y = index * ROW_HEIGHT
         text_y = y + ROW_BAR_HEIGHT + 2
@@ -264,6 +278,17 @@ def stacked_bars(
             f"({escape(format_share(share))} of total)</text>"
         )
 
+    # The scale the gridlines mark, said in money: a line a reader cannot price is decoration.
+    body.append(
+        "".join(
+            tick_label(
+                x=ROW_LABEL_GUTTER + ROW_BAR_WIDTH * value // scale,
+                y=plot_bottom + 13,
+                text=format_micros(value, 2),
+            )
+            for value in ruled
+        )
+    )
     svg = "".join(
         [
             svg_open(CHART_WIDTH, height, label=f"{title}. Figures are repeated beside each bar."),
@@ -333,7 +358,27 @@ def cumulative_sparkline(
         else ""
     )
 
-    marks: list[str] = []
+    # Ruled in money, up the y axis: the curve answers "when had I spent most of it", which
+    # needs a scale to read against and not only a shape.
+    marks: list[str] = [
+        gridlines(
+            [
+                round(SPARK_BASELINE - SPARK_PLOT_HEIGHT * value / peak)
+                for value in money_gridline_values(charged, divisions=3)
+            ],
+            span=(SPARK_PAD_LEFT, SPARK_PAD_LEFT + SPARK_PLOT_WIDTH),
+            vertical=False,
+        )
+    ]
+    marks.extend(
+        tick_label(
+            x=SPARK_PAD_LEFT - 6,
+            y=round(SPARK_BASELINE - SPARK_PLOT_HEIGHT * value / peak) + 4,
+            text=format_micros(value, 2),
+            anchor="end",
+        )
+        for value in money_gridline_values(charged, divisions=3)
+    )
     if area:
         marks.append(f'<path class="spark-area" d="{area}"></path>')
     marks.append(f'<path class="spark-line" d="{line}"></path>')

@@ -56,6 +56,10 @@ _EXPLORE_NOTE = (
 _TERMINAL_NOTE = (
     "Nothing here is browser-only. The same selection from the terminal, with the same figures:"
 )
+_SESSION_COLUMN = (
+    "What the session was about, the first block of its id, the directory Claude Code was "
+    "started from, and when it was last written."
+)
 _FILTER_NOTE = (
     "Filtering hides rows, never cost: the totals, the summary rows, and the unattributed "
     "remainder always describe the whole selection."
@@ -239,16 +243,24 @@ def _session_table(sessions: Sequence[SessionRef], chosen: set[str]) -> str:
     those cells start empty and the script fills them as answers arrive.
     """
     headers = "".join(
-        f'<th class="ui-num" data-metric="{escape(key)}" '
-        f'title="{escape(label)}">{escape(label)}</th>'
-        for key, label, _cheap in SESSION_METRICS
+        # The description is the column's contract with the reader: "Reads" and ".md reads"
+        # answer different questions, and a header that has to be guessed is one people rank
+        # by and then misread.
+        f'<th class="ui-num ui-sortable-head" data-metric="{escape(metric.key)}" '
+        f'data-tip="{escape(metric.description)}" title="{escape(metric.description)}">'
+        f"{escape(metric.label)}</th>"
+        for metric in SESSION_METRICS
     )
     return "".join(
         [
             '<div class="ui-table-scroll"><table class="ui-sessions-table" id="ui-session-table">',
             "<thead><tr>",
             '<th class="ui-pick"><span class="ui-sr">Include</span></th>',
-            '<th data-metric="name">Session</th>',
+            (
+                f'<th class="ui-sortable-head" data-metric="name" '
+                f'data-tip="{escape(_SESSION_COLUMN)}" title="{escape(_SESSION_COLUMN)}">'
+                f"Session</th>"
+            ),
             headers,
             "</tr></thead><tbody>",
             "".join(
@@ -279,10 +291,10 @@ def _session_row(reference: SessionRef, checked: bool) -> str:
         # A cheap fact is written as text *and* as a sort key; an analysed one carries neither
         # until it is known, so an empty cell is never mistaken for a zero. The sort key stays
         # the raw number, so ranking by size is not ranking by the rounded label.
-        f'<td class="ui-num" data-metric="{escape(key)}"'
-        + (f' data-value="{known[key]}">{shown[key]}' if key in known else ">")
+        f'<td class="ui-num" data-metric="{escape(metric.key)}"'
+        + (f' data-value="{known[metric.key]}">{shown[metric.key]}' if metric.key in known else ">")
         + "</td>"
-        for key, _label, _cheap in SESSION_METRICS
+        for metric in SESSION_METRICS
     )
     return (
         f'<tr class="ui-session-row" data-session="{escape(reference.session_id)}" '

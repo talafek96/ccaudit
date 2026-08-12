@@ -442,9 +442,11 @@ class TestThePickerCanBeRanked:
 
     def test_the_picker_is_a_table_with_a_column_per_metric(self, page: str) -> None:
         assert 'id="ui-session-table"' in page
-        for key, label, _cheap in SESSION_METRICS:
-            assert f'data-metric="{key}"' in page
-            assert label in page
+        for metric in SESSION_METRICS:
+            assert f'data-metric="{metric.key}"' in page
+            assert metric.label in page
+            # Every column explains itself on hover; a bare label is a column people misread.
+            assert escape(metric.description) in page
 
     def test_cheap_facts_are_already_there(self, page: str) -> None:
         """Readable from file metadata, so they cost nothing and never arrive late."""

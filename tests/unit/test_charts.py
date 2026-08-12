@@ -51,6 +51,7 @@ from ccaudit.render.charts.timeline import (
     MAX_SPANS,
     TRACK_WIDTH,
     _runs,
+    _turn_ticks,
     residency_timeline,
 )
 
@@ -975,3 +976,94 @@ class TestEveryNodeIsReachable:
         correct figures far apart, so each has to say which one it is."""
         html = icicle(chart_id="h", title="t", tree=sample_tree(1_000_000), total_micros=1_000_000)
         assert "everything beneath it" in html
+
+
+class TestEveryMeasurableAxisIsRuled:
+    """A bar you can only compare to its neighbours answers "which is biggest". A bar crossed
+    by a labelled scale answers "how much", which is the question this tool exists for.
+
+    Charts with no axis — the folder icicle, where position encodes nesting and not a value —
+    are deliberately absent here: a grid over them would be decoration implying a scale.
+    """
+
+    def test_the_item_bars_are_ruled_in_money(self) -> None:
+        html = stacked_bars(
+            chart_id="c",
+            title="t",
+            rows=[
+                (
+                    "a.py",
+                    [
+                        Slice(
+                            label="direct",
+                            micros=900_000,
+                            share=0.6,
+                            sig_figs=2,
+                            swatch=series_swatch(0),
+                        )
+                    ],
+                ),
+                (
+                    "b.py",
+                    [
+                        Slice(
+                            label="direct",
+                            micros=300_000,
+                            share=0.2,
+                            sig_figs=2,
+                            swatch=series_swatch(0),
+                        )
+                    ],
+                ),
+            ],
+            legend=(),
+            total_micros=1_500_000,
+        )
+        assert 'class="gridline"' in html
+        assert "$0.5" in html or "$0.50" in html
+
+    def test_the_cause_plot_is_ruled_on_both_axes(self) -> None:
+        """Both axes are logarithmic, so the gap between two points says nothing unruled."""
+        html = cause_scatter(chart_id="c", title="t", items=busy_payload()["items"])
+        verticals = html.count('class="gridline"')
+        assert verticals >= 2
+
+    def test_the_running_total_is_ruled_in_money(self) -> None:
+        per_turn = 200_000
+        turns: list[dict[str, Any]] = [
+            {"ordinal": index + 1, "cost_micros": per_turn, "compaction": {}} for index in range(12)
+        ]
+        html = cumulative_sparkline(
+            chart_id="c",
+            title="t",
+            turns=turns,
+            total_micros=per_turn * len(turns),
+            sig_figs=2,
+        )
+        assert 'class="gridline"' in html
+
+    def test_the_residency_track_is_ruled_in_turns(self) -> None:
+        spans = [
+            {
+                "item_id": "file:/repo/a.py",
+                "display": "a.py",
+                "first_turn": 10,
+                "last_turn": 900,
+                "lanes": [],
+                "session_id": "s",
+            }
+        ]
+        html = residency_timeline(chart_id="c", title="t", spans=spans, turn_count=1000)
+        assert 'class="gridline"' in html
+
+    def test_a_short_session_is_not_ruled_into_noise(self) -> None:
+        """Five gridlines across eight turns is a ruler with no room between its marks."""
+        assert _turn_ticks(4) == []
+
+    def test_a_turn_tick_never_lands_on_an_end_label(self) -> None:
+        """ "turn 1" and "turn N" are already drawn; a tick beside either overprints it."""
+        for count in (50, 137, 1_612, 9_999):
+            ticks = _turn_ticks(count)
+            assert all(0 < turn < count for turn in ticks)
+            assert all(turn > count * 0.05 for turn in ticks), count
+            assert all(turn < count * 0.95 for turn in ticks), count

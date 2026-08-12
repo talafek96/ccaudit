@@ -32,7 +32,7 @@ from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import PurePosixPath
-from typing import Any
+from typing import Any, NamedTuple
 
 from ccaudit import __version__
 from ccaudit.analyse import ReportInput
@@ -72,6 +72,10 @@ PSEUDONYM_HEX_DIGITS = 8
 # The node a consumer keys on to draw the remainder as "not one of the named things" rather
 # than as a folder (FR-040). The value is part of the payload contract, not a chart detail.
 UNATTRIBUTED_PATH = "unattributed"
+
+# Shown instead of a project name when the transcript never recorded which directory Claude
+# Code was started from. Named rather than left blank so a row is never silently unlabelled.
+UNRECORDED_PROJECT = "(project not recorded)"
 TREE_ROOT_PATH = "/"
 
 # Which field of a priced turn each charge component reads. A component added to the registry
@@ -286,7 +290,11 @@ def build_report_data(
     ordered = _ordered_sessions(analyses)
     attribution = _attribution(analyses, totals["cost_micros"])
     invalidations = _invalidations(analyses, redact=redact)
-    residency, unbroken_spans = _residency(ordered, redact=redact)
+    # Follows the same merge/split choice as the table above it. Left unqualified while the
+    # table was split, three projects' spans all rendered as "Skill listing" and the chart
+    # folded them into one "Skill listing x3" bar — the page saying "merged" in the one place
+    # the reader had just asked for them apart.
+    residency, unbroken_spans = _residency(ordered, redact=redact, qualify_scope=not merge_injected)
     limitations = _limitations(analyses, threshold_gaps, rollups, unbroken_spans)
 
     payload: dict[str, Any] = {
@@ -705,7 +713,7 @@ def _compaction_by_turn(analysis: ReportInput) -> dict[int, dict[str, Any]]:
 
 
 def _residency(
-    ordered: Sequence[tuple[ReportInput, int]], *, redact: bool
+    ordered: Sequence[tuple[ReportInput, int]], *, redact: bool, qualify_scope: bool = False
 ) -> tuple[list[dict[str, Any]], int]:
     """One row per residency span, with its per-turn lane (FR-036).
 
@@ -731,7 +739,9 @@ def _residency(
                 # length and loses its breakdown, and the count is stated in the limitations.
                 unbroken += 1
                 classified = []
-            display = _display_for(item.item_id, item.identity, redact=redact)
+            display = _display_for(
+                item.item_id, item.identity, redact=redact, qualify_scope=qualify_scope
+            )
             rows.append(
                 {
                     "session_id": analysis.session_id,
@@ -1495,14 +1505,18 @@ def _display_for(item_id: str, identity: str, *, redact: bool, qualify_scope: bo
 def _injected_scope(item_id: str) -> str | None:
     """The project an injected item's row belongs to, or ``None`` when it covers all of them.
 
-    Reads the scope back out of the `kind:scope:identity` id minted in the residency model.
-    A collapsed row has no scope segment, and an uncollapsed row whose project could not be
-    resolved carries `-` — both mean "do not qualify this name".
+    Reads the scope back out of the `kind:scope:identity` id minted in the residency model. A
+    collapsed row has no scope segment and is not qualified at all.
+
+    A row whose project was never recorded is qualified too, with that said out loud. Leaving
+    it bare put an unlabelled "Skill listing" beside two labelled ones, which reads as a third
+    thing nobody can identify rather than as the one fact available about it (Principle X:
+    missing attribution is stated, not left blank).
     """
     parts = item_id.split(":", 2)
-    if len(parts) != 3 or parts[1] == "-":
+    if len(parts) != 3:
         return None
-    return parts[1]
+    return parts[1] if parts[1] != "-" else UNRECORDED_PROJECT
 
 
 def _pseudonym(text: str) -> str:
@@ -1625,24 +1639,92 @@ def collapse_notes(values: Sequence[str]) -> list[str]:
     return collapsed
 
 
+class SessionMetric(NamedTuple):
+    """One rankable fact about a session, and what it means to a reader.
+
+    The description is part of the registry rather than the template, because a column whose
+    meaning has to be guessed is a column people rank by and then misread — "Reads" and
+    ".md reads" are not the same question, and neither is ".md files".
+    """
+
+    key: str
+    label: str
+    cheap: bool
+    description: str
+
+
 # What the session picker can rank by. One registry, so the browser table, the notebook frame,
 # and any future surface show the same columns under the same names (Principle IX). `cheap`
 # marks the facts readable from the transcript's file metadata alone — those render instantly;
 # the rest need the session analysed, and arrive when it is done.
-SESSION_METRICS: tuple[tuple[str, str, bool], ...] = (
-    ("records", "Records", True),
-    ("bytes", "Size", True),
-    ("cost_micros", "Cost", False),
-    ("turns", "Rounds", False),
-    ("reads", "Reads", False),
-    ("md_reads", ".md reads", False),
-    ("md_files", ".md files", False),
-    ("skills", "Skills", False),
-    ("items", "Items", False),
+SESSION_METRICS: tuple[SessionMetric, ...] = (
+    SessionMetric(
+        "records",
+        "Records",
+        True,
+        "Lines in the transcript, including this session's subagents. A rough measure of how "
+        "much happened, available without analysing anything.",
+    ),
+    SessionMetric(
+        "bytes",
+        "Size",
+        True,
+        "How large the transcript files are on disk. Not a cost: a big transcript can be "
+        "cheap if little of it stayed in context.",
+    ),
+    SessionMetric(
+        "cost_micros",
+        "Cost",
+        False,
+        "API-equivalent cost estimate for the whole session — token counts priced at "
+        "published list rates. Not a billed amount.",
+    ),
+    SessionMetric(
+        "turns",
+        "Rounds",
+        False,
+        "Request/response rounds with the model. Content is charged again on every round it "
+        "stays in context, so this is what multiplies the cost of keeping anything loaded.",
+    ),
+    SessionMetric(
+        "reads",
+        "Reads",
+        False,
+        "How many times content was loaded into context across the session, counting every "
+        "re-read of the same file separately.",
+    ),
+    SessionMetric(
+        "md_reads",
+        ".md reads",
+        False,
+        "The same count, restricted to markdown files — docs, specs, CLAUDE.md. Reading one "
+        "file three times counts as three.",
+    ),
+    SessionMetric(
+        "md_files",
+        ".md files",
+        False,
+        "How many distinct markdown files were loaded. Reading one file three times counts "
+        "as one — this is breadth where '.md reads' is repetition.",
+    ),
+    SessionMetric(
+        "skills",
+        "Skills",
+        False,
+        "Distinct skills the session actually pulled in. Not the skill listing, which is the "
+        "menu of what was available and is present whether or not anything was invoked.",
+    ),
+    SessionMetric(
+        "items",
+        "Items",
+        False,
+        "How many distinct pieces of content — files, skills, injected schemas — were "
+        "resident in context at some point during the session.",
+    ),
 )
 
-CHEAP_SESSION_METRICS = tuple(key for key, _label, cheap in SESSION_METRICS if cheap)
-ANALYSED_SESSION_METRICS = tuple(key for key, _label, cheap in SESSION_METRICS if not cheap)
+CHEAP_SESSION_METRICS = tuple(metric.key for metric in SESSION_METRICS if metric.cheap)
+ANALYSED_SESSION_METRICS = tuple(metric.key for metric in SESSION_METRICS if not metric.cheap)
 
 _MARKDOWN_SUFFIX = ".md"
 

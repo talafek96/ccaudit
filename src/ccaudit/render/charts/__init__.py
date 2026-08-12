@@ -32,6 +32,7 @@ dark steps of a hue sit next to each other in one place and the SVG refers to ro
 (``var(--series-1)``) rather than to hex.
 """
 
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 from html import escape
@@ -218,6 +219,59 @@ def separators(boundaries: Sequence[int], *, y: int, height: int) -> str:
         f'width="{SEPARATOR_WIDTH}" height="{height}"></rect>'
         for boundary in boundaries
     )
+
+
+def gridlines(positions: Sequence[int], *, span: tuple[int, int], vertical: bool = True) -> str:
+    """Faint reference lines at ``positions``, spanning ``span``.
+
+    A bar you can only compare to its neighbours answers "which is biggest"; a bar crossed by
+    a labelled scale answers "how much". The lines are drawn first so every mark sits on top of
+    them, and they carry no title — they are furniture, not data, and a tooltip on one would
+    put a hit target over the marks that matter.
+    """
+    if not positions:
+        return ""
+    low, high = span
+    if vertical:
+        return "".join(
+            f'<line class="gridline" x1="{at}" y1="{low}" x2="{at}" y2="{high}"></line>'
+            for at in positions
+        )
+    return "".join(
+        f'<line class="gridline" x1="{low}" y1="{at}" x2="{high}" y2="{at}"></line>'
+        for at in positions
+    )
+
+
+def money_gridline_values(scale_micros: int, divisions: int = 4) -> list[int]:
+    """Round money values to rule a bar chart at, from zero up to ``scale_micros``.
+
+    Rounded to something a reader would say out loud — $5, $10, $50 — rather than to the
+    arithmetic quarters of whatever the largest bar happens to be, because the point of the
+    line is to be a landmark and $23.61 is not one.
+    """
+    if scale_micros <= 0 or divisions <= 0:
+        return []
+    rough = scale_micros / divisions
+    magnitude = 10 ** math.floor(math.log10(rough)) if rough > 0 else 1
+    for multiple in (1, 2, 2.5, 5, 10):
+        step = magnitude * multiple
+        if step >= rough:
+            break
+    values: list[int] = []
+    seen: set[str] = set()
+    at = step
+    while at <= scale_micros:
+        # A ruler is only useful if its marks can be told apart. On a small scale the steps all
+        # render as "<$0.01" — three identical labels claiming to be different positions, and a
+        # money figure with no share beside it, which is a thing this project does not print.
+        # Where the scale is too fine to label honestly, it goes unruled.
+        label = format_micros(int(at), 2)
+        if not label.startswith("<") and label not in seen:
+            seen.add(label)
+            values.append(int(at))
+        at += step
+    return values
 
 
 def tick_label(*, x: int, y: int, text: str, anchor: str = "middle") -> str:

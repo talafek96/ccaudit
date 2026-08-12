@@ -735,3 +735,11 @@ tr.filtered-out { display: none; }
   color: var(--muted);
   white-space: nowrap;
 }
+
+/* Chart gridlines: furniture, not data. Faint enough that a bar always wins the eye, present
+   enough that a value can be read off rather than only compared to its neighbours. */
+.gridline {
+  stroke: var(--grid);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+}
