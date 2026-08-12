@@ -65,6 +65,7 @@ from ccaudit.render.charts.timeline import (
     _turn_ticks,
     residency_timeline,
 )
+from ccaudit.render.report import ASSETS
 
 TAGS = re.compile(r"<[^>]+>")
 SVG_TITLE = re.compile(r"<title>(.*?)</title>", re.DOTALL)
@@ -1136,3 +1137,69 @@ class TestALogAxisIsEvenlySpaced:
         reads_calls = [call for call in calls if "max_reads" in call]
         assert reads_calls, "no reads call found; this test no longer checks anything"
         assert all("1, max_reads" in call for call in reads_calls), reads_calls
+
+
+class TestTheFlameGraphSaysWhereYouAre:
+    """The breadcrumb is the only thing telling a reader what the shape in front of them is a
+    breakdown *of*. Naming the last click instead of the path is not a smaller version of that
+    — it is the wrong answer, and a confident one.
+
+    Pinned after clicking a folder four levels down produced "All / src/ccaudit" for
+    /Users/talafek/projects/ccaudit/src/ccaudit. Verified in Chrome: the same click now yields
+    All / Users/talafek / projects / ccaudit / src/ccaudit, clicking the focused node does not
+    stack it, and a crumb walks back up.
+    """
+
+    def script(self) -> str:
+        return (ASSETS / "report.js").read_text(encoding="utf-8")
+
+    def test_the_trail_is_rebuilt_from_ancestry_not_appended_to(self) -> None:
+        """`trail.push(step)` records one node; the levels jumped over are simply lost."""
+        script = self.script()
+        flame = script[script.index("Flame-graph zoom") :]
+        flame = flame[: flame.index("Colour mode on the cause plot")]
+        assert "function ancestorAt(" in flame
+        assert "trail.push(" not in flame, "the trail is being appended to again"
+
+    def test_the_walk_uses_geometry_rather_than_the_path_text(self) -> None:
+        """A node's name is whatever the tree called it — "(output)" is not a path segment,
+        so reassembling a trail by splitting a path string would not survive the buckets."""
+        script = self.script()
+        assert "midpoint" in script or "middle" in script
+
+    def test_the_chart_emits_what_the_walk_needs(self) -> None:
+        """A cross-file contract: the walk finds ancestors by depth and span, so those have to
+        be on every node. A rename here breaks the breadcrumb silently."""
+        html = icicle(chart_id="c", title="t", tree=sample_tree(1_000_000), total_micros=1_000_000)
+        for attribute in ("data-depth", "data-x0", "data-x1", "data-name"):
+            assert attribute in html, attribute
+
+    def test_every_node_below_the_root_has_exactly_one_ancestor_per_level(self) -> None:
+        """The property the walk relies on: at each depth above a node, exactly one node's span
+        contains its midpoint. Checked against a real layout rather than assumed."""
+        html = icicle(chart_id="c", title="t", tree=sample_tree(1_000_000), total_micros=1_000_000)
+
+        def attribute(mark: str, name: str) -> str:
+            found = re.search(rf'{name}="([\d.]+)"', mark)
+            assert found, f"a flame node carries no {name}; the breadcrumb walk needs it"
+            return found.group(1)
+
+        nodes = [
+            {
+                "depth": int(attribute(mark, "data-depth")),
+                "x0": float(attribute(mark, "data-x0")),
+                "x1": float(attribute(mark, "data-x1")),
+            }
+            for mark in re.findall(r"<g class=\"mark flame-node\"[^>]*>", html)
+        ]
+        assert len(nodes) > 3, "the fixture is too shallow to exercise the walk"
+        for node in nodes:
+            middle = (node["x0"] + node["x1"]) / 2
+            for depth in range(1, int(node["depth"])):
+                containing = [
+                    other
+                    for other in nodes
+                    if other["depth"] == depth
+                    and other["x0"] - 1e-9 <= middle <= other["x1"] + 1e-9
+                ]
+                assert len(containing) == 1, (depth, node, containing)

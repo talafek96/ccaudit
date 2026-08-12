@@ -266,21 +266,44 @@
       });
     }
 
+    function stepFor(node) {
+      return {name: node.dataset.name || "/", x0: node._x0, x1: node._x1, depth: node._depth,
+              path: node.dataset.path || ""};
+    }
+
+    // The node containing this one at a given depth. Found by geometry rather than by parsing
+    // the path, because a node's name is whatever the tree called it — "(output)" and the
+    // synthetic buckets are not path segments and would not reassemble.
+    //
+    // Containment is tested on the *midpoint*: siblings share an edge exactly, so a node whose
+    // x1 equals the next one's x0 matches both under a range test.
+    function ancestorAt(node, depth) {
+      var middle = (node._x0 + node._x1) / 2;
+      for (var i = 0; i < nodes.length; i++) {
+        var candidate = nodes[i];
+        if (candidate._depth !== depth) continue;
+        if (candidate._x0 - 1e-9 <= middle && middle <= candidate._x1 + 1e-9) return candidate;
+      }
+      return null;
+    }
+
     function focusOn(node) {
       if (node._x1 - node._x0 <= 0) return;
-      var step = {name: node.dataset.name || "/", x0: node._x0, x1: node._x1, depth: node._depth,
-                  path: node.dataset.path || ""};
-      // Clicking a node that is already somewhere on the trail means "go back to it", not
-      // "descend into it again" — otherwise clicking the focused node repeatedly stacked
-      // "assets / assets / assets" and the view never changed.
-      for (var i = 0; i < trail.length; i++) {
-        if (trail[i].path === step.path && trail[i].depth === step.depth) {
-          trail = trail.slice(0, i + 1);
-          apply();
-          return;
-        }
+      // The whole trail is rebuilt from the clicked node's ancestry, not appended to. Pushing
+      // one step recorded only the node clicked, so descending several levels at once — which
+      // is the normal way to use a flame graph — produced "All / render" for a folder that is
+      // actually All / Users / talafek / projects / ccaudit / src / render. The breadcrumb is
+      // meant to say where you are, and it was naming the last step instead of the path.
+      //
+      // Rebuilding also subsumes the old special case: clicking the focused node, or anything
+      // above it, yields that node's own ancestry, which is the trail truncated to it.
+      var rebuilt = [trail[0]];
+      for (var depth = 1; depth < node._depth; depth++) {
+        var ancestor = ancestorAt(node, depth);
+        if (ancestor) rebuilt.push(stepFor(ancestor));
       }
-      trail.push(step);
+      if (node._depth > 0) rebuilt.push(stepFor(node));
+      trail = rebuilt;
       apply();
     }
 
