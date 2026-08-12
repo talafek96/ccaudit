@@ -308,7 +308,66 @@ def _components_section(data: Mapping[str, Any]) -> str:
 
 
 def _items_section(data: Mapping[str, Any]) -> str:
-    items: Sequence[Mapping[str, Any]] = data["items"]
+    """The ranking, rendered once per grouping so the choice is local to this section.
+
+    Every dimension is drawn server-side and all but the chosen one are hidden. The alternative
+    — rebuilding rows in the browser — would put a second row renderer in JavaScript, and the
+    figures it drew would no longer be the ones Python reconciled (Principle IX, Principle X).
+    Hiding costs bytes; recomputing costs trust.
+    """
+    active = str(data["group_by"])
+    by_grouping: Mapping[str, Sequence[Mapping[str, Any]]] = data.get("items_by_grouping") or {
+        active: data["items"]
+    }
+    views = "".join(
+        f'<div class="grouped" data-grouping="{escape(name)}"'
+        f"{'' if name == active else ' hidden'}>"
+        f"{_items_view(data, by_grouping[name], name)}</div>"
+        for name in by_grouping
+    )
+    return "".join(
+        [
+            "<h2>What cost the most</h2>",
+            section_controls(_grouping_switch(by_grouping, active), filterable=True),
+            views,
+        ]
+    )
+
+
+def section_controls(*extra: str, filterable: bool = False) -> str:
+    """The controls for one section, rendered beside the thing they change.
+
+    They live here rather than in a global panel because a global "group by" or "tag filter"
+    changes several sections at once and reads as a page-wide mode, when what a reader wants is
+    to regroup *this* table or hide *these* rows. The tag list is filled in by the script from
+    the rows actually present in this section — a server-rendered list would be a second source
+    of truth that could offer a tag the section does not have.
+    """
+    parts = list(extra)
+    if filterable:
+        parts.append(
+            '<label class="section-control js-only"><span>Filter</span>'
+            '<input type="search" class="row-filter" placeholder="part of a name"></label>'
+        )
+        parts.append('<div class="tag-filter js-only" data-tag-filter hidden></div>')
+        parts.append('<span class="filter-count js-only" data-filter-count></span>')
+    return f'<div class="section-controls" data-section-controls>{"".join(parts)}</div>'
+
+
+def _grouping_switch(by_grouping: Mapping[str, Any], active: str) -> str:
+    """The per-section regroup control. Inert without scripting, so it is hidden until it works."""
+    options = "".join(
+        f'<option value="{escape(name)}"{" selected" if name == active else ""}>'
+        f"{escape(name)} ({len(by_grouping[name])})</option>"
+        for name in by_grouping
+    )
+    return (
+        '<label class="section-control js-only"><span>Group these rows by</span>'
+        f'<select class="regroup" data-target="items">{options}</select></label>'
+    )
+
+
+def _items_view(data: Mapping[str, Any], items: Sequence[Mapping[str, Any]], group_by: str) -> str:
     totals = data["totals"]
     total = totals["cost_micros"]
     shown = list(items[:TOP_ITEMS])
@@ -409,12 +468,11 @@ def _items_section(data: Mapping[str, Any]) -> str:
     )
     return "".join(
         [
-            "<h2>What cost the most</h2>",
             (
-                f'<p class="lede">Rows are grouped by <strong>{escape(str(data["group_by"]))}'
+                f'<p class="lede">Rows are grouped by <strong>{escape(group_by)}'
                 f"</strong>. The terminal and the browser view can group by "
                 f"{escape(', '.join(GROUPINGS))} — a grouping only ever merges rows, so every "
-                f"one of them sums to the same total.{escape(_grouping_caveat(data))}</p>"
+                f"one of them sums to the same total.{escape(_grouping_caveat(group_by))}</p>"
             ),
             chart,
             _items_table(data, shown=shown, omitted=omitted),
@@ -423,7 +481,7 @@ def _items_section(data: Mapping[str, Any]) -> str:
     )
 
 
-def _grouping_caveat(data: Mapping[str, Any]) -> str:
+def _grouping_caveat(group_by: str) -> str:
     """The sentence that stops two correct figures from looking like a contradiction.
 
     A folder row here is the files sitting *directly* in it; the same folder in the tree chart
@@ -431,7 +489,7 @@ def _grouping_caveat(data: Mapping[str, Any]) -> str:
     times over in one flat table, so both framings are needed — and each has to say which it is,
     or a reader meeting $14 in one place and $286 in the other concludes the tool is wrong.
     """
-    if data.get("group_by") != "folder":
+    if group_by != "folder":
         return ""
     return (
         " A folder row is the files sitting directly in it, not everything beneath it — "

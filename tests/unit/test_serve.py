@@ -17,10 +17,9 @@ import pytest
 from ccaudit.analyse import SessionAnalysis
 from ccaudit.ingest.discover import SessionRef, fingerprint_transcript
 from ccaudit.model.reconcile import ReconciliationError
-from ccaudit.render.data import build_report_data
-from ccaudit.render.report import ASSETS, REPORT_TITLE
+from ccaudit.render.data import GROUPINGS, build_report_data
+from ccaudit.render.report import ASSETS, REPORT_TITLE, render_report_html
 from ccaudit.render.serve import (
-    UI_SCRIPT,
     Selection,
     UiHttpServer,
     UiServer,
@@ -31,6 +30,7 @@ from ccaudit.render.serve import (
     terminal_command,
 )
 from tests.fixtures.builder import TranscriptBuilder
+from tests.unit.test_charts import report_payload
 from tests.unit.test_report_data import FIXED_TIME, analyse, busy_session
 
 
@@ -217,77 +217,114 @@ class TestTheFilterCannotBreakTheArithmetic:
     a reveal, and 42 summing to the total again after a filter was applied and cleared.
     """
 
-    def test_the_filter_leaves_unrevealed_overflow_rows_alone(self) -> None:
-        script = UI_SCRIPT.read_text(encoding="utf-8")
-        assert 'row.dataset.overflow === "1" && row.dataset.revealed !== "1"' in script
+    def test_the_filter_never_touches_the_truncation_state(self) -> None:
+        """Retargeted when the filter engine moved from the shell into report.js.
+
+        The original asserted the guard `row.dataset.overflow === "1" && ...` in ui.js. The
+        engine now makes the bug unreachable instead of guarding against it: visibility is a
+        class, so clearing a filter cannot unhide a row the truncation line is accounting for.
+        The invariant is the same one; only the thing that enforces it changed.
+        """
+        script = (ASSETS / "report.js").read_text(encoding="utf-8")
+        engine = script[script.index("Per-section row filtering") :]
+        assert "classList.toggle('filtered-out'" in engine
+        assert "hidden = !" not in engine
+        assert ".hidden = false" not in engine
 
     def test_revealing_a_row_marks_it_as_revealed(self) -> None:
-        """Without the mark, the filter cannot tell a revealed row from a never-shown one."""
+        """Without the mark, the count cannot tell a revealed row from a never-shown one."""
         script = (ASSETS / "report.js").read_text(encoding="utf-8")
         assert 'candidate.dataset.revealed = "1"' in script
 
-    def test_the_two_scripts_agree_on_the_attribute_names(self) -> None:
-        """They are a contract between two files; a rename in one silently breaks the other."""
-        report = (ASSETS / "report.js").read_text(encoding="utf-8")
-        ui = UI_SCRIPT.read_text(encoding="utf-8")
-        for attribute in ("overflow", "revealed"):
-            assert f"dataset.{attribute}" in report or f"data-{attribute}" in report
-            assert f"dataset.{attribute}" in ui
+    def test_the_count_covers_only_rows_a_reader_could_see(self) -> None:
+        """The reassurance under the table is itself a figure, so it has to be true."""
+        script = (ASSETS / "report.js").read_text(encoding="utf-8")
+        assert "data-overflow" in script
+        assert "data-revealed" in script
+        assert "the totals still cover all" in script
 
 
-@pytest.fixture
-def page(payload: dict, sessions: list[SessionRef]) -> str:
-    """The whole shell, as the server sends it."""
-    return render_ui_html(
-        payload, sessions=sessions, selection=Selection(session_ids=("sess-one",))
-    )
+class TestEverySectionOwnsItsControls:
+    """Controls live beside the thing they change, not in one page-wide panel.
 
+    Supersedes `TestTagsHaveOneCentralControl` and the global "Group rows by" / "Filter rows"
+    assertions, which pinned exactly the arrangement this replaces. Rewritten rather than
+    deleted on an explicit instruction that a global setting is the wrong shape: regrouping or
+    tag-filtering reads as a page-wide mode when what a reader wants is to change *this* table.
 
-class TestFilteringByTagSurvivesRevealingMoreRows:
-    """ "Show more" used to undo the filter, and a filter you cannot trust is worse than none.
-
-    The reveal lives in report.js, which knows nothing about filtering and should not. It
-    announces what it did; the shell re-applies its filter. These pin the two halves of that
-    contract, which no Python test can otherwise see.
+    The filter engine moved from the shell into report.js in the same change, so the shareable
+    report filters too and there is one engine rather than one per shell (Principle IX).
     """
 
+    @pytest.fixture
+    def page(self, payload: dict, sessions: list[SessionRef]) -> str:
+        return render_ui_html(payload, sessions=sessions, selection=Selection(("sess-one",)))
+
+    def test_the_shell_no_longer_carries_a_global_tag_panel(self, page: str) -> None:
+        assert 'id="ui-tags-panel"' not in page
+        assert 'id="ui-filter"' not in page
+
+    def test_the_grouping_choice_sits_with_the_rows_it_groups(self) -> None:
+        html = render_report_html(report_payload())
+        controls = html.index("data-section-controls")
+        assert html.index("<h2>What cost the most</h2>") < controls
+        assert 'class="regroup"' in html[controls : controls + 2000]
+
+    def test_every_grouping_is_rendered_so_switching_computes_nothing(self, payload: dict) -> None:
+        """The browser chooses which precomputed rows to show; it never rebuilds one."""
+        html = render_report_html(payload)
+        for grouping in GROUPINGS:
+            assert f'data-grouping="{grouping}"' in html
+
+    def test_the_section_carries_its_own_filter_and_tag_control(self) -> None:
+        html = render_report_html(report_payload())
+        assert 'class="row-filter"' in html
+        assert "data-tag-filter" in html
+
+    def test_the_tag_control_is_empty_until_the_script_fills_it(self) -> None:
+        """Built from the rows present in that section, so it cannot offer a tag they lack."""
+        html = render_report_html(report_payload())
+        assert '<div class="tag-filter js-only" data-tag-filter hidden></div>' in html
+
+    def test_the_controls_are_hidden_without_scripting(self) -> None:
+        html = render_report_html(report_payload())
+        for needle in ('class="regroup"', 'class="row-filter"', "data-tag-filter"):
+            index = html.index(needle)
+            assert "js-only" in html[max(0, index - 200) : index]
+
+
+class TestFilteringSurvivesRevealingMoreRows:
+    """ "Show more" used to undo the filter, and a filter you cannot trust is worse than none.
+
+    The reveal announces what it did and the filter re-applies. Now that both live in report.js
+    the coupling is one file's business, but the announcement is still the contract between
+    them — and the regroup switch raises the same event for the same reason.
+    """
+
+    def script(self) -> str:
+        return (ASSETS / "report.js").read_text(encoding="utf-8")
+
     def test_the_reveal_announces_itself(self) -> None:
-        script = (ASSETS / "report.js").read_text(encoding="utf-8")
-        assert "ccaudit:rows-revealed" in script
-        assert "dispatchEvent" in script
+        assert "ccaudit:rows-revealed" in self.script()
+        assert "dispatchEvent" in self.script()
 
-    def test_the_shell_reapplies_its_filter_on_that_announcement(self) -> None:
-        script = UI_SCRIPT.read_text(encoding="utf-8")
-        assert 'addEventListener("ccaudit:rows-revealed"' in script
+    def test_the_filter_reapplies_on_that_announcement(self) -> None:
+        assert "addEventListener('ccaudit:rows-revealed'" in self.script()
 
-    def test_the_reveal_does_not_reach_into_the_filter_itself(self) -> None:
-        """The two files stay decoupled: one reports an event, the other decides."""
-        script = (ASSETS / "report.js").read_text(encoding="utf-8")
-        assert "selectedTags" not in script
-        assert "ui-filter" not in script
+    def test_filtering_does_not_reuse_the_truncation_hidden_state(self) -> None:
+        """Two meanings for one flag is how clearing a filter revealed rows nobody asked for.
 
+        A row shows when it is revealed *and* it matches; those are separate states, so the
+        filter uses a class and leaves `hidden` to mean "still behind the truncation line".
+        """
+        assert "filtered-out" in self.script()
+        assert "tr.filtered-out { display: none; }" in (ASSETS / "report.css").read_text(
+            encoding="utf-8"
+        )
 
-class TestTagsHaveOneCentralControl:
-    def test_the_shell_carries_a_tag_panel(self, page: str) -> None:
-        assert 'id="ui-tags-panel"' in page
-        assert 'id="ui-tags"' in page
-
-    def test_the_panel_offers_select_all_and_none(self, page: str) -> None:
-        assert 'id="ui-tags-all"' in page
-        assert 'id="ui-tags-none"' in page
-
-    def test_the_panel_is_empty_until_the_script_fills_it(self, page: str) -> None:
-        """Built from the rows themselves, so it cannot offer a tag the table does not have."""
-        assert '<div class="ui-views" id="ui-tags"></div>' in page
-
-    def test_the_panel_says_an_empty_selection_is_not_an_empty_table(self, page: str) -> None:
-        assert "Ticking nothing means no tag filter" in page
-
-    def test_clicking_a_row_tag_drives_the_same_state(self) -> None:
-        """Two controls, one fact — not two mechanisms that can disagree."""
-        script = UI_SCRIPT.read_text(encoding="utf-8")
-        assert script.count("function toggleTag") == 1
-        assert "toggleTag(tag.getAttribute" in script
+    def test_pinned_summary_rows_are_never_filtered(self) -> None:
+        """FR-040: a part-to-whole view that can be filtered into looking tidy is a lie."""
+        assert "data-pinned" in self.script()
 
 
 class TestAReaderLeavingIsNotAnError:

@@ -297,6 +297,20 @@
   /* Colour mode on the cause plot ------------------------------------------------------
      Each point ships both fills as data attributes, so switching is a re-fill of existing
      marks — no redraw, no second copy of the chart, and the tooltips keep working. */
+  // Per-section regrouping. Every grouping was rendered server-side and all but one hidden,
+  // so switching is a visibility change: no row is built here and no figure is recomputed.
+  document.querySelectorAll('select.regroup').forEach(function (select) {
+    var section = select.closest('.section-controls');
+    var scope = section && section.parentNode ? section.parentNode : document;
+    select.addEventListener('change', function () {
+      scope.querySelectorAll('.grouped').forEach(function (block) {
+        block.hidden = block.getAttribute('data-grouping') !== select.value;
+      });
+      // The rows on screen changed, so anything filtering them has to look again.
+      document.dispatchEvent(new CustomEvent('ccaudit:rows-revealed'));
+    });
+  });
+
   document.querySelectorAll('[data-fill-switch]').forEach(function (bar) {
     var figure = bar.closest('figure') || bar.parentNode;
     var buttons = bar.querySelectorAll('.fill-btn');
@@ -318,4 +332,144 @@
     });
   });
 
+})();
+
+/* Per-section row filtering: a text query and a set of tags, scoped to one section.
+ *
+ * It lives here rather than in the interactive shell so the shareable report filters too, and
+ * so there is one filter engine rather than one per shell (Principle IX).
+ *
+ * Visibility is expressed with a class, never with `hidden`. The truncated tail already uses
+ * `hidden` to mean "not revealed yet", and a filter that reused it would reveal rows the reader
+ * never asked for the moment a query was cleared. The two states compose instead: a row shows
+ * when it is revealed AND it matches.
+ */
+(function () {
+  function tagsOf(row) {
+    var raw = row.getAttribute('data-tags');
+    return raw ? raw.split(' ').filter(Boolean) : [];
+  }
+
+  document.querySelectorAll('[data-section-controls]').forEach(function (controls) {
+    var section = controls.parentNode;
+    var host = controls.querySelector('[data-tag-filter]');
+    var search = controls.querySelector('.row-filter');
+    var count = controls.querySelector('[data-filter-count]');
+    if (!section || (!host && !search)) { return; }
+    var selected = new Set();
+
+    // Only rows a reader could actually see: a grouping that is not on screen is not part of
+    // this section's current contents, and offering its tags would produce a control that
+    // filters nothing.
+    function rows() {
+      return Array.prototype.filter.call(
+        section.querySelectorAll('tr[data-tags]'),
+        function (row) {
+          // Summary rows — the conversation's own cost, what the model wrote back, the
+          // unattributed remainder — are pinned and never filtered: a part-to-whole view that
+          // can be filtered into looking tidy is a lie (FR-040). They carry no tags, so the
+          // selector already excludes them; this says so rather than relying on it.
+          if (row.getAttribute('data-pinned') === '1') { return false; }
+          // Nor a row still standing behind the "N other items" line: the line is accounting
+          // for it, and offering "docs (68)" that shows a handful when ticked is a control
+          // lying about itself. Recounted when a reveal announces more rows.
+          if (row.getAttribute('data-overflow') === '1' &&
+              row.getAttribute('data-revealed') !== '1') { return false; }
+          var block = row.closest('.grouped');
+          return !block || !block.hidden;
+        }
+      );
+    }
+
+    function apply() {
+      var query = search ? search.value.trim().toLowerCase() : '';
+      var visible = 0;
+      var eligible = 0;
+      rows().forEach(function (row) {
+        var name = (row.getAttribute('data-name') || row.textContent || '').toLowerCase();
+        var matchesText = !query || name.indexOf(query) !== -1;
+        var rowTags = tagsOf(row);
+        var matchesTags = selected.size === 0 || rowTags.some(function (tag) {
+          return selected.has(tag);
+        });
+        var show = matchesText && matchesTags;
+        row.classList.toggle('filtered-out', !show);
+        eligible += 1;
+        if (show) { visible += 1; }
+      });
+      if (count) {
+        // Says in words that filtering hid rows and not cost, so nobody reads a narrowed table
+        // as a smaller total.
+        count.textContent = visible === eligible
+          ? ''
+          : 'showing ' + visible + ' of ' + eligible +
+            ' rows here; the totals still cover all ' + eligible;
+      }
+      section.querySelectorAll('.flag[data-tag]').forEach(function (flag) {
+        if (selected.has(flag.getAttribute('data-tag'))) {
+          flag.setAttribute('data-selected', '1');
+        } else {
+          flag.removeAttribute('data-selected');
+        }
+      });
+    }
+
+    function build() {
+      if (!host) { return; }
+      var counts = new Map();
+      rows().forEach(function (row) {
+        tagsOf(row).forEach(function (tag) {
+          counts.set(tag, (counts.get(tag) || 0) + 1);
+        });
+      });
+      // A tag that left with a regrouping must not stay selected, or the section filters on
+      // something the reader can no longer see or untick.
+      Array.from(selected).forEach(function (tag) {
+        if (!counts.has(tag)) { selected.delete(tag); }
+      });
+      host.hidden = counts.size === 0;
+      host.textContent = '';
+      Array.from(counts.keys()).sort().forEach(function (tag) {
+        var label = document.createElement('label');
+        label.className = 'tag-chip';
+        var box = document.createElement('input');
+        box.type = 'checkbox';
+        box.value = tag;
+        box.checked = selected.has(tag);
+        box.addEventListener('change', function () {
+          if (box.checked) { selected.add(tag); } else { selected.delete(tag); }
+          apply();
+        });
+        var text = document.createElement('span');
+        text.textContent = tag + ' (' + counts.get(tag) + ')';
+        label.appendChild(box);
+        label.appendChild(text);
+        host.appendChild(label);
+      });
+    }
+
+    if (search) { search.addEventListener('input', apply); }
+
+    // Clicking a tag on a row is the same toggle as ticking it here — one selection, two ways
+    // to reach it. The scroll position is pinned because the row the reader clicked is the one
+    // they are reading, and re-filtering moves everything below it.
+    section.addEventListener('click', function (event) {
+      var flag = event.target.closest ? event.target.closest('.flag[data-tag]') : null;
+      if (!flag || !section.contains(flag)) { return; }
+      var tag = flag.getAttribute('data-tag');
+      var anchor = flag.getBoundingClientRect().top;
+      if (selected.has(tag)) { selected.delete(tag); } else { selected.add(tag); }
+      build();
+      apply();
+      var drift = flag.getBoundingClientRect().top - anchor;
+      if (drift) { window.scrollBy(0, drift); }
+    });
+
+    // Revealing more rows or regrouping changes what is on screen, so the tag list and the
+    // filter are recomputed against the new contents.
+    document.addEventListener('ccaudit:rows-revealed', function () { build(); apply(); });
+
+    build();
+    apply();
+  });
 })();

@@ -148,11 +148,6 @@ def _controls(sessions: Sequence[SessionRef], selection: Selection) -> str:
     else:
         options = '<p class="ui-empty">No other local sessions were found.</p>'
 
-    groupings = "".join(
-        f'<option value="{escape(name)}"'
-        f"{' selected' if name == selection.group_by else ''}>{escape(name)}</option>"
-        for name in GROUPINGS
-    )
     return "".join(
         [
             '<nav class="ui" aria-label="Explore this session">',
@@ -184,15 +179,7 @@ def _controls(sessions: Sequence[SessionRef], selection: Selection) -> str:
             '<section class="ui-panel">',
             '<header class="ui-panel-head"><h2>View</h2></header>',
             '<div class="ui-fields">',
-            (
-                '<label class="ui-field"><span class="ui-label">Group rows by</span>'
-                f'<select name="by" class="ui-input">{groupings}</select></label>'
-            ),
-            (
-                '<label class="ui-field js-only"><span class="ui-label">Filter rows</span>'
-                '<input type="search" id="ui-filter" class="ui-input" '
-                'placeholder="part of an item name"></label>'
-            ),
+            f'<input type="hidden" name="by" value="{escape(selection.group_by)}">',
             (
                 '<label class="ui-check"><input type="checkbox" name="redact" value="1"'
                 f"{' checked' if selection.redact else ''}>"
@@ -208,29 +195,9 @@ def _controls(sessions: Sequence[SessionRef], selection: Selection) -> str:
             ),
             '<button type="submit" id="ui-apply" class="ui-btn ui-btn--primary">Apply</button>',
             "</div>",
-            '<p class="ui-hint" id="ui-filter-count"></p>',
             f'<p class="ui-hint js-only">{escape(_FILTER_NOTE)}</p>',
             "</section>",
             "</form>",
-            # Filled in by the script from the tags the rows actually carry. Server-rendered
-            # empty on purpose: the tags present depend on the grouping and the selection, and
-            # a list built here would be a second source of truth that could disagree with the
-            # table it filters.
-            '<section class="ui-panel js-only" id="ui-tags-panel" hidden>',
-            '<header class="ui-panel-head"><h2>Tags</h2>',
-            '<span id="ui-tags-count" class="ui-count"></span>',
-            '<span class="ui-spacer"></span>',
-            '<span class="ui-actions">',
-            '<button type="button" id="ui-tags-all" class="ui-btn ui-btn--quiet">All</button>',
-            '<button type="button" id="ui-tags-none" class="ui-btn ui-btn--quiet">None</button>',
-            "</span>",
-            "</header>",
-            '<div class="ui-views" id="ui-tags"></div>',
-            (
-                '<p class="ui-hint">Ticking nothing means no tag filter, not an empty table. '
-                "Clicking a tag on a row does the same thing as ticking it here.</p>"
-            ),
-            "</section>",
             '<section class="ui-panel js-only">',
             '<header class="ui-panel-head"><h2>Sections</h2>',
             '<span class="ui-spacer"></span>',

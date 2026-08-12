@@ -692,3 +692,46 @@ footer {
   border-color: var(--series-1);
   font-weight: 700;
 }
+
+/* Controls that belong to one section, sitting with the thing they change rather than in a
+   global panel far from it. */
+.section-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  align-items: center;
+  margin: 0 0 0.75rem;
+}
+.section-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.section-control select {
+  font: inherit;
+  padding: 0.15rem 0.35rem;
+  color: var(--fg);
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+}
+.grouped[hidden] { display: none; }
+
+/* Filtering hides a row without disturbing the truncation state it is also in. */
+tr.filtered-out { display: none; }
+.tag-filter {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.6rem;
+  align-items: center;
+}
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+  white-space: nowrap;
+}

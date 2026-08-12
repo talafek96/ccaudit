@@ -267,12 +267,19 @@ def build_report_data(
         _assert_grouping_conserves(rollups, collapsed, "injected")
         rollups = collapsed
 
-    grouped = _regroup(rollups, group_by)
-    _assert_grouping_conserves(rollups, grouped, group_by)
-    # Item id breaks ties so the order is total, not merely sorted — two rows with equal cost
-    # must not swap between runs (FR-017, SC-009).
-    grouped = sorted(grouped, key=lambda r: (-_SORT_KEYS[sort_by](r), r.item_id))
-    items = [_item_payload(rollup, totals["cost_micros"], redact=redact) for rollup in grouped]
+    def rows_for(dimension: str) -> list[dict[str, Any]]:
+        merged = _regroup(rollups, dimension)
+        _assert_grouping_conserves(rollups, merged, dimension)
+        # Item id breaks ties so the order is total, not merely sorted — two rows with equal
+        # cost must not swap between runs (FR-017, SC-009).
+        merged = sorted(merged, key=lambda r: (-_SORT_KEYS[sort_by](r), r.item_id))
+        return [_item_payload(rollup, totals["cost_micros"], redact=redact) for rollup in merged]
+
+    # Every dimension is built, not just the one asked for, so each section of the report can
+    # be regrouped where it stands without a round trip and without the browser recomputing a
+    # figure (Principle X): it only ever chooses which precomputed set of rows to show.
+    items_by_grouping = {dimension: rows_for(dimension) for dimension in GROUPINGS}
+    items = items_by_grouping[group_by]
 
     # Turn ordinals and residency spans share one axis across a multi-session selection, so the
     # sessions are ordered once, by id, and every turn index is offset from there.
@@ -301,6 +308,9 @@ def build_report_data(
         # remainder does not reach the total, and a reader is left with a silent gap.
         "attribution": attribution,
         "items": items,
+        # The same rows merged every other way. `items` is one of these by reference, not a
+        # copy: the terminal and `--json` keep reading the single dimension they asked for.
+        "items_by_grouping": items_by_grouping,
         # Forced reloads, charged to the change that caused them rather than to the content
         # they re-wrote (FR-081). This is what answers "what did adding that server cost me?"
         "invalidations": invalidations,

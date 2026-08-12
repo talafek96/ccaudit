@@ -20,7 +20,7 @@ from ccaudit.analyse import analyse_transcript
 from ccaudit.config import BUNDLED_PRICING_PATH, load_pricing
 from ccaudit.config.components import ATTRIBUTION_COMPONENTS, CHARGE_COMPONENTS
 from ccaudit.model.reconcile import UNATTRIBUTED_DISPLAY
-from ccaudit.render.data import build_report_data
+from ccaudit.render.data import DEFAULT_GROUPING, build_report_data
 from ccaudit.render.report import (
     EXPAND_STEP,
     TOP_ITEMS,
@@ -271,6 +271,19 @@ def expansion_states(html: str) -> list[dict]:
     return json.loads(unescape(match.group(1)))
 
 
+def grouping_blocks(html: str) -> dict[str, str]:
+    """The ranking section's per-grouping halves, keyed by dimension.
+
+    The section renders every grouping and hides all but one, so that the choice is local to
+    the section and the browser never has to rebuild a row. A reconciliation assertion must
+    therefore scope itself to one block: summing the whole page counts each item once per
+    dimension and reports five times the total.
+    """
+    parts = re.split(r'<div class="grouped" data-grouping="([^"]+)"[^>]*>', html)
+    assert len(parts) > 1, "the ranking section is no longer split by grouping"
+    return dict(zip(parts[1::2], parts[2::2], strict=True))
+
+
 class TestProgressiveReveal:
     """The truncated tail is expandable, and the table still adds up at every step.
 
@@ -331,8 +344,11 @@ class TestProgressiveReveal:
     def test_every_expansion_state_reconciles(self, many_items: str) -> None:
         """The invariant the feature could break: each state's figure covers exactly the rows
         still hidden at that point."""
-        states = expansion_states(many_items)
-        rows = re.findall(r'<tr[^>]*data-overflow="1"[^>]*data-total="(\d+)"', many_items)
+        # The rendered default's block: expansion states and hidden rows belong to one grouping,
+        # and pairing one dimension's states with another's rows compares unrelated tables.
+        block = grouping_blocks(many_items)[DEFAULT_GROUPING]
+        states = expansion_states(block)
+        rows = re.findall(r'<tr[^>]*data-overflow="1"[^>]*data-total="(\d+)"', block)
         hidden_micros = [int(value) for value in rows]
         assert len(states) == math.ceil(len(hidden_micros) / EXPAND_STEP)
         for index, state in enumerate(states):
@@ -418,17 +434,23 @@ class TestTheRenderedTableAddsUp:
         self, invalidating: tuple[dict, str]
     ) -> None:
         payload, html = invalidating
-        # Hidden overflow rows are excluded: the truncation line stands in for them, and
-        # counting both would double the tail. That swap is exactly what the reveal performs.
-        rows = [
-            attributes
-            for attributes in re.findall(r"<tr([^>]*)>", html)
-            if "data-total=" in attributes and "data-overflow" not in attributes
-        ]
-        assert rows, "no rows carried a machine-readable total"
-        totals = [int(match) for row in rows for match in re.findall(r'data-total="(-?\d+)"', row)]
-        assert len(totals) == len(rows)
-        assert sum(totals) == payload["totals"]["cost_micros"]
+        # Scoped per grouping, and asserted for *every* one of them rather than only the
+        # rendered default: a grouping may merge rows, never move money between them, so each
+        # dimension's table reaches the same total independently (FR-007, Principle X).
+        for grouping, block in grouping_blocks(html).items():
+            # Hidden overflow rows are excluded: the truncation line stands in for them, and
+            # counting both would double the tail. That swap is exactly what the reveal performs.
+            rows = [
+                attributes
+                for attributes in re.findall(r"<tr([^>]*)>", block)
+                if "data-total=" in attributes and "data-overflow" not in attributes
+            ]
+            assert rows, f"no rows carried a machine-readable total when grouped by {grouping}"
+            totals = [
+                int(match) for row in rows for match in re.findall(r'data-total="(-?\d+)"', row)
+            ]
+            assert len(totals) == len(rows)
+            assert sum(totals) == payload["totals"]["cost_micros"], grouping
 
     def test_the_fixture_actually_truncates(self, invalidating: tuple[dict, str]) -> None:
         """The other guard: without a truncation line the double-count case is never exercised."""
