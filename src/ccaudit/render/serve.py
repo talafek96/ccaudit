@@ -200,6 +200,25 @@ def _controls(sessions: Sequence[SessionRef], selection: Selection) -> str:
             f'<p class="ui-hint js-only">{escape(_FILTER_NOTE)}</p>',
             "</section>",
             "</form>",
+            # Filled in by the script from the tags the rows actually carry. Server-rendered
+            # empty on purpose: the tags present depend on the grouping and the selection, and
+            # a list built here would be a second source of truth that could disagree with the
+            # table it filters.
+            '<section class="ui-panel js-only" id="ui-tags-panel" hidden>',
+            '<header class="ui-panel-head"><h2>Tags</h2>',
+            '<span id="ui-tags-count" class="ui-count"></span>',
+            '<span class="ui-spacer"></span>',
+            '<span class="ui-actions">',
+            '<button type="button" id="ui-tags-all" class="ui-btn ui-btn--quiet">All</button>',
+            '<button type="button" id="ui-tags-none" class="ui-btn ui-btn--quiet">None</button>',
+            "</span>",
+            "</header>",
+            '<div class="ui-views" id="ui-tags"></div>',
+            (
+                '<p class="ui-hint">Ticking nothing means no tag filter, not an empty table. '
+                "Clicking a tag on a row does the same thing as ticking it here.</p>"
+            ),
+            "</section>",
             '<section class="ui-panel js-only">',
             '<header class="ui-panel-head"><h2>Sections</h2>',
             '<span class="ui-spacer"></span>',

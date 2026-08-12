@@ -683,3 +683,12 @@ footer {
 .ui-shell .flag[data-tag] { cursor: pointer; }
 .ui-shell .flag[data-tag]:hover { border-color: var(--keyline); color: var(--text-primary); }
 .flag[data-tag]:focus-visible { outline: 2px solid var(--series-1); outline-offset: 1px; }
+
+/* A tag being filtered on. Filled *and* heavier, so the state survives greyscale and a
+   colourblind reader — colour never carries a distinction alone (FR-042). */
+.flag[data-selected] {
+  color: var(--swatch-ink);
+  background: var(--series-1);
+  border-color: var(--series-1);
+  font-weight: 700;
+}

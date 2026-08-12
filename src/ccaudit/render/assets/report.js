@@ -86,6 +86,10 @@
         candidate.dataset.revealed = "1";
       });
       shown = Math.min(shown + step, hidden.length);
+      // Revealed rows arrive unhidden, which undoes any filter the exploring shell has on.
+      // This file knows nothing about filtering and should not — it says what happened, and
+      // whoever is filtering decides what to do about it.
+      document.dispatchEvent(new CustomEvent("ccaudit:rows-revealed"));
       if (shown >= hidden.length) {
         // Everything is on the page; the line that stood in for the rest has nothing left to
         // account for, so it goes rather than sitting at $0.00.

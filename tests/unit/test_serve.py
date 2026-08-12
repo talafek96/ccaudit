@@ -230,3 +230,58 @@ class TestTheFilterCannotBreakTheArithmetic:
         for attribute in ("overflow", "revealed"):
             assert f"dataset.{attribute}" in report or f"data-{attribute}" in report
             assert f"dataset.{attribute}" in ui
+
+
+@pytest.fixture
+def page(payload: dict, sessions: list[SessionRef]) -> str:
+    """The whole shell, as the server sends it."""
+    return render_ui_html(
+        payload, sessions=sessions, selection=Selection(session_ids=("sess-one",))
+    )
+
+
+class TestFilteringByTagSurvivesRevealingMoreRows:
+    """ "Show more" used to undo the filter, and a filter you cannot trust is worse than none.
+
+    The reveal lives in report.js, which knows nothing about filtering and should not. It
+    announces what it did; the shell re-applies its filter. These pin the two halves of that
+    contract, which no Python test can otherwise see.
+    """
+
+    def test_the_reveal_announces_itself(self) -> None:
+        script = (ASSETS / "report.js").read_text(encoding="utf-8")
+        assert "ccaudit:rows-revealed" in script
+        assert "dispatchEvent" in script
+
+    def test_the_shell_reapplies_its_filter_on_that_announcement(self) -> None:
+        script = UI_SCRIPT.read_text(encoding="utf-8")
+        assert 'addEventListener("ccaudit:rows-revealed"' in script
+
+    def test_the_reveal_does_not_reach_into_the_filter_itself(self) -> None:
+        """The two files stay decoupled: one reports an event, the other decides."""
+        script = (ASSETS / "report.js").read_text(encoding="utf-8")
+        assert "selectedTags" not in script
+        assert "ui-filter" not in script
+
+
+class TestTagsHaveOneCentralControl:
+    def test_the_shell_carries_a_tag_panel(self, page: str) -> None:
+        assert 'id="ui-tags-panel"' in page
+        assert 'id="ui-tags"' in page
+
+    def test_the_panel_offers_select_all_and_none(self, page: str) -> None:
+        assert 'id="ui-tags-all"' in page
+        assert 'id="ui-tags-none"' in page
+
+    def test_the_panel_is_empty_until_the_script_fills_it(self, page: str) -> None:
+        """Built from the rows themselves, so it cannot offer a tag the table does not have."""
+        assert '<div class="ui-views" id="ui-tags"></div>' in page
+
+    def test_the_panel_says_an_empty_selection_is_not_an_empty_table(self, page: str) -> None:
+        assert "Ticking nothing means no tag filter" in page
+
+    def test_clicking_a_row_tag_drives_the_same_state(self) -> None:
+        """Two controls, one fact — not two mechanisms that can disagree."""
+        script = UI_SCRIPT.read_text(encoding="utf-8")
+        assert script.count("function toggleTag") == 1
+        assert "toggleTag(tag.getAttribute" in script
