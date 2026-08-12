@@ -211,6 +211,13 @@ def _(payload, pd):
             {
                 "item": row["display"],
                 "category": row["category"],
+                # The same tags the HTML report puts on a row, so the two surfaces can be
+                # filtered by the same words. `uncacheable` is the one that is not a category:
+                # the content was too small to cache on some model, and was therefore carried
+                # at ten times the usual rate.
+                "tags": " ".join(
+                    [row["category"]] + (["uncacheable"] if row["never_cacheable_on"] else [])
+                ),
                 "cost": row["total_micros"] / 1e6,
                 "loading": row["direct_micros"] / 1e6,
                 "keeping": row["carry_micros"] / 1e6,
@@ -226,19 +233,57 @@ def _(payload, pd):
 
 
 @app.cell
-def _(alt, items, mo):
+def _(items, mo):
+    # Filtering by tag, the same words the HTML report puts on each row. Selecting nothing
+    # means no filter rather than an empty page — an empty selection reads as "I have not
+    # chosen yet", never as "show me nothing".
+    tags = sorted({tag for row in items["tags"] for tag in row.split()})
+    tag_filter = mo.ui.multiselect(options=tags, value=[], label="Only these tags")
+    mo.vstack(
+        [
+            tag_filter,
+            mo.md(
+                "_Filtering hides rows, never cost: the total above still covers every item._"
+            ),
+        ]
+    )
+    return tag_filter, tags
+
+
+@app.cell
+def _(items, tag_filter):
+    wanted = set(tag_filter.value)
+    shown = (
+        items
+        if not wanted
+        else items[items["tags"].apply(lambda row: bool(wanted & set(row.split())))]
+    )
+    return (shown,)
+
+
+@app.cell
+def _(alt, mo, shown):
     # The claim, made clickable: ranking by cost and ranking by read count are different
     # lists. Brush a region to filter the table below it.
     brush = alt.selection_interval()
     plot = (
-        alt.Chart(items)
+        alt.Chart(shown)
         .mark_circle()
         .encode(
             x=alt.X("reads:Q", scale=alt.Scale(type="symlog"), title="times read"),
             y=alt.Y("cost:Q", scale=alt.Scale(type="symlog"), title="estimated cost (USD)"),
             size=alt.Size("tokens:Q", title="size (tokens)"),
             color=alt.Color("category:N", title="category"),
-            tooltip=["item", "cost", "loading", "keeping", "reads", "turns_resident", "tokens"],
+            tooltip=[
+                "item",
+                "tags",
+                "cost",
+                "loading",
+                "keeping",
+                "reads",
+                "turns_resident",
+                "tokens",
+            ],
         )
         .add_params(brush)
         .properties(height=380)
@@ -254,8 +299,8 @@ def _(alt, items, mo):
 
 
 @app.cell
-def _(chart, items, mo):
-    selected = chart.value if len(chart.value) else items
+def _(chart, mo, shown):
+    selected = chart.value if len(chart.value) else shown
     mo.vstack(
         [
             mo.md(f"### {len(selected)} item(s) selected"),

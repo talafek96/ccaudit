@@ -26,6 +26,7 @@ from ccaudit.render.report import (
     TOP_ITEMS,
     _comparison_members,
     _parts_details,
+    flag,
     forced_reload_micros,
     render_report_html,
     write_report,
@@ -519,3 +520,40 @@ class TestABarOpensToWhatIsInside:
         data = {"totals": {"display_sig_figs": 6, "cost_micros": 1_000_000}}
         members = _comparison_members(comparison, data)
         assert members.index("dear.md") < members.index("cheap.md")
+
+
+class TestEveryTagExplainsItself:
+    """A tag is a compression a reader cannot expand unless the page expands it.
+
+    "too small to cache on claude-opus-5" is four facts in six words, and "(mixed)" is a
+    category that is not one. Jargon only the author understands is a defect (Principle X), so
+    every tag carries its sentence, from one registry, on the element itself.
+    """
+
+    def test_every_tag_carries_its_explanation(self, html: str) -> None:
+        tags = re.findall(r'<span class="flag" data-tag="([^"]+)" data-tip="([^"]*)"', html)
+        assert tags
+        for tag, tip in tags:
+            assert len(tip) > 30, f"{tag} has no real explanation"
+
+    def test_a_tag_explains_itself_without_javascript_too(self, html: str) -> None:
+        """`data-tip` is read by the page's own balloon; `title` is what is left without it."""
+        for match in re.finditer(
+            r'<span class="flag" data-tag="[^"]+" data-tip="([^"]*)" title="([^"]*)"', html
+        ):
+            assert match.group(1) == match.group(2)
+
+    def test_an_unknown_tag_is_refused_rather_than_shown_bare(self) -> None:
+        """A tag with no sentence is the exact defect this registry exists to prevent."""
+        with pytest.raises(KeyError, match="unknown tag"):
+            flag("whatever", "not-a-real-tag")
+
+    def test_the_uncacheable_tag_names_the_model_it_is_about(self) -> None:
+        rendered = flag("too small to cache on m", "uncacheable", model="claude-opus-5")
+        assert "claude-opus-5" in rendered
+
+    def test_a_row_carries_its_tags_for_filtering(self, html: str) -> None:
+        """Clicking a tag filters by it, which needs the row to say which tags it has."""
+        rows = re.findall(r'data-tags="([^"]*)"', html)
+        assert rows
+        assert any(row for row in rows), "no row carries a tag"

@@ -14,6 +14,9 @@
   "use strict";
 
   document.documentElement.classList.add("js");
+  // Only the exploring shell has a filter for a tag click to drive; the shareable report is
+  // a document, and a control that does nothing there would be worse than no control.
+  document.documentElement.classList.add("ui-shell");
 
   var table = document.querySelector("table[data-sortable]");
   var filter = document.getElementById("ui-filter");
@@ -41,7 +44,18 @@
       if (row.dataset.overflow === "1" && row.dataset.revealed !== "1") return;
       items += 1;
       var name = String(row.dataset.name || "").toLowerCase();
-      var visible = needle === "" || name.indexOf(needle) !== -1;
+      // Tags are matched as well as names, and `tag:spec` matches the tag *only* — a plain
+      // "spec" would otherwise sweep in every path with "spec" in it, which is the opposite of
+      // what a reader who clicked the SPEC tag asked for.
+      var tags = String(row.dataset.tags || "").toLowerCase().split(" ");
+      var visible;
+      if (needle === "") {
+        visible = true;
+      } else if (needle.indexOf("tag:") === 0) {
+        visible = tags.indexOf(needle.slice(4)) !== -1;
+      } else {
+        visible = name.indexOf(needle) !== -1 || tags.indexOf(needle) !== -1;
+      }
       row.hidden = !visible;
       if (visible) shown += 1;
     });
@@ -57,6 +71,25 @@
     filter.addEventListener("input", applyFilter);
     applyFilter();
   }
+
+  // Clicking a tag filters by it. The tag is already the thing the reader is pointing at when
+  // they wonder "how much of my bill is this?", so making them retype it into a box is a step
+  // that exists for no reason. Clicking the same tag again clears the filter, so the control
+  // is its own undo.
+  document.addEventListener("click", function (event) {
+    var tag = event.target.closest ? event.target.closest(".flag[data-tag]") : null;
+    if (!tag || !filter) return;
+    var wanted = "tag:" + tag.getAttribute("data-tag");
+    // Filtering removes rows from the flow, so the clicked tag would otherwise slide up the
+    // page under the reader's cursor — and scrolling to the *filter box* instead, as this did,
+    // threw them to the top of the document every time. Neither is acceptable: the thing you
+    // clicked stays where you clicked it, and the page moves under it.
+    var anchor = tag.getBoundingClientRect().top;
+    filter.value = filter.value === wanted ? "" : wanted;
+    applyFilter();
+    var drift = tag.getBoundingClientRect().top - anchor;
+    if (drift) window.scrollBy(0, drift);
+  });
 
   // Drill-downs are <details> elements rendered server-side; these two buttons only open and
   // close them all at once.
