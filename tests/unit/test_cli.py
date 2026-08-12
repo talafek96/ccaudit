@@ -6,6 +6,7 @@ ordinary warning path.
 """
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -24,7 +25,9 @@ from ccaudit.cli import (
     build_parser,
     configure_logging,
     main,
+    select_sessions,
 )
+from ccaudit.ingest.discover import encode_project_dir
 
 
 class TestExitCodes:
@@ -193,3 +196,61 @@ class TestLogging:
         """The hook path logs failures rather than surfacing them into a session (FR-054)."""
         configure_logging(0)
         assert (ccaudit_home / "ccaudit.log").exists()
+
+
+class TestTheZeroArgumentDefault:
+    """FR-048, amended 2026-08-12: the default scope is the project, not its newest session.
+
+    Fenced here rather than only in discovery, because the flag that restores the old behaviour
+    (`--latest`) and the order it composes with `--exclude` are both CLI-level decisions.
+    """
+
+    def corpus(self, claude_home: Path, project: Path, session_ids: list[str]) -> None:
+        """One transcript per id, each newer than the last, in the project's encoded directory."""
+        directory = claude_home / "projects" / encode_project_dir(project)
+        directory.mkdir(parents=True, exist_ok=True)
+        record = json.dumps(
+            {
+                "type": "assistant",
+                "uuid": "u1",
+                "requestId": "req_1",
+                "message": {"id": "msg_1", "model": "claude-opus-5", "usage": {}},
+            }
+        )
+        for age, session_id in enumerate(reversed(session_ids)):
+            path = directory / f"{session_id}.jsonl"
+            path.write_text(f"{record}\n", encoding="utf-8")
+            os.utime(path, (1_000_000 + age, 1_000_000 + age))
+
+    @pytest.fixture
+    def project(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+        """A project directory with three recorded sessions, and the cwd inside it."""
+        home = tmp_path / "claude"
+        work = tmp_path / "repo"
+        work.mkdir()
+        self.corpus(home, work, ["newest", "middle", "oldest"])
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(home))
+        monkeypatch.chdir(work)
+        return work
+
+    def selected(self, argv: list[str]) -> list[str]:
+        return [ref.session_id for ref in select_sessions(build_parser().parse_args(argv))]
+
+    def test_no_arguments_takes_the_whole_project(self, project: Path) -> None:
+        assert self.selected([]) == ["newest", "middle", "oldest"]
+
+    def test_latest_narrows_to_the_most_recent(self, project: Path) -> None:
+        assert self.selected(["--latest"]) == ["newest"]
+
+    def test_latest_means_the_newest_that_survived_exclusion(self, project: Path) -> None:
+        """Narrowing after exclusion, so excluding the newest leaves the next one — not nothing."""
+        assert self.selected(["--latest", "--exclude", "newest"]) == ["middle"]
+
+    def test_a_subdirectory_still_resolves_to_the_project(
+        self, project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        nested = project / "src" / "pkg"
+        nested.mkdir(parents=True)
+        monkeypatch.chdir(nested)
+
+        assert self.selected([]) == ["newest", "middle", "oldest"]

@@ -10,15 +10,16 @@ uvx ccaudit [COMMAND] [OPTIONS]        # zero-install
 ccaudit     [COMMAND] [OPTIONS]        # after `uv tool install ccaudit`
 ```
 
-**Zero arguments is a complete invocation** (FR-048): analyse the most recent session of the
-project in the current working directory and print the summary. No config file, no account, no
-setup step (FR-050).
+**Zero arguments is a complete invocation** (FR-048): analyse every session of the project in
+the current working directory and print the summary. No config file, no account, no setup step
+(FR-050). `--latest` narrows that to the most recent session alone; `--all` widens it to every
+session on the machine.
 
 ## Commands
 
 | Command | Purpose |
 |---|---|
-| *(none)* | Analyse the most recent session for the current project |
+| *(none)* | Analyse every session of the current project |
 | `sessions` | List analysable sessions with enough detail to identify them (FR-060) |
 | `analyse` | Analyse an explicit selection |
 | `report` | Write the self-contained HTML report |
@@ -37,6 +38,7 @@ Shared by `analyse`, `report`, `ui`. Combining them is an intersection.
 | `--project PATH` | All sessions for a project (default: cwd's project) |
 | `--since DATE` / `--until DATE` | Date range |
 | `--all` | Every session in the local corpus |
+| `--latest` | Only the most recent of the resolved set |
 | `--last N` | The N most recent in the resolved set |
 | `--exclude ID…` | Drop sessions from an otherwise-matching set (FR-062) |
 

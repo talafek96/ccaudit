@@ -464,7 +464,12 @@ item's residency shortened.
 **Invocation and integration**
 
 - **FR-048**: System MUST produce a useful result when invoked with no arguments, defaulting to
-  the most recent session of the project in the current working directory.
+  every session of the project in the current working directory. It MUST offer narrowing to the
+  most recent session alone, and widening to every session on the machine.
+  *Amended 2026-08-12 (was: the most recent session of that project). A single session answers
+  "where does the money go" only by accident — the question is about a body of work, and the
+  cost of carrying a file compounds across the sessions that read it. The old default remains
+  available as `--latest`.*
 - **FR-049**: System MUST be runnable without a prior install step, and MUST also support being
   installed for repeat use.
 - **FR-050**: System MUST require no configuration file, account, credential, or service before

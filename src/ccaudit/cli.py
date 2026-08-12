@@ -1,8 +1,8 @@
 """The command-line surface — the primary and only mandatory interface.
 
 Every figure available anywhere is obtainable here (FR-074), and **zero arguments is a
-complete invocation**: analyse the most recent session of the project in the current directory
-and print the summary, with no config file, no account, and no setup step (FR-048, FR-050).
+complete invocation**: analyse every session of the project in the current directory and print
+the summary, with no config file, no account, and no setup step (FR-048, FR-050).
 
 **Exit code 3 has its own code on purpose.** Every other failure is visible — a crash, a
 missing file, a bad argument. A breakdown that does not add up produces a complete,
@@ -47,7 +47,7 @@ from ccaudit.ingest.discover import (
     SessionRef,
     discover_sessions,
     fingerprint_transcript,
-    latest_session_for_cwd,
+    sessions_for_cwd,
     sessions_for_project,
 )
 from ccaudit.model.policy import DEFAULT_POLICY, POLICIES
@@ -276,6 +276,11 @@ def _add_analysis_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--session", nargs="+", default=None, help="Explicit session id(s).")
     parser.add_argument("--project", type=Path, default=None, help="All sessions for a project.")
     parser.add_argument("--all", action="store_true", help="Every session in the local corpus.")
+    parser.add_argument(
+        "--latest",
+        action="store_true",
+        help="Only the most recent session of the selection (default: all of this project's).",
+    )
     parser.add_argument("--last", type=int, default=None, help="The N most recent in the set.")
     parser.add_argument("--exclude", nargs="+", default=None, help="Drop session id(s) (FR-063).")
     parser.add_argument(
@@ -402,8 +407,12 @@ def configure_logging(verbosity: int = 0) -> None:
 def select_sessions(args: argparse.Namespace) -> list[SessionRef]:
     """Resolve the argument set to sessions on disk.
 
-    With no selection at all this is the zero-argument default: the most recent session of the
-    project in the current directory (FR-048). Combining selectors intersects them.
+    With no selection at all this is the zero-argument default: every session of the project in
+    the current directory (FR-048). Combining selectors intersects them.
+
+    The default is the *project*, not the latest session, because the question the tool answers
+    — where does the money go — is one about a body of work, and a single session answers it
+    only by accident. ``--latest`` narrows to one; ``--all`` widens to the machine.
     """
     excluded = set(getattr(args, "exclude", None) or ())
 
@@ -422,15 +431,18 @@ def select_sessions(args: argparse.Namespace) -> list[SessionRef]:
     elif getattr(args, "project", None):
         refs = sessions_for_project(args.project)
     else:
-        latest = latest_session_for_cwd()
-        if latest is None:
+        refs = sessions_for_cwd()
+        if not refs:
             raise NoSessionsFound(
                 "no Claude Code sessions found for this project. Run ccaudit from a directory "
                 "where you have used Claude Code, or pass --all to analyse every local session."
             )
-        refs = [latest]
 
     refs = [ref for ref in refs if ref.session_id not in excluded]
+    # Narrowing happens after exclusion, so `--latest --exclude <newest>` means the newest one
+    # you did not exclude, rather than nothing at all.
+    if getattr(args, "latest", False):
+        refs = refs[:1]
     if getattr(args, "last", None):
         refs = refs[: args.last]
     if not refs:

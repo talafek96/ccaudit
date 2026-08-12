@@ -270,21 +270,25 @@ def sessions_for_project(
     return sessions
 
 
-def latest_session_for_cwd(
+def sessions_for_cwd(
     cwd: Path | None = None, home: Path | None = None, *, now: datetime | None = None
-) -> SessionRef | None:
-    """The most recent session of the project containing ``cwd`` — the zero-argument default.
+) -> list[SessionRef]:
+    """Every session of the project containing ``cwd``, newest first — the zero-argument default.
 
-    Walks up from ``cwd``: running ``ccaudit`` from ``repo/src/pkg`` should find the session
-    Claude Code recorded for ``repo``. Returns ``None`` when no ancestor has any transcripts,
-    which is a normal outcome the caller reports rather than an error (FR-048).
+    Walks up from ``cwd``: running ``ccaudit`` from ``repo/src/pkg`` should find the sessions
+    Claude Code recorded for ``repo``. The *first* ancestor with any transcripts wins outright,
+    rather than accumulating up the tree — a repo inside a recorded parent directory is its own
+    project, and folding the parent's sessions in would answer a question nobody asked.
+
+    Returns an empty list when no ancestor has any, which is a normal outcome the caller reports
+    rather than an error (FR-048).
     """
     start = (cwd or Path.cwd()).resolve()
     for directory in (start, *start.parents):
         sessions = sessions_for_project(directory, home, now=now)
         if sessions:
-            return sessions[0]
-    return None
+            return sessions
+    return []
 
 
 def _subagent_paths(path: Path) -> tuple[Path, ...]:

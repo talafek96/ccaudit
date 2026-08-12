@@ -23,10 +23,10 @@ from ccaudit.ingest.discover import (
     discover_sessions,
     encode_project_dir,
     fingerprint_transcript,
-    latest_session_for_cwd,
     scan_transcript,
     session_ref,
     session_title,
+    sessions_for_cwd,
     sessions_for_project,
 )
 
@@ -201,16 +201,23 @@ class TestDiscovery:
         before = _snapshot(claude_config)
 
         discover_sessions()
-        latest_session_for_cwd(tmp_path / "alpha")
+        sessions_for_cwd(tmp_path / "alpha")
 
         assert _snapshot(claude_config) == before
 
 
-class TestLatestSessionForCwd:
-    def test_returns_the_most_recent_session_of_the_current_project(
+class TestSessionsForCwd:
+    """FR-048, amended 2026-08-12.
+
+    This used to be `TestLatestSessionForCwd`, pinning a zero-argument default of *one* session.
+    The spec now defaults to the whole project, so the old assertions described a contract that
+    no longer exists — they are rewritten here rather than deleted: the walk-up rule and the
+    newest-first order they fenced are unchanged and still fenced.
+    """
+
+    def test_returns_every_session_of_the_current_project_newest_first(
         self, claude_config: Path, tmp_path: Path
     ) -> None:
-        """The zero-argument invocation's default (FR-048)."""
         projects = claude_config / "projects"
         older = _write_session(projects, tmp_path / "alpha", "old", ["a"])
         newer = _write_session(projects, tmp_path / "alpha", "new", ["b"])
@@ -218,10 +225,10 @@ class TestLatestSessionForCwd:
         os.utime(older, (1_000_000, 1_000_000))
         os.utime(newer, (2_000_000, 2_000_000))
 
-        ref = latest_session_for_cwd(tmp_path / "alpha")
+        refs = sessions_for_cwd(tmp_path / "alpha")
 
-        assert ref is not None
-        assert ref.session_id == "new"
+        # Newest first, and another project's session is not this project's business.
+        assert [ref.session_id for ref in refs] == ["new", "old"]
 
     def test_a_subdirectory_resolves_to_the_project_that_owns_it(
         self, claude_config: Path, tmp_path: Path
@@ -231,14 +238,24 @@ class TestLatestSessionForCwd:
         nested.mkdir(parents=True)
         _write_session(claude_config / "projects", project, "s1", ["a"])
 
-        ref = latest_session_for_cwd(nested)
+        assert [ref.session_id for ref in sessions_for_cwd(nested)] == ["s1"]
 
-        assert ref is not None
-        assert ref.session_id == "s1"
+    def test_the_nearest_recorded_ancestor_wins_outright(
+        self, claude_config: Path, tmp_path: Path
+    ) -> None:
+        """A repo inside a recorded directory is its own project, not part of the parent's."""
+        projects = claude_config / "projects"
+        parent = tmp_path / "workspace"
+        child = parent / "repo"
+        child.mkdir(parents=True)
+        _write_session(projects, parent, "parent-session", ["a"])
+        _write_session(projects, child, "child-session", ["b"])
 
-    def test_no_recorded_session_returns_none(self, claude_config: Path, tmp_path: Path) -> None:
+        assert [ref.session_id for ref in sessions_for_cwd(child)] == ["child-session"]
+
+    def test_no_recorded_session_returns_nothing(self, claude_config: Path, tmp_path: Path) -> None:
         """Nothing found is an answer, not an error."""
-        assert latest_session_for_cwd(tmp_path / "unrecorded") is None
+        assert sessions_for_cwd(tmp_path / "unrecorded") == []
 
 
 class TestCoverageFingerprint:
