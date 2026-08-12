@@ -31,11 +31,11 @@ from typing import Any
 from ccaudit.money import format_micros, format_share
 from ccaudit.render.charts import (
     CHART_WIDTH,
-    common_directory_prefix,
-    elide_prefix,
+    SERIES_SLOT_COUNT,
     figure,
     money_share_text,
     placeholder,
+    series_swatch,
     svg_open,
     tick_label,
     truncate,
@@ -63,6 +63,12 @@ READ_THRESHOLD = 0.4
 # How many items get a point. Beyond this the plot is a smear, and the table below it is the
 # better surface. Whatever is dropped is stated in the drawing (never silently).
 MAX_POINTS = 120
+
+# How close two tick labels may sit before one of them is dropped. A money label is about
+# five characters wide at the axis font and a line is about that tall, so these are the widths
+# below which the two would be drawn over one another.
+MIN_TICK_GAP_X = 34
+MIN_TICK_GAP_Y = 14
 
 # A session name is prose and can run long; the gutter holds about this much.
 SESSION_LABEL_LIMIT = 30
@@ -121,7 +127,13 @@ def cause_scatter(
     min_cost = min(int(item["total_micros"]) for item in drawn)
     max_reads = max(int(item["reads"]) for item in drawn)
     max_size = max(int(item["size_tokens"]) for item in drawn) or 1
-    shared = common_directory_prefix([str(item["display"]) for item in drawn])
+    # A second way to read the same points. Cause answers "what kind of cost is this"; category
+    # answers "what kind of *thing* is this", which is the question when you are deciding what
+    # to stop reading. Both fills ship, and the reader picks.
+    categories = sorted({str(item["category"]) for item in drawn})
+    category_fills = {
+        name: series_swatch(index % SERIES_SLOT_COUNT) for index, name in enumerate(categories)
+    }
 
     body = [_grid(max_reads, min_cost, max_cost)]
     for item in drawn:
@@ -131,17 +143,22 @@ def cause_scatter(
         radius = MIN_RADIUS + round(
             (MAX_RADIUS - MIN_RADIUS) * math.sqrt(int(item["size_tokens"]) / max_size)
         )
-        label = truncate(elide_prefix(str(item["display"]), shared), 44)
         figures = int(item["display_sig_figs"])
+        # The **full** path, not the shortened one. A tooltip carrying the same truncation as
+        # the chart answers nothing: the reason to hover a point is that its label is not enough
+        # to tell which file it is.
         detail = (
-            f"{label} — "
+            f"{item['display']}\n"
             f"{money_share_text(int(item['total_micros']), float(item['share']), figures)}; "
             f"read {int(item['reads']):,} time(s), resident for "
             f"{int(item['turns_resident']):,} turn(s), {int(item['size_tokens']):,} tokens; "
-            f"{cause}"
+            f"{cause}; {item['category']}"
         )
+        category_swatch = category_fills[str(item["category"])]
         body.append(
-            f'<g class="mark"><circle class="point point--{escape(swatch)}" cx="{x}" cy="{y}" '
+            f'<g class="mark" data-fill-cause="{escape(swatch)}" '
+            f'data-fill-category="{escape(category_swatch)}">'
+            f'<circle class="point point--{escape(swatch)}" cx="{x}" cy="{y}" '
             f'r="{radius}" fill="var(--{escape(swatch)})"></circle>'
             f"<title>{escape(detail)}</title></g>"
         )
@@ -158,16 +175,24 @@ def cause_scatter(
         "tokens. Up and to the left is the finding this tool exists for: expensive without "
         "being read much, because it was large and it stayed resident." + dropped
     )
+    controls = (
+        '<p class="fill-switch js-only" data-fill-switch>'
+        '<button type="button" class="fill-btn" data-fill="cause" aria-pressed="true">'
+        "Colour by cause</button>"
+        '<button type="button" class="fill-btn" data-fill="category" aria-pressed="false">'
+        "Colour by category</button></p>"
+    )
     return figure(
         chart_id=chart_id,
         title=title,
         svg=(
-            svg_open(CHART_WIDTH, PLOT_HEIGHT, label=title)
+            controls
+            + svg_open(CHART_WIDTH, PLOT_HEIGHT, label=title)
             + "".join(body)
             + _axis_labels()
             + "</svg>"
         ),
-        legend=_legend(),
+        legend=_legend() + _category_legend(category_fills),
         note=note,
     )
 
@@ -184,11 +209,22 @@ def _grid(max_reads: int, min_cost: int, max_cost: int) -> str:
             f'y2="{PLOT_BOTTOM}"></line>'
         ),
     ]
+    # Distinct *text* is not enough: the range ends are added as ticks, and on a log axis an
+    # end can land a pixel from the power of ten below it, printing two labels on top of each
+    # other. A tick that cannot be read is worse than a missing one, so crowded ones are dropped.
+    drawn_x: list[int] = []
     for reads in _ticks(max_reads):
         x = _log_scale(reads, 0, max_reads, PLOT_LEFT, PLOT_RIGHT)
+        if any(abs(x - other) < MIN_TICK_GAP_X for other in drawn_x):
+            continue
+        drawn_x.append(x)
         parts.append(tick_label(x=x, y=PLOT_BOTTOM + 14, text=f"{reads:,}"))
+    drawn_y: list[int] = []
     for cost in _money_ticks(min_cost, max_cost):
         y = _log_scale(cost, min_cost, max_cost, PLOT_BOTTOM, PLOT_TOP)
+        if any(abs(y - other) < MIN_TICK_GAP_Y for other in drawn_y):
+            continue
+        drawn_y.append(y)
         parts.append(
             tick_label(x=PLOT_LEFT - 6, y=y + 4, text=format_micros(cost, 2), anchor="end")
         )
@@ -258,7 +294,18 @@ def _legend() -> str:
         f'<span class="legend-detail">{escape(detail)}</span></li>'
         for swatch, name, detail in entries
     )
-    return f'<ul class="legend">{items}</ul>'
+    return f'<ul class="legend" data-fill-legend="cause">{items}</ul>'
+
+
+def _category_legend(fills: dict[str, str]) -> str:
+    """Named categories, hidden until the reader switches to colouring by them."""
+    items = "".join(
+        f'<li class="legend-item">'
+        f'<span class="swatch swatch--{escape(swatch)}" aria-hidden="true">\u2022</span>'
+        f'<span class="legend-label">{escape(name)}</span></li>'
+        for name, swatch in fills.items()
+    )
+    return f'<ul class="legend legend--category" data-fill-legend="category" hidden>{items}</ul>'
 
 
 def session_bars(

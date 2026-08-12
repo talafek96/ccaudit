@@ -290,4 +290,28 @@
     apply();
   });
 
+  /* Colour mode on the cause plot ------------------------------------------------------
+     Each point ships both fills as data attributes, so switching is a re-fill of existing
+     marks — no redraw, no second copy of the chart, and the tooltips keep working. */
+  document.querySelectorAll('[data-fill-switch]').forEach(function (bar) {
+    var figure = bar.closest('figure') || bar.parentNode;
+    var buttons = bar.querySelectorAll('.fill-btn');
+    buttons.forEach(function (button) {
+      button.addEventListener('click', function () {
+        var mode = button.getAttribute('data-fill');
+        buttons.forEach(function (other) {
+          other.setAttribute('aria-pressed', String(other === button));
+        });
+        figure.querySelectorAll('.mark[data-fill-' + mode + ']').forEach(function (mark) {
+          var swatch = mark.getAttribute('data-fill-' + mode);
+          var point = mark.querySelector('.point');
+          if (point) { point.setAttribute('fill', 'var(--' + swatch + ')'); }
+        });
+        figure.querySelectorAll('[data-fill-legend]').forEach(function (legend) {
+          legend.hidden = legend.getAttribute('data-fill-legend') !== mode;
+        });
+      });
+    });
+  });
+
 })();

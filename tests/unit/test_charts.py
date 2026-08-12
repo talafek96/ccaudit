@@ -12,6 +12,7 @@ these tests pin the renderer and only the renderer.
 
 import re
 from html import escape
+from itertools import pairwise
 from typing import Any
 
 import pytest
@@ -665,6 +666,19 @@ class TestCausePlot:
         """A reader must never have to undo a scale in their head."""
         assert "$" in TAGS.sub(" ", plot)
 
+    def test_no_two_tick_labels_are_drawn_on_top_of_each_other(self) -> None:
+        """Distinct text is not enough — an end tick can land a pixel from a power of ten.
+
+        The bottom of the cost axis printed "$0.01" and "$0.09" over one another, which reads
+        as one unintelligible label. Positions, not strings, are what must differ.
+        """
+        from ccaudit.render.charts.scatter import MIN_TICK_GAP_Y, _grid
+
+        grid = _grid(58, 1_000, 57_000_000)
+        ys = sorted(float(y) for y in re.findall(r'x="68" y="([\d.]+)"', grid))
+        gaps = [second - first for first, second in pairwise(ys)]
+        assert all(gap >= MIN_TICK_GAP_Y for gap in gaps), gaps
+
     def test_no_axis_label_is_repeated(self) -> None:
         """Ticks below a cent all render as '<$0.01'; four identical labels say nothing."""
         labels = _money_ticks(1, 50_000_000)
@@ -703,6 +717,36 @@ class TestCausePlot:
 
     def test_an_empty_selection_is_named_as_missing_rather_than_faked(self) -> None:
         assert "Not yet available" in cause_scatter([])
+
+    def test_a_point_names_its_file_in_full(self, plot: str) -> None:
+        """The reason to hover a point is that its drawn label was not enough to identify it.
+
+        The tooltip used to carry the *same* 44-character truncation as the label, so hovering
+        answered nothing. The contract is that the full identity is in the title.
+        """
+        displays = {str(item["display"]) for item in report_payload()["items"]}
+        titled = {title.split("\n")[0] for title in SVG_TITLE.findall(plot)}
+        assert displays <= titled
+
+    def test_every_point_carries_both_fills_so_the_reader_can_switch(self, plot: str) -> None:
+        """Cause and category are both legitimate readings; neither is forced as the only one."""
+        assert plot.count("data-fill-cause=") == plot.count('class="point')
+        assert plot.count("data-fill-category=") == plot.count('class="point')
+
+    def test_the_category_fills_are_named_in_a_legend(self, plot: str) -> None:
+        categories = {
+            str(item["category"])
+            for item in report_payload()["items"]
+            if int(item["total_micros"]) > 0
+        }
+        legend = plot[plot.index('data-fill-legend="category"') :]
+        for category in categories:
+            assert category in legend
+
+    def test_the_category_legend_is_hidden_until_it_is_chosen(self, plot: str) -> None:
+        """Two legends shown at once would each look like the key to the drawn colours."""
+        opening = plot[plot.index('data-fill-legend="category"') :].split(">", 1)[0]
+        assert "hidden" in opening
 
 
 class TestSessionBars:
