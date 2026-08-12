@@ -81,6 +81,7 @@ def render_report(
     _render_totals(target, data, plain=plain)
     _render_components(target, data, plain=plain)
     _render_items(target, data, top=top, plain=plain)
+    _render_parts(target, data, plain=plain)
     _render_notes(target, data)
 
 
@@ -353,6 +354,66 @@ def _render_cacheability(console: Console, items: Sequence[Mapping[str, Any]]) -
             f"  {_item_label(item)} — {item['size_tokens']:,} tokens, below the minimum on "
             f"{', '.join(item['never_cacheable_on'])}"
         )
+    console.print()
+
+
+def _render_parts(console: Console, data: Mapping[str, Any], *, plain: bool) -> None:
+    """Per-skill cost, where an item is a listing of many things rather than one thing.
+
+    "Skills: $67" cannot be acted on. Which skills, and which of them came with an installed
+    plugin — those are not the reader's to edit, and are the part of the bill that changes by
+    uninstalling something rather than by writing less.
+    """
+    composite = [item for item in data["items"] if item.get("parts")]
+    if not composite:
+        return
+
+    merged: dict[str, dict[str, Any]] = {}
+    for item in composite:
+        for part in item["parts"]:
+            row = merged.setdefault(
+                str(part["name"]),
+                {"cost": 0, "origin": part["origin"], "plugin": part["plugin"]},
+            )
+            row["cost"] += int(part["cost_micros"])
+    total = sum(row["cost"] for row in merged.values())
+    figures = min(int(item["display_sig_figs"]) for item in composite)
+
+    table = _table(
+        "What each skill cost",
+        [
+            ("Skill", "left"),
+            ("Estimated cost", "right"),
+            ("Share", "right"),
+            ("Comes from", "left"),
+        ],
+        plain=plain,
+        first_column_width=34,
+    )
+    for name, row in sorted(merged.items(), key=lambda pair: (-pair[1]["cost"], pair[0])):
+        table.add_row(
+            name,
+            format_micros(row["cost"], figures),
+            format_share(_share(row["cost"], data["totals"]["cost_micros"])),
+            f"plugin {row['plugin']}" if row["origin"] == "plugin" else "not stated",
+        )
+    console.print(table)
+    plugin_cost = sum(row["cost"] for row in merged.values() if row["origin"] == "plugin")
+    console.print(
+        f"The skill listing is one cached block; this divides its {format_micros(total, figures)} "
+        f"by each skill's share of the listing text, which does not change how any of it was "
+        f"priced."
+    )
+    if plugin_cost:
+        console.print(
+            f"{format_micros(plugin_cost, figures)} of that comes from installed plugins — "
+            f"that part changes by uninstalling one, not by editing this project."
+        )
+    console.print(
+        "A skill Claude Code names without a plugin prefix may be this project's, your own, or "
+        "one bundled with Claude Code. The listing does not distinguish them, so this does not "
+        "either."
+    )
     console.print()
 
 

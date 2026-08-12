@@ -622,6 +622,41 @@ def _item_row(item: Mapping[str, Any], total: int, *, overflow: bool = False) ->
     )
 
 
+def _parts_lines(item: Mapping[str, Any], figures: int) -> list[str]:
+    """What a composite item is made of — for the skill catalogue, the skills.
+
+    "Skills: $67" is not an answer anyone can act on. This says which, and which of them came
+    with a plugin: those are not the reader's to edit, so they are the part of the bill that
+    changes by uninstalling something rather than by writing less.
+    """
+    parts = item.get("parts") or []
+    if not parts:
+        return []
+    plugin_micros = sum(int(p["cost_micros"]) for p in parts if p["origin"] == "plugin")
+    rows = "".join(
+        f"<li>{escape(str(part['name']))} — "
+        f"{money_share_html(int(part['cost_micros']), float(part['share_of_item']), figures, of_total=False)}"
+        f"{" <span class='flag'>from plugin " + escape(str(part['plugin'])) + '</span>' if part['origin'] == 'plugin' else ''}"
+        f"</li>"
+        for part in parts
+    )
+    summary = f"{len(parts)} skills in this listing" + (
+        f"; {format_micros(plugin_micros, figures)} of it comes from installed plugins"
+        if plugin_micros
+        else "; all of them are yours"
+    )
+    return [
+        (
+            f"<li><details class='drill'><summary>{escape(summary)}</summary>"
+            f"<ul>{rows}</ul>"
+            f"<p class='meta'>Each skill's share is its share of the listing text. The listing "
+            f"is cached as one block, so this divides that block's cost — it does not change "
+            f"how any of it was priced.</p>"
+            f"</details></li>"
+        )
+    ]
+
+
 def _drilldown(item: Mapping[str, Any], total: int) -> str:
     """Where this figure came from and how much to trust it (FR-014, FR-015, FR-096).
 
@@ -635,7 +670,8 @@ def _drilldown(item: Mapping[str, Any], total: int) -> str:
     def figure_html(micros: int) -> str:
         return money_share_html(micros, _share(micros, total), figures, of_total=False)
 
-    lines = [
+    lines = list(_parts_lines(item, figures))
+    lines += [
         (
             f"<li>Basis: {escape(str(item['basis']))}; confidence: "
             f"{escape(str(item['confidence']))}, so figures are shown to {figures} significant "

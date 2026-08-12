@@ -45,6 +45,7 @@ from ccaudit.config.components import BASIS_VALUES, CONFIDENCE_VALUES, attributi
 from ccaudit.ingest.discover import SHORT_ID_LENGTH
 from ccaudit.model.policy import describe as describe_policy
 from ccaudit.model.reconcile import ReconciliationError
+from ccaudit.model.residency import ItemPart
 from ccaudit.money import allocate
 
 SCHEMA_VERSION = "1.0"
@@ -116,6 +117,9 @@ class _ItemRollup:
     confidence: str = CONFIDENCE_VALUES[0]
     per_session: dict[str, int] = field(default_factory=dict)
     never_cacheable_on: set[str] = field(default_factory=set)
+    # Carried through from the model for composite items (the skill catalogue). Merging two
+    # rollups keeps the richer listing, so a session that saw more skills describes the item.
+    parts: tuple[ItemPart, ...] = ()
     # Token-turns this item spent in each of the two lanes that carry cost is charged in. They
     # are the weights the carry figure is divided by to say how much of it was paid at the 0.1x
     # cache rate and how much at full rate (see `_lane_micros`).
@@ -766,11 +770,16 @@ def _rollups(analyses: Sequence[ReportInput]) -> tuple[list[_ItemRollup], list[s
                     size_tokens=item.size_tokens,
                     basis=item.basis,
                     confidence=item.confidence,
+                    parts=item.parts,
                 )
                 rollups[item.item_id] = rollup
             else:
                 # The same file in two sessions: the larger observed size is the one carried.
                 rollup.size_tokens = max(rollup.size_tokens, item.size_tokens)
+                # And the fuller listing is the one that describes it — a session that had more
+                # skills available knows about entries the other never saw.
+                if len(item.parts) > len(rollup.parts):
+                    rollup.parts = item.parts
 
             key = (analysis.session_id, item.item_id)
             if key not in counted:
@@ -1239,10 +1248,46 @@ def _item_payload(rollup: _ItemRollup, total_micros: int, *, redact: bool) -> di
             {"session_id": session_id, "total_micros": rollup.per_session[session_id]}
             for session_id in sorted(rollup.per_session)
         ],
+        # What a composite item is made of. Empty for everything except the skill catalogue,
+        # which is one cached block listing many skills — "Skills: $67" cannot answer *which*
+        # skills, nor which of them arrive with a plugin and are not the reader's to change.
+        "parts": _item_parts(rollup),
     }
     if not redact:
         payload["identity"] = rollup.identity
     return payload
+
+
+def _item_parts(rollup: _ItemRollup) -> list[dict[str, Any]]:
+    """Divide a composite item's cost across the things it lists.
+
+    The split is by each entry's share of the listing text — measured, not modelled — and uses
+    the same largest-remainder allocation as money, so the parts sum to the item exactly and
+    the breakdown still reconciles (invariant A1).
+
+    This is a *presentation* of one item, deliberately not a set of items. The listing is
+    cached as one contiguous block, so its cacheability belongs to the whole; splitting it in
+    the model pushed each 30-token entry below the minimum cacheable size and repriced it in
+    another lane — the same session moved from $1.14 to $0.32 on nothing but that change.
+    """
+    parts = rollup.parts
+    if not parts:
+        return []
+    shares = allocate(rollup.total_micros, [part.weight for part in parts])
+    rows: list[dict[str, Any]] = [
+        {
+            "name": part.name,
+            # Named as the reader would act on it: a plugin's skill is not theirs to edit.
+            "origin": part.origin,
+            "plugin": part.name.split(":", 1)[0] if part.origin == "plugin" else None,
+            "cost_micros": micros,
+            "share_of_item": micros / rollup.total_micros if rollup.total_micros else 0.0,
+            "basis": BASIS_VALUES[1] if part.measured else BASIS_VALUES[-1],
+        }
+        for part, micros in zip(parts, shares, strict=True)
+    ]
+    rows.sort(key=lambda row: (-row["cost_micros"], row["name"]))
+    return rows
 
 
 def _lane_micros(rollup: _ItemRollup) -> dict[str, int]:

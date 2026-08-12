@@ -30,6 +30,7 @@ from ccaudit.ingest.records import (
     ToolResultRecord,
     TurnRecord,
 )
+from ccaudit.ingest.skills import parse_listing
 from ccaudit.ingest.tokens import TokenQuantity
 
 # Why an item entered the conversation. `compact_reinjection` matters on its own: CLAUDE.md
@@ -59,6 +60,21 @@ _INSTRUCTION_ATTACHMENTS: dict[str, str] = {
 
 
 @dataclass(frozen=True)
+class ItemPart:
+    """One named piece of a composite item, weighted by its share of the whole.
+
+    ``weight`` is characters of the listing text — measured, not modelled. ``origin`` says
+    whether the reader can do anything about it: a skill supplied by an installed plugin is
+    named ``plugin:skill`` by Claude Code and is not something editing this repo can change.
+    """
+
+    name: str
+    weight: int
+    origin: str
+    measured: bool = True
+
+
+@dataclass(frozen=True)
 class ContextItem:
     """Anything occupying space in the conversation, and therefore incurring cost."""
 
@@ -70,6 +86,13 @@ class ContextItem:
     basis: str
     confidence: str
     project_path: str | None = None
+    # What this item is made of, where it is a listing of many things rather than one thing.
+    # The skill catalogue is injected and cached as ONE block, so it stays one item — its
+    # cacheability is a property of the whole block, and splitting it into forty small items
+    # would push each below the minimum cacheable size and price them in a different lane
+    # (measured: the same session moved from $1.14 to $0.32 on nothing but the split). So the
+    # parts live here, as a breakdown of the item's cost, and the pricing is untouched.
+    parts: tuple[ItemPart, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -235,6 +258,7 @@ def _apply_injection(
             basis=sized.basis,
             confidence=sized.confidence,
             project_path=project_path,
+            parts=_parts_of(record),
         )
 
     timeline.injections.append(
@@ -293,6 +317,29 @@ def _apply_compaction(
     unexplained = record.cumulative_dropped_tokens - record.dropped_tokens
     if unexplained > 0:
         timeline.unexplained_dropped_tokens = max(timeline.unexplained_dropped_tokens, unexplained)
+
+
+def _parts_of(record: ToolResultRecord | AttachmentRecord) -> tuple[ItemPart, ...]:
+    """The individual skills a catalogue lists, so "Skills: $67" can be broken down.
+
+    A listing is one cached block and stays one item; this only records what is inside it, so a
+    surface can divide the item's cost by each entry's share of the listing text. Anything that
+    is not a listing has no parts, which is the normal case.
+    """
+    payload = getattr(record, "payload", None)
+    if not isinstance(payload, dict):
+        return ()
+    content = payload.get("content")
+    listed = parse_listing(content if isinstance(content, str) else "", payload.get("names"))
+    return tuple(
+        ItemPart(
+            name=skill.name,
+            weight=skill.characters,
+            origin=skill.origin,
+            measured=skill.measured,
+        )
+        for skill in listed
+    )
 
 
 def _identify(record: ToolResultRecord | AttachmentRecord) -> tuple[str | None, str, str]:
