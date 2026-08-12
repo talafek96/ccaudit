@@ -65,9 +65,10 @@
 
 .ui-form {
   display: grid;
-  /* Sessions need room; the view controls do not. Below the breakpoint they stack, which is
-     the only way a picker and a field row both stay usable on a narrow window. */
-  grid-template-columns: minmax(22rem, 1.15fr) minmax(18rem, 1fr);
+  /* The picker is a table with a column per rankable fact, so it takes the full width and the
+     view controls sit beneath it. Sharing a row left the columns scrolled out of sight, which
+     is the same as not having them: nobody ranks by a column they cannot see. */
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--ui-gap);
   margin: 0;
 }
@@ -365,3 +366,49 @@
 @media (max-width: 62rem) {
   .ui-form { grid-template-columns: 1fr; }
 }
+
+/* The session picker: a ranked table, because a flat list of twenty-six names cannot answer
+   "which of these actually cost me anything". */
+.ui-table-scroll { overflow-x: auto; max-height: 22rem; overflow-y: auto; }
+.ui-sessions-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.ui-sessions-table th,
+.ui-sessions-table td {
+  padding: 0.3rem 0.5rem;
+  text-align: left;
+  border-bottom: 1px solid var(--ui-rule, rgba(128, 128, 128, 0.25));
+  white-space: nowrap;
+}
+.ui-sessions-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--ui-panel, inherit);
+  font-weight: 600;
+}
+.ui-sessions-table .ui-num { text-align: right; font-variant-numeric: tabular-nums; }
+.ui-sessions-table .ui-pick { width: 1.5rem; }
+.ui-sortable { cursor: pointer; user-select: none; }
+.ui-sortable:hover { text-decoration: underline; }
+.ui-sortable[aria-sort="descending"]::after { content: " ↓"; }
+.ui-sortable[aria-sort="ascending"]::after { content: " ↑"; }
+.ui-session-cell .ui-session-name { font-weight: 500; }
+.ui-session-cell .ui-session-meta { display: block; font-size: 0.75rem; opacity: 0.7; }
+.ui-sr {
+  position: absolute;
+  width: 1px; height: 1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+}
+
+/* The name column is the only elastic one; without a ceiling a long project path pushes every
+   measured column off the right edge, which is the same as not having them. */
+.ui-sessions-table .ui-session-cell {
+  white-space: normal;
+  min-width: 16rem;
+  max-width: 30rem;
+}
+.ui-sessions-table .ui-session-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 30rem;
+}
+.ui-sessions-table th[data-metric="name"] { width: 100%; }

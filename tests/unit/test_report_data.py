@@ -21,11 +21,13 @@ from ccaudit.config.categories import (
 from ccaudit.config.components import CHARGE_COMPONENTS, sig_figs_for
 from ccaudit.model.reconcile import ReconciliationError
 from ccaudit.render.data import (
+    ANALYSED_SESSION_METRICS,
     SCHEMA_VERSION,
     _ItemRollup,
     _uncertainty_range,
     build_report_data,
     collapse_notes,
+    session_facts,
 )
 from tests.fixtures.builder import TranscriptBuilder
 
@@ -869,3 +871,69 @@ class TestAnInjectedItemIsOneThingUnlessAsked:
 
         readmes = [item for item in payload["items"] if item["identity"].endswith("README.md")]
         assert len(readmes) == 2
+
+
+class TestTheFactsASessionIsRankedBy:
+    """The picker exists to answer "which of these actually cost me anything", so each fact has
+    to be countable from the session itself and mean what its column says.
+    """
+
+    def facts_for(self, builder: TranscriptBuilder, tmp_path: Path) -> dict[str, int]:
+        return session_facts(analyse(builder, tmp_path))
+
+    def test_every_advertised_metric_is_produced(self, tmp_path: Path) -> None:
+        """The registry drives the columns, so a name in it with no value is a blank column."""
+        facts = self.facts_for(busy_session(), tmp_path)
+        for key in ANALYSED_SESSION_METRICS:
+            assert key in facts, key
+
+    def test_markdown_reads_and_files_are_counted_separately(self, tmp_path: Path) -> None:
+        """Reading one file twice is two reads of one file — the distinction is the finding."""
+        builder = TranscriptBuilder()
+        builder.add_turn(
+            input_tokens=50, cache_creation_5m=9_000, output_tokens=20, tool_use_ids=("t1",)
+        )
+        builder.add_tool_result(tool_use_id="t1", file_path="/repo/a.md", text="a\n" * 900)
+        builder.add_turn(input_tokens=5, cache_read=9_400, output_tokens=15, tool_use_ids=("t2",))
+        builder.add_tool_result(tool_use_id="t2", file_path="/repo/a.md", text="a\n" * 900)
+        builder.add_turn(input_tokens=5, cache_read=9_400, output_tokens=15, tool_use_ids=("t3",))
+        builder.add_tool_result(tool_use_id="t3", file_path="/repo/b.md", text="b\n" * 900)
+        builder.add_turn(input_tokens=5, cache_read=9_400, output_tokens=15)
+
+        facts = self.facts_for(builder, tmp_path)
+
+        assert facts["md_files"] == 2
+        assert facts["md_reads"] == 3
+
+    def test_a_python_file_is_not_counted_as_markdown(self, tmp_path: Path) -> None:
+        builder = TranscriptBuilder()
+        builder.add_turn(
+            input_tokens=50, cache_creation_5m=9_000, output_tokens=20, tool_use_ids=("t1",)
+        )
+        builder.add_tool_result(tool_use_id="t1", file_path="/repo/app.py", text="x\n" * 900)
+        builder.add_turn(input_tokens=5, cache_read=9_400, output_tokens=15)
+
+        facts = self.facts_for(builder, tmp_path)
+
+        assert facts["md_files"] == 0
+        assert facts["items"] >= 1
+
+    def test_the_skill_listing_is_not_counted_as_a_skill_that_ran(self, tmp_path: Path) -> None:
+        """The listing is the menu of what was available, present whether or not anything ran.
+
+        Counting it would report a skill on every session that has the feature enabled, which
+        is exactly the column being useless.
+        """
+        builder = TranscriptBuilder()
+        builder.add_turn(input_tokens=50, cache_creation_5m=9_000, output_tokens=20)
+        builder.add_skill_listing(names=["demo"], content="skill: demo\n" * 60)
+        builder.add_turn(input_tokens=5, cache_read=9_400, output_tokens=15)
+
+        assert self.facts_for(builder, tmp_path)["skills"] == 0
+
+    def test_the_cost_is_the_session_total_the_report_would_show(self, tmp_path: Path) -> None:
+        """A picker figure that disagrees with the report it selects for is worse than none."""
+        analysis = analyse(busy_session(), tmp_path)
+        payload = build_report_data([analysis], generated_at=FIXED_TIME)
+
+        assert session_facts(analysis)["cost_micros"] == payload["totals"]["cost_micros"]

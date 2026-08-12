@@ -62,6 +62,7 @@ from ccaudit.render.data import (
     GROUPINGS,
     SORTS,
     build_report_data,
+    session_facts,
 )
 from ccaudit.render.explain import (
     UnknownFigureError,
@@ -157,6 +158,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--json",
         action="store_true",
         help="Machine-readable listing, for scripts and for the notebook.",
+    )
+    sessions.add_argument(
+        "--facts",
+        action="store_true",
+        help="Add the measured facts each session can be ranked by (cost, rounds, reads, "
+        "skills, .md files). Analyses every listed session, so the plain listing stays fast.",
     )
 
     ui_parser = subparsers.add_parser(
@@ -744,6 +751,39 @@ def _run_watch(args: argparse.Namespace) -> int:
         return EXIT_OK
 
 
+def _facts_for(ref: SessionRef, args: argparse.Namespace) -> dict[str, int]:
+    """The rankable facts for one listed session, served from the store when it is there.
+
+    Opt-in (`--facts`) because it analyses: a listing that reads file metadata is instant, and
+    making it measure by default would make `ccaudit sessions` the slow command on a corpus.
+    """
+    pricing = load_pricing()
+    policy = getattr(args, "policy", DEFAULT_POLICY)
+    with _result_cache(enabled=True) as cache:
+        key = (
+            cache_key(ref.session_id, ref.fingerprint, policy, pricing.fingerprint)
+            if cache is not None and not ref.in_progress
+            else None
+        )
+        stored = read_contribution(cache, key) if cache is not None and key else None
+        if stored is not None:
+            return session_facts(stored)
+        analysis = analyse_transcript(
+            ref.path,
+            pricing=pricing,
+            policy=policy,
+            project_path=str(ref.project_path) if ref.project_path else None,
+            provisional=ref.in_progress,
+            title=ref.title,
+        )
+        if cache is not None and key is not None:
+            try:
+                store_contribution(cache, key, contribution_of(analysis))
+            except sqlite3.Error as exc:
+                _LOGGER.info("could not cache %s: %s", ref.session_id, exc)
+    return session_facts(analysis)
+
+
 def _run_sessions(args: argparse.Namespace) -> int:
     refs = (
         discover_sessions()
@@ -769,6 +809,7 @@ def _run_sessions(args: argparse.Namespace) -> int:
                         "record_count": ref.record_count,
                         "byte_size": ref.byte_size,
                         "in_progress": ref.in_progress,
+                        **(_facts_for(ref, args) if getattr(args, "facts", False) else {}),
                     }
                     for ref in refs
                 ],
@@ -824,10 +865,45 @@ def _run_ui(args: argparse.Namespace) -> int:
             merge_injected=selection.merge_injected,
         )
 
+    by_id = {ref.session_id: ref for ref in refs}
+
+    def facts(session_id: str) -> dict[str, int]:
+        """The rankable facts for one session, served from the store when it is there.
+
+        One session per call: the picker is on screen before any of this is known, so holding
+        the page open for a corpus-wide analysis would trade the thing SC-025 protects for a
+        column nobody has looked at yet.
+        """
+        ref = by_id[session_id]
+        with _result_cache(enabled=True) as cache:
+            key = (
+                cache_key(ref.session_id, ref.fingerprint, args.policy, pricing.fingerprint)
+                if cache is not None and not ref.in_progress
+                else None
+            )
+            stored = read_contribution(cache, key) if cache is not None and key else None
+            if stored is not None:
+                return session_facts(stored)
+            analysis = analyse_transcript(
+                ref.path,
+                pricing=pricing,
+                policy=args.policy,
+                project_path=str(ref.project_path) if ref.project_path else None,
+                provisional=ref.in_progress,
+                title=ref.title,
+            )
+            if cache is not None and key is not None:
+                try:
+                    store_contribution(cache, key, contribution_of(analysis))
+                except sqlite3.Error as exc:
+                    _LOGGER.info("could not cache %s: %s", ref.session_id, exc)
+        return session_facts(analysis)
+
     serve_ui(
         provider,
         refs,
-        Selection(
+        facts=facts,
+        initial=Selection(
             session_ids=tuple(ref.session_id for ref in refs),
             group_by=args.group_by,
             merge_injected=getattr(args, "merge_injected", True),

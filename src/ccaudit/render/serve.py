@@ -40,7 +40,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from ccaudit.ingest.discover import SessionRef
 from ccaudit.model.reconcile import ReconciliationError
-from ccaudit.render.data import DEFAULT_GROUPING, GROUPINGS
+from ccaudit.render.data import DEFAULT_GROUPING, GROUPINGS, SESSION_METRICS
 from ccaudit.render.report import ASSETS, render_report_html
 
 LOOPBACK = "127.0.0.1"
@@ -85,6 +85,11 @@ class Selection:
 # Given a selection, produce a report-data payload. The server holds no analysis logic of its
 # own: it renders whatever this returns, or refuses to.
 PayloadProvider = Callable[[Selection], Mapping[str, Any]]
+
+# Given one session id, the rankable facts about it (`render.data.session_facts`). Separate
+# from the payload provider because it is answered one session at a time: the picker has to be
+# usable before the corpus has been analysed, so these arrive after the page does.
+FactsProvider = Callable[[str], Mapping[str, int]]
 
 
 def terminal_command(selection: Selection) -> str:
@@ -142,9 +147,7 @@ def _controls(sessions: Sequence[SessionRef], selection: Selection) -> str:
     """
     chosen = set(selection.session_ids)
     if sessions:
-        options = "".join(
-            _session_option(reference, reference.session_id in chosen) for reference in sessions
-        )
+        options = _session_table(sessions, chosen)
     else:
         options = '<p class="ui-empty">No other local sessions were found.</p>'
 
@@ -164,16 +167,19 @@ def _controls(sessions: Sequence[SessionRef], selection: Selection) -> str:
             '<header class="ui-panel-head">',
             "<h2>Sessions</h2>",
             '<span id="ui-selected" class="ui-count"></span>',
+            '<span id="ui-facts-status" class="ui-count"></span>',
             '<span class="ui-spacer"></span>',
             '<span class="ui-actions js-only">',
             '<button type="button" id="ui-all" class="ui-btn ui-btn--quiet">All</button>',
             '<button type="button" id="ui-none" class="ui-btn ui-btn--quiet">None</button>',
             "</span>",
             "</header>",
-            f'<div class="ui-sessions">{options}</div>',
+            options,
             (
                 '<p class="ui-hint">Every figure on the page is recomputed for the sessions '
-                "ticked here.</p>"
+                "ticked here. Click a column to rank by it — the measured columns fill in as "
+                "each session is analysed, and a blank cell means not measured yet, never "
+                "zero.</p>"
             ),
             "</section>",
             '<section class="ui-panel">',
@@ -221,30 +227,75 @@ def _controls(sessions: Sequence[SessionRef], selection: Selection) -> str:
     )
 
 
-def _session_option(reference: SessionRef, checked: bool) -> str:
-    """One session in the picker: what it was about, then what identifies it.
+def _session_table(sessions: Sequence[SessionRef], chosen: set[str]) -> str:
+    """The picker as a ranked table: one toggleable row per session, one column per fact.
 
-    Laid out rather than written as a sentence — the name, the id, and the size are three
-    different kinds of fact, and running them together into one line is what made the old
-    picker unreadable at twenty-six sessions.
+    A flat list of twenty-six names cannot answer "which of these actually cost me anything",
+    which is the question someone opens this to ask. So every fact the picker can rank by is a
+    column, and the header sorts by it.
+
+    Only the facts readable from the transcript's metadata are filled in here. The rest need the
+    session analysed, which is too slow to hold the page open for on a large corpus (SC-025), so
+    those cells start empty and the script fills them as answers arrive.
     """
+    headers = "".join(
+        f'<th class="ui-num" data-metric="{escape(key)}" '
+        f'title="{escape(label)}">{escape(label)}</th>'
+        for key, label, _cheap in SESSION_METRICS
+    )
+    return "".join(
+        [
+            '<div class="ui-table-scroll"><table class="ui-sessions-table" id="ui-session-table">',
+            "<thead><tr>",
+            '<th class="ui-pick"><span class="ui-sr">Include</span></th>',
+            '<th data-metric="name">Session</th>',
+            headers,
+            "</tr></thead><tbody>",
+            "".join(
+                _session_row(reference, reference.session_id in chosen) for reference in sessions
+            ),
+            "</tbody></table></div>",
+        ]
+    )
+
+
+def _human_bytes(size: int) -> str:
+    """A transcript size a reader can compare at a glance. 52,085,619 is not one."""
+    if size >= 1_000_000:
+        return f"{size / 1_000_000:.0f} MB"
+    if size >= 1_000:
+        return f"{size / 1_000:.0f} kB"
+    return f"{size} B"
+
+
+def _session_row(reference: SessionRef, checked: bool) -> str:
+    """One session: what it was about, what identifies it, and what it is worth ranking by."""
     project = str(reference.project_path) if reference.project_path else reference.project_dir
     running = '<span class="ui-tag">running</span>' if reference.in_progress else ""
     name = reference.title or "(unnamed session)"
+    known = {"records": reference.record_count, "bytes": reference.byte_size}
+    shown = {"records": f"{reference.record_count:,}", "bytes": _human_bytes(reference.byte_size)}
+    cells = "".join(
+        # A cheap fact is written as text *and* as a sort key; an analysed one carries neither
+        # until it is known, so an empty cell is never mistaken for a zero. The sort key stays
+        # the raw number, so ranking by size is not ranking by the rounded label.
+        f'<td class="ui-num" data-metric="{escape(key)}"'
+        + (f' data-value="{known[key]}">{shown[key]}' if key in known else ">")
+        + "</td>"
+        for key, _label, _cheap in SESSION_METRICS
+    )
     return (
-        f'<label class="ui-session" title="{escape(reference.session_id)}">'
-        f'<input type="checkbox" name="session" value="{escape(reference.session_id)}"'
-        f"{' checked' if checked else ''}>"
-        f'<span class="ui-session-body">'
-        # The tag is a sibling of the name, not a child. Inside it, the name's ellipsis would
-        # eat it — a long name would silently hide the fact that a session is still running,
-        # which is the one thing on this row that changes what its figures mean.
+        f'<tr class="ui-session-row" data-session="{escape(reference.session_id)}" '
+        f'data-name="{escape(name.lower())}">'
+        f'<td class="ui-pick"><input type="checkbox" name="session" '
+        f'value="{escape(reference.session_id)}"{" checked" if checked else ""} '
+        f'aria-label="{escape(name)}"></td>'
+        f'<td class="ui-session-cell" title="{escape(reference.session_id)}">'
         f'<span class="ui-session-title">'
         f'<span class="ui-session-name">{escape(name)}</span>{running}</span>'
-        f'<span class="ui-session-meta">{escape(reference.short_id)} · {escape(project)}</span>'
-        f'<span class="ui-session-meta">{reference.record_count:,} records · '
-        f"{reference.modified_at:%Y-%m-%d %H:%M}</span>"
-        f"</span></label>"
+        f'<span class="ui-session-meta">{escape(reference.short_id)} · {escape(project)}'
+        f" · {reference.modified_at:%Y-%m-%d %H:%M}</span>"
+        f"</td>{cells}</tr>"
     )
 
 
@@ -334,6 +385,24 @@ class _Handler(BaseHTTPRequestHandler):
                 # and keeps the console clean; a 404 there reads as something being broken, on
                 # a page whose whole claim is that nothing is fetched from off the machine.
                 self._respond(HTTPStatus.NO_CONTENT, "image/x-icon", "")
+            elif route.path == "/facts":
+                # One session per request, so the picker is usable immediately and fills in as
+                # answers arrive (SC-025). An unanalysable session answers 404 rather than a
+                # zero: a blank cell says "not known", a zero would say "none", and only one of
+                # those is true (Principle X).
+                wanted = (parse_qs(route.query).get("session") or [""])[0]
+                facts = self.ui.facts
+                known = {reference.session_id for reference in self.ui.sessions}
+                if facts is None or wanted not in known:
+                    self._respond(
+                        HTTPStatus.NOT_FOUND, "text/plain; charset=utf-8", "no such session\n"
+                    )
+                    return
+                self._respond(
+                    HTTPStatus.OK,
+                    "application/json; charset=utf-8",
+                    json.dumps(dict(facts(wanted))) + "\n",
+                )
             elif route.path == "/sessions":
                 self._respond(
                     HTTPStatus.OK,
@@ -404,11 +473,13 @@ class UiHttpServer(ThreadingHTTPServer):
         provider: PayloadProvider,
         sessions: Sequence[SessionRef],
         initial: Selection,
+        facts: FactsProvider | None = None,
     ) -> None:
         super().__init__((LOOPBACK, 0), _Handler)
         self.provider = provider
         self.sessions = tuple(sessions)
         self.initial = initial
+        self.facts = facts
 
     def server_bind(self) -> None:
         """Bind without resolving this machine's name.
@@ -464,8 +535,9 @@ class UiServer:
         provider: PayloadProvider,
         sessions: Sequence[SessionRef],
         initial: Selection,
+        facts: FactsProvider | None = None,
     ) -> None:
-        self._http = UiHttpServer(provider, sessions, initial)
+        self._http = UiHttpServer(provider, sessions, initial, facts)
         self._serving = threading.Event()
         self._thread: threading.Thread | None = None
         self._closed = False
@@ -524,6 +596,7 @@ def serve_ui(
     sessions: Sequence[SessionRef],
     initial: Selection,
     *,
+    facts: FactsProvider | None = None,
     open_browser: bool = True,
     announce: Callable[[str], None] = print,
 ) -> None:
@@ -535,7 +608,7 @@ def serve_ui(
     ``open_browser`` opens the local URL in the user's browser; it is a loopback URL, and no
     request leaves the machine either way.
     """
-    server = UiServer(provider, sessions, initial)
+    server = UiServer(provider, sessions, initial, facts)
     announce(f"ccaudit is serving on {server.url} — press Ctrl-C to stop it.")
     if open_browser:
         webbrowser.open(server.url)

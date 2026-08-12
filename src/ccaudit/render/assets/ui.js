@@ -135,3 +135,87 @@
   }
 
 })();
+/* The session picker's ranked columns.
+ *
+ * Cheap facts are already in the table. The rest need each session analysed, which is too slow
+ * to hold the page open for, so they are fetched one session at a time and written in as they
+ * land. A cell stays empty until its answer arrives: blank means "not known yet", and a zero
+ * would mean "none" — only one of those is true while the work is still running.
+ */
+(function () {
+  var table = document.getElementById("ui-session-table");
+  if (!table || !table.tBodies[0]) return;
+  var body = table.tBodies[0];
+  var rows = Array.prototype.slice.call(body.rows);
+  var status = document.getElementById("ui-facts-status");
+  var pending = rows.length;
+
+  function money(micros) {
+    var dollars = micros / 1000000;
+    if (dollars >= 100) return "$" + Math.round(dollars);
+    if (dollars >= 1) return "$" + dollars.toFixed(1);
+    return "$" + dollars.toFixed(2);
+  }
+
+  function announce() {
+    if (!status) return;
+    status.textContent = pending > 0 ? "measuring " + pending + " more…" : "";
+  }
+
+  function fill(row, facts) {
+    Array.prototype.forEach.call(row.querySelectorAll("td[data-metric]"), function (cell) {
+      var key = cell.getAttribute("data-metric");
+      if (!(key in facts)) return;
+      var value = facts[key];
+      cell.setAttribute("data-value", String(value));
+      cell.textContent = key === "cost_micros" ? money(value) : value.toLocaleString();
+    });
+  }
+
+  // Sequential on purpose. These are CPU-bound analyses on the machine the reader is using;
+  // firing twenty-six at once makes every one of them slower and the first answer later.
+  function next(index) {
+    if (index >= rows.length) { announce(); return; }
+    var row = rows[index];
+    fetch("/facts?session=" + encodeURIComponent(row.getAttribute("data-session")))
+      .then(function (response) { return response.ok ? response.json() : null; })
+      .then(function (facts) { if (facts) fill(row, facts); })
+      .catch(function () { /* a session that will not analyse keeps its blank cells */ })
+      .then(function () { pending -= 1; announce(); next(index + 1); });
+  }
+
+  // Sorting is over the rows already on screen: unmeasured rows sort last whichever way the
+  // column is pointing, because "not known" is not a small number.
+  var descending = {};
+  Array.prototype.forEach.call(table.querySelectorAll("th[data-metric]"), function (header) {
+    header.classList.add("ui-sortable");
+    header.addEventListener("click", function () {
+      var key = header.getAttribute("data-metric");
+      var down = !descending[key];
+      descending[key] = down;
+      var sorted = Array.prototype.slice.call(body.rows).sort(function (a, b) {
+        if (key === "name") {
+          var left = a.getAttribute("data-name") || "";
+          var right = b.getAttribute("data-name") || "";
+          return down ? right.localeCompare(left) : left.localeCompare(right);
+        }
+        var av = a.querySelector('td[data-metric="' + key + '"]');
+        var bv = b.querySelector('td[data-metric="' + key + '"]');
+        var an = av && av.hasAttribute("data-value") ? Number(av.getAttribute("data-value")) : null;
+        var bn = bv && bv.hasAttribute("data-value") ? Number(bv.getAttribute("data-value")) : null;
+        if (an === null && bn === null) return 0;
+        if (an === null) return 1;
+        if (bn === null) return -1;
+        return down ? bn - an : an - bn;
+      });
+      sorted.forEach(function (row) { body.appendChild(row); });
+      Array.prototype.forEach.call(table.querySelectorAll("th[data-metric]"), function (other) {
+        other.removeAttribute("aria-sort");
+      });
+      header.setAttribute("aria-sort", down ? "descending" : "ascending");
+    });
+  });
+
+  announce();
+  next(0);
+})();

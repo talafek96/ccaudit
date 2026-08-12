@@ -129,9 +129,13 @@ def _(json, subprocess):
             )
         return json.loads(result.stdout)
 
-    def list_sessions():
-        """Session ids paired with their names, newest first."""
-        result = _run(["sessions", "--all", "--json"])
+    def list_sessions(facts=False):
+        """Session ids paired with their names, newest first.
+
+        With ``facts`` the listing also carries what each session can be ranked by — cost,
+        rounds, reads, .md files, skills. That analyses every session, so it is opt-in.
+        """
+        result = _run(["sessions", "--all", "--json"] + (["--facts"] if facts else []))
         if result.returncode != 0:
             raise RuntimeError(
                 f"ccaudit exited {result.returncode}: {result.stderr.strip() or 'no detail'}"
@@ -142,18 +146,41 @@ def _(json, subprocess):
 
 
 @app.cell
-def _(list_sessions, mo):
-    # Keyed by name, valued by id: the reader picks by what the session was about, and ccaudit
-    # is asked for it by id.
-    sessions = list_sessions()
-    options = {row["display_name"]: row["session_id"] for row in sessions}
-    picker = mo.ui.multiselect(
-        options=options,
-        value=list(options)[: min(len(options), 8)],
-        label="Sessions in the analysis",
+def _(list_sessions, mo, pd):
+    # Measured up front here, unlike the browser view: a notebook cell is expected to take a
+    # moment, and having the columns present is what lets the table be sorted by them at all.
+    sessions = list_sessions(facts=True)
+    session_frame = pd.DataFrame(
+        [
+            {
+                "session": row["display_name"],
+                "cost ($)": round(row.get("cost_micros", 0) / 1_000_000, 2),
+                "rounds": row.get("turns"),
+                "reads": row.get("reads"),
+                ".md reads": row.get("md_reads"),
+                ".md files": row.get("md_files"),
+                "skills": row.get("skills"),
+                "items": row.get("items"),
+                "records": row["record_count"],
+                "project": row["project"],
+                "session_id": row["session_id"],
+            }
+            for row in sessions
+        ]
+    )
+    # Sort any column by clicking it; tick the rows to analyse. Selection *is* the picker —
+    # one control, so what is ranked and what is analysed cannot drift apart.
+    ranked = session_frame.sort_values("cost ($)", ascending=False).reset_index(drop=True)
+    picker = mo.ui.table(
+        ranked,
+        # Opens on the costliest few rather than on nothing: an empty table would make the
+        # notebook's first view an instruction instead of an answer.
+        initial_selection=list(range(min(len(ranked), 8))),
+        selection="multi",
+        label="Sessions in the analysis — click a column to rank by it, tick rows to include",
     )
     picker
-    return options, picker, sessions
+    return picker, session_frame, sessions
 
 
 @app.cell
@@ -177,10 +204,13 @@ def _(mo):
 
 @app.cell
 def _(grouping, mo, picker, run_ccaudit, sorting):
-    if not picker.value:
+    # `mo.ui.table` hands back the selected *rows*, so the ids come out of the frame. Ticking
+    # nothing is a state to explain, not an empty analysis to run.
+    chosen = list(picker.value["session_id"]) if len(picker.value) else []
+    if not chosen:
         mo.stop(True, mo.md("**Select at least one session.** Nothing to analyse yet."))
     payload = run_ccaudit(
-        "--session", *picker.value, "--by", grouping.value, "--sort", sorting.value
+        "--session", *chosen, "--by", grouping.value, "--sort", sorting.value
     )
     totals = payload["totals"]
     mo.md(

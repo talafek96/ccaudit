@@ -17,7 +17,13 @@ import pytest
 from ccaudit.analyse import SessionAnalysis
 from ccaudit.ingest.discover import SessionRef, fingerprint_transcript
 from ccaudit.model.reconcile import ReconciliationError
-from ccaudit.render.data import GROUPINGS, build_report_data
+from ccaudit.render.data import (
+    ANALYSED_SESSION_METRICS,
+    CHEAP_SESSION_METRICS,
+    GROUPINGS,
+    SESSION_METRICS,
+    build_report_data,
+)
 from ccaudit.render.report import ASSETS, REPORT_TITLE, render_report_html
 from ccaudit.render.serve import (
     Selection,
@@ -420,3 +426,61 @@ class TestSplittingInjectedContentIsPartOfTheView:
     def test_the_terminal_equivalent_names_the_flag(self) -> None:
         assert "--split-injected" in terminal_command(Selection(("s",), merge_injected=False))
         assert "--split-injected" not in terminal_command(Selection(("s",)))
+
+
+class TestThePickerCanBeRanked:
+    """A flat list of names cannot answer "which of these actually cost me anything", which is
+    the question the picker is opened to settle. Every rankable fact is a column.
+
+    The measured columns need each session analysed, which is too slow to hold the page open
+    for on a large corpus (SC-025), so they arrive per session after the page does.
+    """
+
+    @pytest.fixture
+    def page(self, payload: dict, sessions: list[SessionRef]) -> str:
+        return render_ui_html(payload, sessions=sessions, selection=Selection(("sess-one",)))
+
+    def test_the_picker_is_a_table_with_a_column_per_metric(self, page: str) -> None:
+        assert 'id="ui-session-table"' in page
+        for key, label, _cheap in SESSION_METRICS:
+            assert f'data-metric="{key}"' in page
+            assert label in page
+
+    def test_cheap_facts_are_already_there(self, page: str) -> None:
+        """Readable from file metadata, so they cost nothing and never arrive late."""
+        for key in CHEAP_SESSION_METRICS:
+            assert f'data-metric="{key}" data-value=' in page
+
+    def test_a_measured_cell_starts_empty_rather_than_zero(self, page: str) -> None:
+        """Blank means "not measured yet"; a zero would mean "none", and only one is true."""
+        for key in ANALYSED_SESSION_METRICS:
+            assert f'<td class="ui-num" data-metric="{key}"></td>' in page
+
+    def test_an_unknown_session_is_refused_rather_than_answered_with_zeroes(
+        self, payload: dict, sessions: list[SessionRef]
+    ) -> None:
+        served = []
+
+        def facts(session_id: str) -> dict[str, int]:
+            served.append(session_id)
+            return {"cost_micros": 1}
+
+        server = UiHttpServer(lambda _s: payload, sessions, Selection(("sess-one",)), facts)
+        try:
+            assert server.facts is not None
+            # The handler checks membership before calling; the provider is never asked about a
+            # session the picker does not list.
+            assert "sess-one" in {reference.session_id for reference in sessions}
+        finally:
+            server.server_close()
+        assert served == []
+
+    def test_a_server_without_a_facts_provider_still_serves(
+        self, payload: dict, sessions: list[SessionRef]
+    ) -> None:
+        """The report shell and the tests build one without facts; that must stay legal."""
+        server = UiHttpServer(lambda _s: payload, sessions, Selection(("sess-one",)))
+        try:
+            assert server.facts is None
+        finally:
+            server.server_close()

@@ -23,7 +23,11 @@ from ccaudit.analyse import analyse_transcript
 from ccaudit.cli import EXIT_OK, main
 from ccaudit.config import load_pricing
 from ccaudit.ingest.discover import SessionRef, discover_sessions
-from ccaudit.render.data import build_report_data
+from ccaudit.render.data import (
+    ANALYSED_SESSION_METRICS,
+    build_report_data,
+    session_facts,
+)
 from ccaudit.render.serve import Selection, UiServer
 from tests.fixtures.builder import TranscriptBuilder
 
@@ -237,3 +241,53 @@ class TestItRefusesABreakdownThatDoesNotAddUp:
                 get(running, "/data?session=sess-busy")
             assert failure.value.code == 500
             assert "does not add up" in failure.value.read().decode("utf-8")
+
+
+class TestTheSessionPickerCanBeRanked:
+    """The measured columns arrive per session, after the page. Over a real socket, because the
+    contract is an HTTP one: the picker asks for one session at a time and fills cells in.
+    """
+
+    @pytest.fixture
+    def measured(self, sessions: list[SessionRef]) -> Iterator[UiServer]:
+        def facts(session_id: str) -> dict[str, int]:
+            reference = next(ref for ref in sessions if ref.session_id == session_id)
+            analysis = analyse_transcript(
+                reference.path,
+                pricing=load_pricing(),
+                project_path=str(reference.project_path) if reference.project_path else None,
+                provisional=reference.in_progress,
+            )
+            return session_facts(analysis)
+
+        with UiServer(build_payload, sessions, Selection(("sess-busy",)), facts=facts) as running:
+            yield running
+
+    def test_it_answers_for_one_session(self, measured: UiServer) -> None:
+        facts = json.loads(get(measured, "/facts?session=sess-busy"))
+
+        for key in ANALYSED_SESSION_METRICS:
+            assert key in facts, key
+        assert facts["cost_micros"] > 0
+
+    def test_the_cost_it_reports_is_the_one_the_page_shows(self, measured: UiServer) -> None:
+        """The picker and the breakdown it selects for must not disagree about a session."""
+        facts = json.loads(get(measured, "/facts?session=sess-busy"))
+        payload = json.loads(get(measured, "/data?session=sess-busy"))
+
+        assert facts["cost_micros"] == payload["totals"]["cost_micros"]
+
+    def test_an_unknown_session_is_refused(self, measured: UiServer) -> None:
+        """Answering with zeroes would put a wrong figure in a column people rank by."""
+        with pytest.raises(HTTPError) as exc:
+            get(measured, "/facts?session=not-a-session")
+        assert exc.value.code == 404
+
+    def test_the_page_itself_does_not_wait_for_any_of_it(self, sessions: list[SessionRef]) -> None:
+        """SC-025: the picker is on screen before a single session has been measured."""
+
+        def facts(session_id: str) -> dict[str, int]:
+            raise AssertionError("the page must not need a measured column to render")
+
+        with UiServer(build_payload, sessions, Selection(("sess-busy",)), facts=facts) as running:
+            assert 'id="ui-session-table"' in get(running, "/")

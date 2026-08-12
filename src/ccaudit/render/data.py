@@ -1623,3 +1623,57 @@ def collapse_notes(values: Sequence[str]) -> list[str]:
             f"differing only in the figures)"
         )
     return collapsed
+
+
+# What the session picker can rank by. One registry, so the browser table, the notebook frame,
+# and any future surface show the same columns under the same names (Principle IX). `cheap`
+# marks the facts readable from the transcript's file metadata alone — those render instantly;
+# the rest need the session analysed, and arrive when it is done.
+SESSION_METRICS: tuple[tuple[str, str, bool], ...] = (
+    ("records", "Records", True),
+    ("bytes", "Size", True),
+    ("cost_micros", "Cost", False),
+    ("turns", "Rounds", False),
+    ("reads", "Reads", False),
+    ("md_reads", ".md reads", False),
+    ("md_files", ".md files", False),
+    ("skills", "Skills", False),
+    ("items", "Items", False),
+)
+
+CHEAP_SESSION_METRICS = tuple(key for key, _label, cheap in SESSION_METRICS if cheap)
+ANALYSED_SESSION_METRICS = tuple(key for key, _label, cheap in SESSION_METRICS if not cheap)
+
+_MARKDOWN_SUFFIX = ".md"
+
+
+def session_facts(analysis: ReportInput) -> dict[str, int]:
+    """The rankable facts about one analysed session (FR-060).
+
+    Everything here is counted from the session's own timeline, so a fact and the figure it sits
+    beside come from the same source and cannot disagree. Derived once, here, rather than in
+    each surface that wants to sort by it.
+    """
+    timeline = analysis.timeline
+    md_items = [
+        item
+        for item in timeline.items.values()
+        if PurePosixPath(item.identity).suffix == _MARKDOWN_SUFFIX
+    ]
+    return {
+        "cost_micros": analysis.reconciliation.total_micros,
+        "turns": len(timeline.turns),
+        "reads": sum(timeline.load_count(item_id) for item_id in timeline.items),
+        "md_reads": sum(timeline.load_count(item.item_id) for item in md_items),
+        "md_files": len(md_items),
+        # The skills a session actually pulled in — not the listing, which is the menu of what
+        # was available and is present whether or not anything was invoked. Keyed on the
+        # *category*, because an invoked skill arrives as its SKILL.md file: `kind == "skill"`
+        # matches only the listing itself, and counting that way reported 0 for every session.
+        "skills": sum(
+            1
+            for item in timeline.items.values()
+            if item.category == "skill" and injected_name(item.identity) is None
+        ),
+        "items": len(timeline.items),
+    }
