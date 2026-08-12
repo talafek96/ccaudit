@@ -24,8 +24,8 @@ pytestmark = pytest.mark.golden
 TRANSCRIPT = Path(__file__).parent / "fixtures" / "session_cause_profiles" / "transcript.jsonl"
 PRICING = load_pricing(BUNDLED_PRICING_PATH)
 
-HOT = "file:-:/repo/src/hot.py"
-STEADY = "file:-:/repo/docs/steady.md"
+HOT = "file:/repo/src/hot.py"
+STEADY = "file:/repo/docs/steady.md"
 
 
 @pytest.fixture(scope="module")

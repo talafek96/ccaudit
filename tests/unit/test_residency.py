@@ -188,16 +188,49 @@ class TestItemIdentity:
         timeline = timeline_from(builder, tmp_path)
         assert timeline.items == {}
 
-    def test_same_path_in_different_projects_stays_distinct(self, tmp_path: Path) -> None:
-        """Attribution must not merge two files that happen to share a path (edge case)."""
+    def test_the_same_relative_path_in_different_projects_stays_distinct(
+        self, tmp_path: Path
+    ) -> None:
+        """Attribution must not merge two files that happen to share a name (edge case).
+
+        Rewritten 2026-08-12. This used to use `/repo/a.py` — an *absolute* path — and assert
+        the two projects produced different ids. That premise is false: one absolute path is
+        one file on one machine, and scoping it by project did not disambiguate anything. What
+        it did do was split a file across rows whenever two sessions recorded different project
+        metadata for it. Measured on a real 26-session corpus: 19 identities split that way,
+        carrying 16% of the spend, each ranked at a fraction of its true cost.
+
+        The invariant the scope exists for is the one below — a path that cannot be resolved,
+        and so genuinely means a different file in each project.
+        """
         builder = TranscriptBuilder()
         builder.add_turn(output_tokens=10, tool_use_ids=("t1",))
-        builder.add_tool_result(tool_use_id="t1", file_path="/repo/a.py")
+        builder.add_tool_result(tool_use_id="t1", file_path="src/a.py")
         builder.add_turn(cache_read=1_000, output_tokens=10)
 
         one = timeline_from(builder, tmp_path, project_path="/projects/alpha")
         two = timeline_from(builder, tmp_path, project_path="/projects/beta")
         assert set(one.items) != set(two.items)
+
+    def test_one_absolute_path_is_one_item_whatever_project_recorded_it(
+        self, tmp_path: Path
+    ) -> None:
+        """The other half of the contract, and the defect that motivated it.
+
+        The same file read from two sessions — one that resolved a project, one that did not —
+        is one file, and must roll up as one row. Splitting it understates it silently, which
+        is the failure this project treats as a show-stopper (Principle X).
+        """
+        builder = TranscriptBuilder()
+        builder.add_turn(output_tokens=10, tool_use_ids=("t1",))
+        builder.add_tool_result(tool_use_id="t1", file_path="/repo/a.py")
+        builder.add_turn(cache_read=1_000, output_tokens=10)
+
+        scoped = timeline_from(builder, tmp_path, project_path="/projects/alpha")
+        unscoped = timeline_from(builder, tmp_path)
+
+        assert set(scoped.items) == set(unscoped.items)
+        assert "file:/repo/a.py" in scoped.items
 
     def test_a_withheld_size_is_a_gap_not_a_zero_weight_item(self, tmp_path: Path) -> None:
         """An image whose header we cannot read must not be recorded as costing nothing."""

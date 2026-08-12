@@ -412,7 +412,22 @@ def _is_absolute(path: str) -> bool:
 
 
 def _item_id(identity: str, kind: str, project_path: str | None) -> str:
-    """A stable id that keeps same-named files in different projects distinct (edge case)."""
+    """A stable id, scoped by project **only where the identity is ambiguous without it**.
+
+    The scope exists so that two projects' ``src/app.py`` stay distinct. An absolute path is
+    already unique on one machine, so scoping it disambiguates nothing — and it actively harms:
+    a file read from two sessions that recorded different project metadata (one resolved, one
+    not) became two rows, each carrying part of that file's cost. Measured on a real corpus:
+    19 identities split that way, covering 16% of the spend. The totals still reconciled, which
+    is what made it invisible — every one of those files was simply ranked at a fraction of what
+    it actually cost (Principle X).
+
+    So the scope is applied to exactly the case it was introduced for: an identity that could
+    not be resolved to an absolute path, and therefore means different files in different
+    projects.
+    """
+    if _is_absolute(identity):
+        return f"{kind}:{identity}"
     scope = project_path or "-"
     return f"{kind}:{scope}:{identity}"
 

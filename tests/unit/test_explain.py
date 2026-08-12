@@ -64,8 +64,8 @@ class TestFigureLookup:
     def test_a_reader_can_use_the_path_rather_than_the_internal_id(
         self, analysis: SessionAnalysis
     ) -> None:
-        """Nobody types `carry:file:-:/repo/src/a.py` out of a report."""
-        trace = explain(analysis, "carry:file:-:/repo/src/a.py")
+        """Nobody types `carry:file:/repo/src/a.py` out of a report."""
+        trace = explain(analysis, "carry:file:/repo/src/a.py")
         assert "a.py" in trace.render()
 
     def test_an_ambiguous_handle_says_what_it_matched(self, analysis: SessionAnalysis) -> None:
@@ -80,7 +80,7 @@ class TestFigureLookup:
 
 @pytest.fixture(scope="module")
 def trace_text(analysis: SessionAnalysis) -> str:
-    return explain(analysis, "carry:file:-:/repo/src/a.py").render()
+    return explain(analysis, "carry:file:/repo/src/a.py").render()
 
 
 @pytest.fixture(scope="module")
@@ -124,7 +124,7 @@ class TestTraceContent:
     def test_it_does_not_print_finer_than_the_confidence_supports(
         self, analysis: SessionAnalysis
     ) -> None:
-        trace = explain(analysis, "carry:file:-:/repo/src/a.py")
+        trace = explain(analysis, "carry:file:/repo/src/a.py")
         assert "significant figures" in trace.render()
 
 
@@ -198,8 +198,8 @@ class TestSessionTotal:
 
 class TestReproducibility:
     def test_the_trace_is_identical_across_runs(self, analysis: SessionAnalysis) -> None:
-        first = explain(analysis, "carry:file:-:/repo/docs/b.md").render()
-        second = explain(analysis, "carry:file:-:/repo/docs/b.md").render()
+        first = explain(analysis, "carry:file:/repo/docs/b.md").render()
+        second = explain(analysis, "carry:file:/repo/docs/b.md").render()
         assert first == second
 
     def test_the_figure_in_the_trace_matches_the_hand_verified_golden(
@@ -210,4 +210,4 @@ class TestReproducibility:
         Sub-cent, so it renders as `<$0.01` rather than a false `$0.00` — the reader is told
         it is small, not told it is nothing.
         """
-        assert "<$0.01" in explain(analysis, "carry:file:-:/repo/docs/b.md").render()
+        assert "<$0.01" in explain(analysis, "carry:file:/repo/docs/b.md").render()

@@ -130,7 +130,7 @@ class TestThresholdIsPerTurnModel:
         with pytest.raises(ValueError, match="invariant L1"):
             LaneAssignment(
                 turn_index=0,
-                item_id="file:-:/repo/CLAUDE.md",
+                item_id="file:/repo/CLAUDE.md",
                 model=SMALL_MODEL_THRESHOLD,
                 lane="uncached",
                 lane_reason="below_minimum",
@@ -143,7 +143,7 @@ class TestThresholdIsPerTurnModel:
         with pytest.raises(ValueError, match="no threshold"):
             LaneAssignment(
                 turn_index=0,
-                item_id="file:-:/repo/CLAUDE.md",
+                item_id="file:/repo/CLAUDE.md",
                 model="claude-mystery-1",
                 lane="uncached",
                 lane_reason="below_minimum",
@@ -174,7 +174,7 @@ class TestSubThresholdContent:
             builder.add_turn(model=LARGE_MODEL_THRESHOLD, input_tokens=2_000, output_tokens=10)
         timeline = timeline_of(builder, tmp_path, CLAUDE_MD_TOKENS)
 
-        summary = classify_session(timeline, PRICING).summary_for("file:-:/repo/CLAUDE.md")
+        summary = classify_session(timeline, PRICING).summary_for("file:/repo/CLAUDE.md")
         assert summary is not None
         assert summary.turns_by_lane["uncached"] == 3
         assert summary.turns_by_lane["cached"] == 0
@@ -189,7 +189,7 @@ class TestSubThresholdContent:
         builder.add_turn(model=LARGE_MODEL_THRESHOLD, input_tokens=2_000, output_tokens=10)
         timeline = timeline_of(builder, tmp_path, CLAUDE_MD_TOKENS)
 
-        summary = classify_session(timeline, PRICING).summary_for("file:-:/repo/CLAUDE.md")
+        summary = classify_session(timeline, PRICING).summary_for("file:/repo/CLAUDE.md")
         assert summary is not None
         assert summary.never_cacheable_on == (LARGE_MODEL_THRESHOLD,)
         assert summary.is_never_cacheable
@@ -202,7 +202,7 @@ class TestSubThresholdContent:
         builder.add_turn(model=LARGE_MODEL_THRESHOLD, cache_read=50_000, output_tokens=10)
         timeline = timeline_of(builder, tmp_path, 50_000)
 
-        summary = classify_session(timeline, PRICING).summary_for("file:-:/repo/big.md")
+        summary = classify_session(timeline, PRICING).summary_for("file:/repo/big.md")
         assert summary is not None
         assert summary.never_cacheable_on == ()
         assert summary.turns_by_lane["loading"] == 1  # the turn it arrived
@@ -435,7 +435,7 @@ class TestLaneWeights:
         loading_ids, loading_weights = classification.lane_weights(1, "loading")
         cached_ids, cached_weights = classification.lane_weights(1, "cached")
 
-        assert sorted(loading_ids) == ["file:-:/repo/a.py", "file:-:/repo/b.py"]
+        assert sorted(loading_ids) == ["file:/repo/a.py", "file:/repo/b.py"]
         assert loading_weights == [10_000, 10_000]
         assert cached_ids == [] and cached_weights == []
 
