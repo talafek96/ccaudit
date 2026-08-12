@@ -72,6 +72,14 @@ IMAGE_TOKEN_CAP_BY_MODEL: dict[str, int] = {
 # "character-based estimate" in its method string.
 CHARACTERS_PER_TOKEN_ESTIMATE = 4
 
+# The span the true ratio actually falls in, which is what a range around a character-based
+# figure must be built from. Dense code and JSON tokenize nearer 3 characters per token; English
+# prose and repetitive text run to 5 and beyond. So a `chars // 4` figure is wrong by roughly
+# -20% to +33%, and *not* by 100%: an item that demonstrably occupied a charged cached block did
+# not plausibly cost nothing. A band whose low end is zero states no constraint at all, and a
+# range that says nothing is not a cautious figure — it is an absent one.
+CHARACTERS_PER_TOKEN_RANGE: tuple[int, int] = (3, 5)
+
 # How far into an image we are willing to decode looking for its dimensions. PNG and WebP carry
 # them in the first 32 bytes; JPEG puts them in a SOF segment that sits after any embedded EXIF
 # thumbnail or colour profile, so it needs a scan. 64 KiB covers every real screenshot while
