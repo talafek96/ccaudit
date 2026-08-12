@@ -26,6 +26,7 @@ around in and trusts.
 import json
 import logging
 import socketserver
+import sys
 import threading
 import webbrowser
 from collections.abc import Callable, Mapping, Sequence
@@ -386,14 +387,22 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _respond(self, status: HTTPStatus, content_type: str, body: str) -> None:
         encoded = body.encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(encoded)))
-        # The page is built from local records for one reader; a cached copy of a stale
-        # selection is only ever confusing.
-        self.send_header("Cache-Control", "no-store")
-        self.end_headers()
-        self.wfile.write(encoded)
+        try:
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(encoded)))
+            # The page is built from local records for one reader; a cached copy of a stale
+            # selection is only ever confusing.
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(encoded)
+        except (BrokenPipeError, ConnectionResetError) as error:
+            # The reader reloaded, navigated away, or closed the tab before the response
+            # finished. Nothing is broken and there is nobody left to tell, so the only honest
+            # move is to stop writing to a socket no one holds — not to raise, which would
+            # spray a traceback across a terminal whose whole job is to be showing a URL.
+            _LOGGER.debug("client left before the response finished: %s", error)
+            self.close_connection = True
 
     def log_message(self, format: str, *args: Any) -> None:
         """Requests go to the log, not to the user's terminal, which is showing a URL."""
@@ -428,6 +437,19 @@ class UiHttpServer(ThreadingHTTPServer):
         socketserver.TCPServer.server_bind(self)
         self.server_name = LOOPBACK
         self.server_port = int(self.server_address[1])
+
+    def handle_error(self, request: Any, client_address: Any) -> None:
+        """Keep a client hanging up out of the terminal, without hiding a real fault.
+
+        ``socketserver`` prints a traceback for anything that escapes a handler. A reader
+        reloading the page can drop the connection mid-read as well as mid-write, and that is
+        not a fault of this server — it is the reader exercising their browser. Everything
+        else still surfaces the way it always did.
+        """
+        if isinstance(sys.exc_info()[1], (BrokenPipeError, ConnectionResetError)):
+            _LOGGER.debug("client %s hung up mid-request", client_address)
+            return
+        super().handle_error(request, client_address)
 
     def payload_for(self, selection: Selection) -> Mapping[str, Any]:
         """Build the payload and refuse it if its parts contradict its total."""

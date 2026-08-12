@@ -8,7 +8,9 @@ current view is stated, and a payload that does not add up is never rendered.
 import json
 from datetime import UTC, datetime
 from html import escape
+from http import HTTPStatus
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -22,6 +24,7 @@ from ccaudit.render.serve import (
     Selection,
     UiHttpServer,
     UiServer,
+    _Handler,
     payload_json,
     render_ui_html,
     selection_from_query,
@@ -285,3 +288,72 @@ class TestTagsHaveOneCentralControl:
         script = UI_SCRIPT.read_text(encoding="utf-8")
         assert script.count("function toggleTag") == 1
         assert "toggleTag(tag.getAttribute" in script
+
+
+class TestAReaderLeavingIsNotAnError:
+    """Reloading, navigating away, or closing the tab drops the connection while the server is
+    still writing. That is the reader using their browser, not a fault in the server: it must
+    not raise, and it must not print a traceback over the URL the terminal is showing.
+
+    Pinned after a BrokenPipeError escaped `_respond` onto a user's terminal. Driven through a
+    write that fails rather than a real hang-up, because whether a 100 KB page fills a kernel
+    send buffer before the peer disappears is the operating system's decision, not a contract.
+    """
+
+    def handler_writing_to(self, wfile: Any) -> _Handler:
+        """A handler with just enough wired up to respond, and no socket underneath it."""
+        handler = _Handler.__new__(_Handler)
+        handler.wfile = wfile
+        handler.request_version = "HTTP/1.0"
+        handler.requestline = "GET / HTTP/1.0"
+        handler.client_address = ("127.0.0.1", 0)
+        handler.close_connection = False
+        return handler
+
+    def test_a_write_to_a_reader_who_left_is_not_raised(self) -> None:
+        class Departed:
+            def write(self, _data: bytes) -> int:
+                raise BrokenPipeError(32, "Broken pipe")
+
+        handler = self.handler_writing_to(Departed())
+        handler._respond(HTTPStatus.OK, "text/html; charset=utf-8", "<html></html>")
+
+        # And the connection is marked done, so nothing tries to write to it again.
+        assert handler.close_connection is True
+
+    def test_a_reset_is_treated_the_same_way(self) -> None:
+        class Reset:
+            def write(self, _data: bytes) -> int:
+                raise ConnectionResetError(54, "Connection reset by peer")
+
+        self.handler_writing_to(Reset())._respond(HTTPStatus.OK, "text/plain", "hello")
+
+    def test_a_write_that_fails_for_any_other_reason_still_shouts(self) -> None:
+        """The guard is narrow on purpose: only a departed reader is a normal outcome."""
+
+        class Broken:
+            def write(self, _data: bytes) -> int:
+                raise OSError(28, "No space left on device")
+
+        with pytest.raises(OSError, match="No space left on device"):
+            self.handler_writing_to(Broken())._respond(HTTPStatus.OK, "text/plain", "hello")
+
+    def test_a_hangup_does_not_reach_the_terminal(
+        self, payload: dict, sessions: list[SessionRef], capfd: pytest.CaptureFixture[str]
+    ) -> None:
+        """socketserver prints a traceback for anything escaping a handler. Not for this."""
+        server = UiHttpServer(lambda _selection: payload, sessions, Selection(("sess-one",)))
+        try:
+            try:
+                raise BrokenPipeError(32, "Broken pipe")
+            except BrokenPipeError:
+                server.handle_error(None, ("127.0.0.1", 0))
+            assert "Traceback" not in capfd.readouterr().err
+
+            try:
+                raise ValueError("a genuine fault in a handler")
+            except ValueError:
+                server.handle_error(None, ("127.0.0.1", 0))
+            assert "Traceback" in capfd.readouterr().err
+        finally:
+            server.server_close()
