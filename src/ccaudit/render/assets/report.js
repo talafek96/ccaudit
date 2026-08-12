@@ -84,6 +84,14 @@
         // filter — has to tell a row the reader revealed from one that is still accounted for
         // by the truncation line, or it will show both and the table will double-count.
         candidate.dataset.revealed = "1";
+        // Purely a cue that these rows are the ones that just arrived. The class is removed
+        // as soon as the animation ends, and the CSS behind it uses no fill-mode, so a row is
+        // fully visible before the animation starts and after it finishes. An effect that can
+        // leave a figure invisible is not worth having (see report.css).
+        candidate.classList.add("row-arriving");
+        candidate.addEventListener("animationend", function () {
+          candidate.classList.remove("row-arriving");
+        }, {once: true});
       });
       shown = Math.min(shown + step, hidden.length);
       // Revealed rows arrive unhidden, which undoes any filter the exploring shell has on.
