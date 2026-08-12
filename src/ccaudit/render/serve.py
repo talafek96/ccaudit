@@ -79,6 +79,7 @@ class Selection:
     session_ids: tuple[str, ...]
     group_by: str = DEFAULT_GROUPING
     redact: bool = False
+    merge_injected: bool = True
 
 
 # Given a selection, produce a report-data payload. The server holds no analysis logic of its
@@ -94,6 +95,8 @@ def terminal_command(selection: Selection) -> str:
     parts += ["--by", selection.group_by]
     if selection.redact:
         parts.append("--redact")
+    if not selection.merge_injected:
+        parts.append("--split-injected")
     return " ".join(parts)
 
 
@@ -194,6 +197,14 @@ def _controls(sessions: Sequence[SessionRef], selection: Selection) -> str:
                 '<label class="ui-check"><input type="checkbox" name="redact" value="1"'
                 f"{' checked' if selection.redact else ''}>"
                 "<span>Redact paths</span></label>"
+            ),
+            (
+                '<label class="ui-check" title="Claude Code injects the same skill listing and '
+                "tool schemas into every project. Merged, they are one row; split, there is one "
+                'per project, named after it.">'
+                '<input type="checkbox" name="split" value="1"'
+                f"{'' if selection.merge_injected else ' checked'}>"
+                "<span>Split injected content by project</span></label>"
             ),
             '<button type="submit" id="ui-apply" class="ui-btn ui-btn--primary">Apply</button>',
             "</div>",
@@ -307,7 +318,14 @@ def selection_from_query(
     if group_by not in GROUPINGS:
         raise ValueError(f"unknown grouping {group_by!r}; known: {', '.join(GROUPINGS)}")
 
-    return Selection(session_ids=session_ids, group_by=group_by, redact=bool(query.get("redact")))
+    # Absence is a choice here, like `redact`: the form submits `split` only when it is ticked,
+    # so a query that came from the form and omits it means "merged", not "unspecified".
+    return Selection(
+        session_ids=session_ids,
+        group_by=group_by,
+        redact=bool(query.get("redact")),
+        merge_injected=not query.get("split"),
+    )
 
 
 class _Handler(BaseHTTPRequestHandler):

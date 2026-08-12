@@ -28,7 +28,7 @@ that remains so.
 
 import re
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import PurePosixPath
@@ -228,6 +228,7 @@ def build_report_data(
     generated_at: str | None = None,
     group_by: str = DEFAULT_GROUPING,
     sort_by: str = DEFAULT_SORT,
+    merge_injected: bool = True,
 ) -> dict[str, Any]:
     """Build the report-data payload for one or more analysed sessions.
 
@@ -259,6 +260,12 @@ def build_report_data(
 
     totals = _totals(analyses)
     rollups, threshold_gaps = _rollups(analyses)
+    if merge_injected:
+        collapsed = _collapse_injected(rollups)
+        # Collapsing is a merge like any other, so it owes the same proof: it may only join
+        # rows, never drop or duplicate one (FR-007, Principle X).
+        _assert_grouping_conserves(rollups, collapsed, "injected")
+        rollups = collapsed
 
     grouped = _regroup(rollups, group_by)
     _assert_grouping_conserves(rollups, grouped, group_by)
@@ -864,7 +871,7 @@ def _tree(
         for segment, real_path in _folder_chain(rollup):
             name = _pseudonym(real_path) if redact else segment
             parent = parent.child(real_path, name=name, path=_join(parent.path, name))
-        display = _display_for(rollup.item_id, rollup.identity, redact=redact)
+        display = _display_for(rollup.item_id, rollup.identity, redact=redact, qualify_scope=True)
         leaf_name = PurePosixPath(display).name or display
         leaf = parent.child(rollup.item_id, name=leaf_name, path=_join(parent.path, leaf_name))
         leaf.flat_micros += rollup.total_micros
@@ -1070,7 +1077,9 @@ def _comparison(
         entry[1] += rollup.total_micros
         members[side].setdefault(label, []).append(
             {
-                "name": _display_for(rollup.item_id, rollup.identity, redact=redact),
+                "name": _display_for(
+                    rollup.item_id, rollup.identity, redact=redact, qualify_scope=True
+                ),
                 "cost_micros": rollup.total_micros,
                 "tokens": rollup.size_tokens,
             }
@@ -1171,26 +1180,76 @@ def _regroup(rollups: list[_ItemRollup], group_by: str) -> list[_ItemRollup]:
             )
             continue
 
-        target.direct_micros += rollup.direct_micros
-        target.carry_micros += rollup.carry_micros
-        target.reads += rollup.reads
-        target.turns_resident += rollup.turns_resident
-        target.size_tokens += rollup.size_tokens
-        target.never_cacheable_on |= rollup.never_cacheable_on
-        target.cached_token_turns += rollup.cached_token_turns
-        target.uncached_token_turns += rollup.uncached_token_turns
-        for session_id, cost in rollup.per_session.items():
-            target.per_session[session_id] = target.per_session.get(session_id, 0) + cost
-        # A merged row is only as trustworthy as its weakest member, and only as specific: two
-        # categories in one bucket is "(mixed)", never whichever happened to arrive first.
-        target.basis = _weakest(target.basis, rollup.basis, BASIS_VALUES)
-        target.confidence = _weakest(target.confidence, rollup.confidence, CONFIDENCE_VALUES)
-        if target.category != rollup.category:
-            target.category = MIXED_CATEGORY
-        if target.kind != rollup.kind:
-            target.kind = MIXED_CATEGORY
+        _absorb(target, rollup, add_sizes=True)
 
     return sorted(merged.values(), key=lambda r: (-r.total_micros, r.item_id))
+
+
+def _absorb(target: _ItemRollup, rollup: _ItemRollup, *, add_sizes: bool) -> None:
+    """Fold one rollup's figures into another. The only way two rows ever become one.
+
+    ``add_sizes`` distinguishes the two reasons to merge. Grouping puts *different* items in one
+    bucket, so their sizes add. Collapsing one item's per-project copies puts the *same* content
+    under one row, so the size is the largest observed, exactly as re-reading a grown file is
+    handled — adding there would report a listing several times its real weight.
+    """
+    target.direct_micros += rollup.direct_micros
+    target.carry_micros += rollup.carry_micros
+    target.reads += rollup.reads
+    target.turns_resident += rollup.turns_resident
+    target.size_tokens = (
+        target.size_tokens + rollup.size_tokens
+        if add_sizes
+        else max(target.size_tokens, rollup.size_tokens)
+    )
+    target.never_cacheable_on |= rollup.never_cacheable_on
+    target.cached_token_turns += rollup.cached_token_turns
+    target.uncached_token_turns += rollup.uncached_token_turns
+    for session_id, cost in rollup.per_session.items():
+        target.per_session[session_id] = target.per_session.get(session_id, 0) + cost
+    # A merged row is only as trustworthy as its weakest member, and only as specific: two
+    # categories in one bucket is "(mixed)", never whichever happened to arrive first.
+    target.basis = _weakest(target.basis, rollup.basis, BASIS_VALUES)
+    target.confidence = _weakest(target.confidence, rollup.confidence, CONFIDENCE_VALUES)
+    if target.category != rollup.category:
+        target.category = MIXED_CATEGORY
+    if target.kind != rollup.kind:
+        target.kind = MIXED_CATEGORY
+    # The richer listing describes the merged item: a scope that saw more skills knows more
+    # about what the listing contained than one that saw fewer.
+    if len(rollup.parts) > len(target.parts):
+        target.parts = rollup.parts
+
+
+def _collapse_injected(rollups: list[_ItemRollup]) -> list[_ItemRollup]:
+    """Merge each injected item's per-project copies into one row (FR-007).
+
+    An item id is scoped by project so that two projects' `README.md` stay distinct files. That
+    is right for files and wrong for what Claude Code injects: the skill listing is one thing a
+    reader recognises, and seeing "Skill listing" three times — once per project the corpus
+    touches — reads as a bug in the tool rather than as a fact about the corpus.
+
+    Only injected identities collapse. Files keep their project scope, because two files with
+    the same path in different projects really are two files.
+    """
+    merged: dict[str, _ItemRollup] = {}
+    order: list[str] = []
+    for rollup in rollups:
+        collapsible = injected_name(rollup.identity) is not None
+        key = f"{rollup.kind}:{rollup.identity}" if collapsible else rollup.item_id
+        target = merged.get(key)
+        if target is None:
+            merged[key] = replace(
+                rollup,
+                item_id=key if collapsible else rollup.item_id,
+                per_session=dict(rollup.per_session),
+                never_cacheable_on=set(rollup.never_cacheable_on),
+            )
+            order.append(key)
+            continue
+        _absorb(target, rollup, add_sizes=False)
+
+    return [merged[key] for key in order]
 
 
 def _group_key(rollup: _ItemRollup, group_by: str) -> str:
@@ -1246,7 +1305,7 @@ def _fold_lanes(analysis: ReportInput, rollups: dict[str, _ItemRollup]) -> None:
 
 def _item_payload(rollup: _ItemRollup, total_micros: int, *, redact: bool) -> dict[str, Any]:
     driver = _uncertainty_driver(rollup)
-    display = _display_for(rollup.item_id, rollup.identity, redact=redact)
+    display = _display_for(rollup.item_id, rollup.identity, redact=redact, qualify_scope=True)
     payload: dict[str, Any] = {
         # The item id embeds the path, so under redaction it becomes the pseudonym too.
         # Blanking `display` and `identity` while leaving the id intact would have published
@@ -1392,7 +1451,7 @@ def _uncertainty_range(rollup: _ItemRollup, driver: str) -> dict[str, int]:
     return {"low_micros": max(0, total - width), "high_micros": total + width}
 
 
-def _display_for(item_id: str, identity: str, *, redact: bool) -> str:
+def _display_for(item_id: str, identity: str, *, redact: bool, qualify_scope: bool = False) -> str:
     """The name shown for an item, pseudonymised under ``--redact`` (FR-043).
 
     The pseudonym is a hash of the identity, so it is stable across runs and machines and the
@@ -1409,10 +1468,31 @@ def _display_for(item_id: str, identity: str, *, redact: bool) -> str:
     """
     injected = injected_name(identity)
     if injected is not None:
-        return injected
+        # Only a row that was *kept apart* is qualified, and only callers building rows ask for
+        # it. The residency timeline names the same item from the un-collapsed model, where the
+        # scope is always present — qualifying there would put a project suffix on every span
+        # even when the table above it says the item is one thing.
+        scope = _injected_scope(item_id) if qualify_scope else None
+        if scope is None:
+            return injected
+        # The project path is a path like any other, so it is pseudonymised under --redact.
+        return f"{injected} — {_pseudonym(scope) if redact else scope}"
     if not redact:
         return identity
     return f"{_pseudonym(item_id)}{PurePosixPath(identity).suffix}"
+
+
+def _injected_scope(item_id: str) -> str | None:
+    """The project an injected item's row belongs to, or ``None`` when it covers all of them.
+
+    Reads the scope back out of the `kind:scope:identity` id minted in the residency model.
+    A collapsed row has no scope segment, and an uncollapsed row whose project could not be
+    resolved carries `-` — both mean "do not qualify this name".
+    """
+    parts = item_id.split(":", 2)
+    if len(parts) != 3 or parts[1] == "-":
+        return None
+    return parts[1]
 
 
 def _pseudonym(text: str) -> str:

@@ -284,6 +284,13 @@ def _add_analysis_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--last", type=int, default=None, help="The N most recent in the set.")
     parser.add_argument("--exclude", nargs="+", default=None, help="Drop session id(s) (FR-063).")
     parser.add_argument(
+        "--split-injected",
+        dest="merge_injected",
+        action="store_false",
+        help="Keep each project's copy of an injected item (the skill listing, tool schemas) "
+        "as its own row instead of merging them.",
+    )
+    parser.add_argument(
         "--policy",
         choices=POLICIES,
         default=DEFAULT_POLICY,
@@ -617,6 +624,7 @@ def _run_analyse(args: argparse.Namespace) -> int:
         sessions_excluded_count=selected.excluded,
         sessions_skipped=selected.skipped,
         group_by=args.group_by,
+        merge_injected=getattr(args, "merge_injected", True),
         sort_by=args.sort_by,
     )
     if args.json:
@@ -722,6 +730,7 @@ def _run_watch(args: argparse.Namespace) -> int:
                     sessions_excluded_count=selected.excluded,
                     sessions_skipped=selected.skipped,
                     group_by=args.group_by,
+                    merge_injected=getattr(args, "merge_injected", True),
                 )
                 console.clear()
                 render_report(payload, console=console, top=args.top)
@@ -812,6 +821,7 @@ def _run_ui(args: argparse.Namespace) -> int:
             redact=selection.redact,
             sessions_excluded_count=len(getattr(args, "exclude", None) or ()),
             group_by=selection.group_by,
+            merge_injected=selection.merge_injected,
         )
 
     serve_ui(
@@ -820,6 +830,7 @@ def _run_ui(args: argparse.Namespace) -> int:
         Selection(
             session_ids=tuple(ref.session_id for ref in refs),
             group_by=args.group_by,
+            merge_injected=getattr(args, "merge_injected", True),
             redact=args.redact,
         ),
         open_browser=args.open_browser,
@@ -847,6 +858,7 @@ def _run_report(args: argparse.Namespace) -> int:
         sessions_excluded_count=selected.excluded,
         sessions_skipped=selected.skipped,
         group_by=args.group_by,
+        merge_injected=getattr(args, "merge_injected", True),
         sort_by=args.sort_by,
     )
     path = write_report(payload, args.out)

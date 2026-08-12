@@ -357,3 +357,29 @@ class TestAReaderLeavingIsNotAnError:
             assert "Traceback" in capfd.readouterr().err
         finally:
             server.server_close()
+
+
+class TestSplittingInjectedContentIsPartOfTheView:
+    """It changes what the table shows, so it belongs in the URL and in the terminal
+    equivalent — otherwise a shared link or a copied command shows a different breakdown.
+    """
+
+    def test_merged_is_the_default(self) -> None:
+        assert Selection(("s",)).merge_injected is True
+
+    def test_the_query_carries_the_split(self) -> None:
+        selection = selection_from_query(
+            {"session": ["s"], "split": ["1"]}, default=Selection(("s",)), known=["s"]
+        )
+        assert selection.merge_injected is False
+
+    def test_a_form_that_omits_it_means_merged(self) -> None:
+        """An unticked box submits nothing; absence is the answer, not a missing value."""
+        selection = selection_from_query(
+            {"session": ["s"]}, default=Selection(("s",), merge_injected=False), known=["s"]
+        )
+        assert selection.merge_injected is True
+
+    def test_the_terminal_equivalent_names_the_flag(self) -> None:
+        assert "--split-injected" in terminal_command(Selection(("s",), merge_injected=False))
+        assert "--split-injected" not in terminal_command(Selection(("s",)))

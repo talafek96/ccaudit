@@ -779,3 +779,93 @@ class TestTheRangeOnAnEstimatedSizeIsCharacterised:
     def test_the_figure_itself_is_inside_its_own_band(self) -> None:
         band = _uncertainty_range(_estimated_rollup(45_000_000), "size_estimate")
         assert band["low_micros"] <= 45_000_000 <= band["high_micros"]
+
+
+class TestAnInjectedItemIsOneThingUnlessAsked:
+    """An item id is scoped by project so two projects' `README.md` stay distinct files. Applied
+    to what Claude Code injects, that split "Skill listing" into one row per project the corpus
+    touched — the same name three times, reading as a bug rather than as a fact.
+
+    Merged by default, splittable on request, and either way the figures must reconcile.
+    """
+
+    def corpus(self, tmp_path: Path) -> list[SessionAnalysis]:
+        """The same skill listing seen from two different projects."""
+        analyses = []
+        for name, project in (("alpha", "/repo/alpha"), ("beta", "/repo/beta")):
+            builder = TranscriptBuilder()
+            builder.add_turn(input_tokens=50, cache_creation_5m=9_000, output_tokens=20)
+            builder.add_skill_listing(names=["demo"], content="skill: demo\n" * 60)
+            builder.add_turn(input_tokens=5, cache_read=9_400, output_tokens=15)
+            analyses.append(
+                analyse_transcript(
+                    builder.write(tmp_path / f"{name}.jsonl"),
+                    pricing=PRICING,
+                    policy="proportional",
+                    project_path=project,
+                )
+            )
+        return analyses
+
+    def listings(self, payload: dict) -> list[dict]:
+        return [item for item in payload["items"] if item["identity"] == "skill_listing"]
+
+    def test_merged_into_one_row_by_default(self, tmp_path: Path) -> None:
+        payload = build_report_data(self.corpus(tmp_path), generated_at=FIXED_TIME)
+
+        (listing,) = self.listings(payload)
+        assert listing["display"] == "Skill listing"
+
+    def test_splitting_names_the_project_each_row_belongs_to(self, tmp_path: Path) -> None:
+        payload = build_report_data(
+            self.corpus(tmp_path), generated_at=FIXED_TIME, merge_injected=False
+        )
+
+        displays = sorted(item["display"] for item in self.listings(payload))
+        assert displays == ["Skill listing — /repo/alpha", "Skill listing — /repo/beta"]
+
+    def test_merging_moves_no_money(self, tmp_path: Path) -> None:
+        """The whole point: collapsing rows may only join them (Principle X)."""
+        corpus = self.corpus(tmp_path)
+        merged = build_report_data(corpus, generated_at=FIXED_TIME)
+        split = build_report_data(corpus, generated_at=FIXED_TIME, merge_injected=False)
+
+        assert sum(item["total_micros"] for item in self.listings(merged)) == sum(
+            item["total_micros"] for item in self.listings(split)
+        )
+        assert merged["totals"] == split["totals"]
+
+    def test_the_merged_size_is_the_content_not_the_sum_of_its_copies(self, tmp_path: Path) -> None:
+        """One listing carried in two projects is one listing's worth of tokens, not two."""
+        corpus = self.corpus(tmp_path)
+        (merged,) = self.listings(build_report_data(corpus, generated_at=FIXED_TIME))
+        split = self.listings(
+            build_report_data(corpus, generated_at=FIXED_TIME, merge_injected=False)
+        )
+
+        assert merged["size_tokens"] == max(item["size_tokens"] for item in split)
+
+    def test_a_file_in_two_projects_is_still_two_files(self, tmp_path: Path) -> None:
+        """The collapse is for injected content only — it must not merge same-named files."""
+        analyses = []
+        for name, project in (("alpha", "/repo/alpha"), ("beta", "/repo/beta")):
+            builder = TranscriptBuilder()
+            builder.add_turn(
+                input_tokens=50, cache_creation_5m=9_000, output_tokens=20, tool_use_ids=("t1",)
+            )
+            builder.add_tool_result(
+                tool_use_id="t1", file_path=f"{project}/README.md", text="r\n" * 900
+            )
+            builder.add_turn(input_tokens=5, cache_read=9_400, output_tokens=15)
+            analyses.append(
+                analyse_transcript(
+                    builder.write(tmp_path / f"{name}.jsonl"),
+                    pricing=PRICING,
+                    policy="proportional",
+                    project_path=project,
+                )
+            )
+        payload = build_report_data(analyses, generated_at=FIXED_TIME)
+
+        readmes = [item for item in payload["items"] if item["identity"].endswith("README.md")]
+        assert len(readmes) == 2
