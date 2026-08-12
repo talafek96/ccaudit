@@ -1077,7 +1077,9 @@ body {
     linear-gradient(90deg, var(--grid) 1px, transparent 1px);
   background-size: 28px 28px, 28px 28px;
   background-position: -1px -1px, -1px -1px;
-  background-attachment: fixed;
+  /* Deliberately NOT `background-attachment: fixed`. On a report ten thousand pixels tall
+     that repaints the entire page background on every scroll frame. The ruling scrolls with
+     the paper, which is also what paper does. */
 }
 
 @media (prefers-color-scheme: dark) {
@@ -1086,10 +1088,14 @@ body {
 
 main {
   /* The sheet the ruling sits under, so the page reads as paper on a desk rather than as a
-     grid with text floating over it. */
+     grid with text floating over it.
+
+     There was a `backdrop-filter: blur(1px)` here. A backdrop filter promotes its element to
+     a composited layer that has to be re-rasterised against everything behind it — and this
+     element is the whole document, ten thousand pixels of it, holding thirteen inline SVGs.
+     Chrome rendered the served page blank. One pixel of blur is not visible; the cost of it
+     was the entire page. */
   background: color-mix(in srgb, var(--page) 88%, transparent);
-  backdrop-filter: blur(1px);
-  -webkit-backdrop-filter: blur(1px);
 }
 
 /* ── The masthead ──────────────────────────────────────────────────────────────────────*/

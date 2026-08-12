@@ -430,9 +430,10 @@
   top: 0;
   z-index: 20;
   border-radius: var(--ui-radius) var(--ui-radius) 0 0;
-  background: color-mix(in srgb, var(--surface-1) 82%, transparent);
-  backdrop-filter: saturate(1.6) blur(12px);
-  -webkit-backdrop-filter: saturate(1.6) blur(12px);
+  /* Opaque, not blurred. A *sticky* backdrop filter is the worst case of the technique: the
+     backdrop it samples is the entire scrolling document, re-blurred every frame. It looked
+     good and it stopped the page rendering. */
+  background: var(--surface-1);
   border-bottom: 1px solid var(--border);
 }
 
@@ -519,9 +520,8 @@
 
 .ui-sessions-table thead th {
   z-index: 2;
-  background: color-mix(in srgb, var(--surface-1) 92%, transparent);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  /* Opaque for the same reason: this header is sticky inside a scrolling table. */
+  background: var(--surface-1);
   border-bottom: 1px solid var(--rule);
   letter-spacing: 0.06em;
   text-transform: uppercase;
