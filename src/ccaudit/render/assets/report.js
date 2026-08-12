@@ -224,7 +224,7 @@
     });
 
     var CHARACTER = 7;
-    var trail = [{name: "All", x0: 0, x1: 1, depth: 0}];
+    var trail = [{name: "All", x0: 0, x1: 1, depth: 0, path: "\u0000all"}];
 
     function apply() {
       var focus = trail[trail.length - 1];
@@ -264,7 +264,19 @@
 
     function focusOn(node) {
       if (node._x1 - node._x0 <= 0) return;
-      trail.push({name: node.dataset.name || "/", x0: node._x0, x1: node._x1, depth: node._depth});
+      var step = {name: node.dataset.name || "/", x0: node._x0, x1: node._x1, depth: node._depth,
+                  path: node.dataset.path || ""};
+      // Clicking a node that is already somewhere on the trail means "go back to it", not
+      // "descend into it again" — otherwise clicking the focused node repeatedly stacked
+      // "assets / assets / assets" and the view never changed.
+      for (var i = 0; i < trail.length; i++) {
+        if (trail[i].path === step.path && trail[i].depth === step.depth) {
+          trail = trail.slice(0, i + 1);
+          apply();
+          return;
+        }
+      }
+      trail.push(step);
       apply();
     }
 

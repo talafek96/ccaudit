@@ -189,6 +189,9 @@ def _(grouping, mo, picker, run_ccaudit, sorting):
         {len(payload["scope"]["sessions_included"])} session(s)
 
         Rows grouped by **{payload["group_by"]}**, ranked by **{payload["sort_by"]}**.
+        {"A folder row is the files sitting *directly* in it, not everything beneath it — "
+         "otherwise a file would be counted once for every folder above it."
+         if payload["group_by"] == "folder" else ""}
 
         **Total (API-equivalent estimate): ${totals["cost_micros"] / 1e6:,.2f}** —
         accounted for ${totals["attributed_micros"] / 1e6:,.2f}

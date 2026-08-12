@@ -831,9 +831,103 @@ class TestTheFlameGraphCanZoom:
     def test_the_way_back_out_is_rendered(self) -> None:
         html = icicle(chart_id="h", title="t", tree=sample_tree(1_000_000), total_micros=1_000_000)
         assert "data-flame-crumbs" in html
-        assert "Click a folder to zoom" in html
+        assert "Click anything to zoom" in html
 
     def test_zooming_is_declared_as_scale_only(self) -> None:
         """The reader is told what a zoom does and does not change."""
         html = icicle(chart_id="h", title="t", tree=sample_tree(1_000_000), total_micros=1_000_000)
         assert "never a figure" in html
+
+
+class TestEveryNodeIsReachable:
+    """A node too small to see is exactly the node a zoom exists to reach.
+
+    The first version derived each node's span from its *pixel* width and stopped descending
+    where that rounded to zero, which left 198 of 372 nodes undrawn: the chart could not show
+    the files under a small folder however far you zoomed, and its leaves were folders. Spans
+    now come from the cost split, which does not quantise.
+    """
+
+    def test_no_node_is_dropped_for_being_narrow(self) -> None:
+        tree = {
+            "name": "/",
+            "path": "/",
+            "flat_micros": 0,
+            "total_micros": 1_000_000,
+            "share": 1.0,
+            "display_sig_figs": 2,
+            "children": [
+                {
+                    "name": "big",
+                    "path": "/big",
+                    "flat_micros": 999_999,
+                    "total_micros": 999_999,
+                    "share": 0.999,
+                    "display_sig_figs": 2,
+                    "children": [],
+                },
+                # One micro-dollar against a million: sub-pixel at any sane chart width.
+                {
+                    "name": "speck",
+                    "path": "/speck",
+                    "flat_micros": 0,
+                    "total_micros": 1,
+                    "share": 0.000001,
+                    "display_sig_figs": 2,
+                    "children": [
+                        {
+                            "name": "leaf.txt",
+                            "path": "/speck/leaf.txt",
+                            "flat_micros": 1,
+                            "total_micros": 1,
+                            "share": 0.000001,
+                            "display_sig_figs": 2,
+                            "children": [],
+                        }
+                    ],
+                },
+            ],
+        }
+        html = icicle(chart_id="h", title="t", tree=tree, total_micros=1_000_000)
+        assert "leaf.txt" in html, "a sub-pixel node's children must still be drawn"
+
+    def test_a_sub_pixel_node_still_has_a_usable_span(self) -> None:
+        """Zoom divides by the span, so a zero-width span is an unreachable node."""
+        tree = {
+            "name": "/",
+            "path": "/",
+            "flat_micros": 0,
+            "total_micros": 1_000_000,
+            "share": 1.0,
+            "display_sig_figs": 2,
+            "children": [
+                {
+                    "name": "big",
+                    "path": "/big",
+                    "flat_micros": 999_999,
+                    "total_micros": 999_999,
+                    "share": 0.999,
+                    "display_sig_figs": 2,
+                    "children": [],
+                },
+                {
+                    "name": "speck",
+                    "path": "/speck",
+                    "flat_micros": 1,
+                    "total_micros": 1,
+                    "share": 0.000001,
+                    "display_sig_figs": 2,
+                    "children": [],
+                },
+            ],
+        }
+        html = icicle(chart_id="h", title="t", tree=tree, total_micros=1_000_000)
+        speck = re.search(r'data-x0="([\d.]+)" data-x1="([\d.]+)"[^>]*data-name="speck"', html)
+        assert speck, html[:400]
+        assert float(speck.group(2)) > float(speck.group(1)), "a node needs a non-zero span"
+
+    def test_the_tooltip_says_the_figure_is_the_whole_subtree(self) -> None:
+        """The same folder appears in the `--by folder` table as its own files only — two
+        correct figures far apart, so each has to say which one it is."""
+        html = icicle(chart_id="h", title="t", tree=sample_tree(1_000_000), total_micros=1_000_000)
+        assert "everything beneath it" in html

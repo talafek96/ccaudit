@@ -315,6 +315,13 @@ def _render_items(
         f"--by {{{','.join(GROUPINGS)}}}, and rank them differently with "
         f"--sort {{{','.join(SORTS)}}}."
     )
+    if data["group_by"] == "folder":
+        # Without this, a folder reading $14 here and $286 in the tree chart looks like a
+        # contradiction. Both are right; they answer different questions.
+        console.print(
+            "A folder row is the files sitting directly in it, not everything beneath it — "
+            "otherwise a file would be counted once for every folder above it."
+        )
     # The columns were legible to their author and to nobody else. A reader who has to guess
     # what "3 / 420" means is reading a defect, not a table (Principle X: name things as they are).
     console.print(

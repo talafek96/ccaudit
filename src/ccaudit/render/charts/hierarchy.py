@@ -20,6 +20,7 @@ from collections.abc import Mapping, Sequence
 from html import escape
 from typing import Any
 
+from ccaudit.money import format_micros
 from ccaudit.render.charts import (
     CHART_WIDTH,
     ROW_HEIGHT,
@@ -34,7 +35,15 @@ from ccaudit.render.charts import (
     truncate,
 )
 
-MAX_DEPTH = 6
+# How deep the drawing goes. This used to be 6, which stopped at folders and cut the files
+# underneath them — and since zooming only rescales nodes that are already in the drawing, the
+# files were unreachable rather than merely hidden. A flame graph whose leaves are folders is
+# not showing you what cost the money.
+#
+# Depth is bounded by a node budget instead, so a pathologically deep corpus cannot produce a
+# megabyte of rectangles; whatever the budget drops is stated in the chart (never silently).
+MAX_DEPTH = 24
+MAX_NODES = 1_500
 NODE_HEIGHT = ROW_HEIGHT
 # Roughly 7px per character at the label size; below this a node cannot show even a stub.
 PIXELS_PER_CHARACTER = 7
@@ -76,11 +85,15 @@ def icicle(
         chart_id=chart_id,
         x=0,
         width=CHART_WIDTH,
+        span=(0.0, 1.0),
         depth=0,
         total_micros=total_micros,
         out=rows,
     )
     height = NODE_HEIGHT * (depth_reached + 1) + 4
+    # What the budget cut, counted from the payload rather than guessed, and stated below.
+    drawn = len(rows)
+    total_nodes = _count(tree)
 
     svg = "".join(
         [
@@ -102,10 +115,20 @@ def icicle(
         '<button type="button" class="flame-crumb" data-flame-reset>All</button></p>'
     )
     note = (
-        f"{note} Click a folder to zoom into it; the crumbs above the chart lead back out. "
-        f"Zooming changes the scale, never a figure."
+        f"{note} Leaves are files. Click anything to zoom into it; the crumbs above the chart "
+        f"lead back out, and zooming changes the scale, never a figure."
     ).strip()
+    if drawn < total_nodes:
+        note += (
+            f" {total_nodes - drawn} of {total_nodes} nodes are below the drawing's depth "
+            f"budget and are not shown here; they are in the table above and in every total."
+        )
     return figure(chart_id=chart_id, title=title, svg=controls + svg, note=note)
+
+
+def _count(node: Mapping[str, Any]) -> int:
+    """Every node in the payload's tree, so an omission can be stated as a number."""
+    return 1 + sum(_count(child) for child in node.get("children") or ())
 
 
 def _draw(
@@ -114,6 +137,7 @@ def _draw(
     chart_id: str,
     x: int,
     width: int,
+    span: tuple[float, float],
     depth: int,
     total_micros: int,
     out: list[str],
@@ -124,30 +148,43 @@ def _draw(
     block: the parts of a node are its children plus what it cost by itself, and those are the
     whole of it (FR-012).
     """
-    out.append(_node_mark(node=node, chart_id=chart_id, x=x, width=width, depth=depth))
+    out.append(_node_mark(node=node, chart_id=chart_id, x=x, width=width, span=span, depth=depth))
     children: Sequence[Mapping[str, Any]] = node.get("children") or ()
-    if not children or depth + 1 >= MAX_DEPTH or width <= 0:
+    # No `width <= 0` guard. A node whose pixel width rounds to zero at this scale is exactly
+    # the node a zoom exists to reach, and dropping it left 198 of 372 unreachable — the chart
+    # could not show the files under a small folder however far you zoomed. Pixels quantise;
+    # the fractional span does not, so descent is bounded by depth and the node budget only.
+    if not children or depth + 1 >= MAX_DEPTH or len(out) >= MAX_NODES:
         return depth
 
     flat = max(0, int(node.get("flat_micros", 0)))
     weights = [max(0, int(child.get("total_micros", 0))) for child in children] + [flat]
     widths = partition(width, weights)
+    # The exact split, in fractions of the root. Pixels are what the reader sees now; these are
+    # what a zoom re-lays-out from, and they survive a node being one pixel wide.
+    span_total = sum(weights) or 1
+    span_width = span[1] - span[0]
+    edges = [span[0]]
+    running = 0
+    for weight in weights:
+        running += weight
+        edges.append(span[0] + span_width * running / span_total)
     deepest = depth
     cursor = x
-    for child, child_width in zip(children, widths[:-1], strict=True):
-        if child_width > 0:
-            deepest = max(
-                deepest,
-                _draw(
-                    node=child,
-                    chart_id=chart_id,
-                    x=cursor,
-                    width=child_width,
-                    depth=depth + 1,
-                    total_micros=total_micros,
-                    out=out,
-                ),
-            )
+    for index, (child, child_width) in enumerate(zip(children, widths[:-1], strict=True)):
+        deepest = max(
+            deepest,
+            _draw(
+                node=child,
+                chart_id=chart_id,
+                x=cursor,
+                width=child_width,
+                span=(edges[index], edges[index + 1]),
+                depth=depth + 1,
+                total_micros=total_micros,
+                out=out,
+            ),
+        )
         cursor += child_width
 
     own_width = widths[-1]
@@ -171,7 +208,15 @@ def _draw(
     return deepest
 
 
-def _node_mark(*, node: Mapping[str, Any], chart_id: str, x: int, width: int, depth: int) -> str:
+def _node_mark(
+    *,
+    node: Mapping[str, Any],
+    chart_id: str,
+    x: int,
+    width: int,
+    span: tuple[float, float],
+    depth: int,
+) -> str:
     name = str(node.get("name", "/"))
     total = int(node.get("total_micros", 0))
     share = float(node.get("share", 0.0))
@@ -187,7 +232,7 @@ def _node_mark(*, node: Mapping[str, Any], chart_id: str, x: int, width: int, de
     # without recomputing a single figure: focusing a node is a change of scale, and every
     # figure below is already rendered and stays exactly as it was.
     geometry = (
-        f' data-x0="{x / CHART_WIDTH:.6f}" data-x1="{(x + width) / CHART_WIDTH:.6f}"'
+        f' data-x0="{span[0]:.9f}" data-x1="{span[1]:.9f}"'
         f' data-depth="{depth}" data-name="{escape(name)}"'
         f' data-path="{escape(str(node.get("path", name)))}"'
     )
@@ -199,9 +244,22 @@ def _node_mark(*, node: Mapping[str, Any], chart_id: str, x: int, width: int, de
         f'height="{NODE_HEIGHT - 4}" rx="2" fill-opacity="{opacity}"{fill}></rect>'
         f'<text class="node-label" x="{x + 4}" y="{y + NODE_HEIGHT // 2}"'
         f"{'' if labelled else ' visibility="hidden"'}>{label_text}</text>"
+        # "everything beneath it" spelled out, because the same folder appears in the
+        # `--by folder` table as *its own files only* — two correct figures twenty times apart,
+        # and a reader who meets both without being told which is which concludes one is wrong.
         f"<title>{escape(name)} — {escape(money_share_text(total, share, _sig_figs(node)))}"
-        f"</title></g>"
+        f", everything beneath it"
+        f"{_own_clause(node)}</title></g>"
     )
+
+
+def _own_clause(node: Mapping[str, Any]) -> str:
+    """What this folder cost by itself, where that is not the whole of it."""
+    own = int(node.get("flat_micros", 0))
+    total = int(node.get("total_micros", 0))
+    if not total or own == total:
+        return ""
+    return f"; {format_micros(own, _sig_figs(node))} of that is the node itself"
 
 
 def _sig_figs(node: Mapping[str, Any]) -> int:

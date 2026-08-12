@@ -413,12 +413,29 @@ def _items_section(data: Mapping[str, Any]) -> str:
                 f'<p class="lede">Rows are grouped by <strong>{escape(str(data["group_by"]))}'
                 f"</strong>. The terminal and the browser view can group by "
                 f"{escape(', '.join(GROUPINGS))} — a grouping only ever merges rows, so every "
-                f"one of them sums to the same total.</p>"
+                f"one of them sums to the same total.{escape(_grouping_caveat(data))}</p>"
             ),
             chart,
             _items_table(data, shown=shown, omitted=omitted),
             _cacheability(shown),
         ]
+    )
+
+
+def _grouping_caveat(data: Mapping[str, Any]) -> str:
+    """The sentence that stops two correct figures from looking like a contradiction.
+
+    A folder row here is the files sitting *directly* in it; the same folder in the tree chart
+    is everything beneath it. Rolling every file into all of its ancestors would count it many
+    times over in one flat table, so both framings are needed — and each has to say which it is,
+    or a reader meeting $14 in one place and $286 in the other concludes the tool is wrong.
+    """
+    if data.get("group_by") != "folder":
+        return ""
+    return (
+        " A folder row is the files sitting directly in it, not everything beneath it — "
+        "otherwise a file would be counted once for every folder above it. The folder tree "
+        "further down shows the everything-beneath-it figure."
     )
 
 
