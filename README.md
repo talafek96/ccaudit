@@ -11,6 +11,26 @@ records and prints a ranked breakdown of where the money went.
 
 (Not on PyPI yet, hence the `--from`. Working in a clone? `uv run ccaudit`.)
 
+Typing that every time gets old, and the bare `ccaudit …` commands below assume the short
+name. To get it:
+
+```sh
+uv tool install --from git+https://github.com/talafek96/ccaudit ccaudit
+```
+
+### Keeping it current
+
+Neither form auto-updates. A tool installed from git is pinned to the commit it was
+installed from; `uvx` caches its resolution of the git URL and will happily keep using it.
+
+```sh
+uv tool upgrade ccaudit --reinstall                       # installed: refetch and rebuild
+uvx --refresh --from git+https://github.com/talafek96/ccaudit ccaudit   # uvx: skip the cache
+```
+
+`--reinstall` is what forces the refetch; a plain `uv tool upgrade` can resolve the same
+cached commit and report that there is nothing to do.
+
 ```
 Total (API-equivalent estimate): $140.15
   accounted for:      $135.03  (96.3%)
@@ -52,12 +72,17 @@ ccaudit notebook           # open a throwaway marimo notebook; deleted when you 
 ccaudit --watch            # live, while the session is still going
 ```
 
-Inside Claude Code — adds `/ccaudit:audit` and a skill your assistant can call:
+Inside Claude Code — adds `/ccaudit:audit`, a skill your assistant can call, and a
+session-end hook that analyses each session in the background so later runs are instant:
 
 ```
 /plugin marketplace add talafek96/ccaudit
 /plugin install ccaudit
 ```
+
+The hook runs the installed `ccaudit` if there is one and falls back to `uvx` if there
+isn't, so it works either way — no install required. It queues the session and returns in
+about a second; the analysis runs detached, after the session is gone.
 
 ## Numbers you can argue with
 

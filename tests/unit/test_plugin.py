@@ -65,8 +65,25 @@ class TestSessionEndHook:
         commands = [
             entry["command"] for group in hooks["hooks"]["SessionEnd"] for entry in group["hooks"]
         ]
-        assert commands == ["ccaudit _enqueue"]
+        # The invariant is *what the hook does*, not the exact string it does it with. This
+        # asserted `== ["ccaudit _enqueue"]`, which pinned a spelling the contract never
+        # required and broke when the command grew a uvx fallback. Changed deliberately: the
+        # thing that must stay true — every command enqueues, none analyses inline — is
+        # asserted directly, and is now stated in a form a second command cannot slip past.
+        assert commands
+        assert all("_enqueue" in command for command in commands)
         assert not any("analyse" in command or "report" in command for command in commands)
+
+    def test_the_hook_runs_without_the_tool_being_installed(self) -> None:
+        """A `uvx` user has no `ccaudit` on PATH, and had no working hook because of it.
+
+        Requiring an install for automatic capture made the feature unreachable for the setup
+        the README leads with. The command falls back to uvx, which was measured at ~1.4s warm.
+        """
+        hooks = json.loads((PLUGIN / "hooks" / "hooks.json").read_text(encoding="utf-8"))
+        command = hooks["hooks"]["SessionEnd"][0]["hooks"][0]["command"]
+        assert "uvx" in command
+        assert "||" in command, "the fallback must only run when the installed tool is absent"
 
     def test_the_hook_timeout_is_well_inside_the_budget(self) -> None:
         hooks = json.loads((PLUGIN / "hooks" / "hooks.json").read_text(encoding="utf-8"))
