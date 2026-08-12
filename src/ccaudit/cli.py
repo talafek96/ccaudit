@@ -650,8 +650,27 @@ def _run_process_queue() -> int:
                     # and this worker running. Nothing to analyse and nothing to repair.
                     _LOGGER.warning("queued session %s has no records; skipping", entry.session_id)
                     continue
-                analysis = analyse_transcript(target, pricing=pricing)
+                analysis = analyse_transcript(
+                    target,
+                    pricing=pricing,
+                    project_path=str(found.project_path) if found and found.project_path else None,
+                    title=found.title if found else None,
+                )
                 store_result(connection, analysis, fingerprint)
+                # And the cache the *analysis path* reads. Without this the worker filled the
+                # normalised tables and warmed nothing: a later `ccaudit` run still recomputed
+                # the session from its transcript, which defeats the point of doing the work in
+                # advance (FR-088).
+                store_contribution(
+                    connection,
+                    cache_key(
+                        analysis.session_id,
+                        fingerprint,
+                        analysis.policy,
+                        pricing.fingerprint,
+                    ),
+                    contribution_of(analysis),
+                )
                 _LOGGER.info("stored analysis for %s", analysis.session_id)
             clear_queue()
         finally:

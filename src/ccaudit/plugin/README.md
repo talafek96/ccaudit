@@ -53,10 +53,24 @@ Failures are logged to `$CCAUDIT_HOME/ccaudit.log` and never surfaced into the u
 
 ## Installing
 
+**The hook needs `ccaudit` on your PATH.** It runs the bare command `ccaudit _enqueue`, so a
+copy invoked through `uvx --from git+...` — which never lands on PATH — cannot be found by it.
+Install the tool first:
+
+```sh
+uv tool install --from git+https://github.com/talafek96/ccaudit ccaudit
+```
+
+Then the plugin:
+
 ```
 /plugin marketplace add talafek96/ccaudit
 /plugin install ccaudit
 ```
+
+Nothing analyses automatically until **both** of those are done. Until then every figure still
+works — `ccaudit` reads the transcripts directly on each run, and the queue is only there to do
+that work in advance.
 
 For local development, point Claude Code at this directory with `--plugin-dir`.
 
