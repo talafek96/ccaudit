@@ -254,10 +254,20 @@ def _node_mark(
 
 
 def _own_clause(node: Mapping[str, Any]) -> str:
-    """What this folder cost by itself, where that is not the whole of it."""
+    """What this node cost by itself, said only where that is worth saying.
+
+    Two cases are silent, for opposite reasons. When a node's own cost *is* its whole cost —
+    a file — the clause would restate the figure beside it. When it is **zero** — an ordinary
+    folder, which is not content and was never read — the clause announced "$0.00 of that is
+    the node itself" on nearly every folder in the tree. Both are noise, and noise on every row
+    is worse than noise on one: it trains a reader to skip the line that does carry a finding.
+
+    What is left is the case the clause exists for: a node holding both children and cost of
+    its own, where the total alone does not say how it splits.
+    """
     own = int(node.get("flat_micros", 0))
     total = int(node.get("total_micros", 0))
-    if not total or own == total:
+    if not total or own == total or own <= 0:
         return ""
     return f"; {format_micros(own, _sig_figs(node))} of that is the node itself"
 

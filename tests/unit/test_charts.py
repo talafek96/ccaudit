@@ -45,7 +45,7 @@ from ccaudit.render.charts.bars import (
     cumulative_sparkline,
     stacked_bars,
 )
-from ccaudit.render.charts.hierarchy import icicle
+from ccaudit.render.charts.hierarchy import _own_clause, icicle
 from ccaudit.render.charts.scatter import (
     PLOT_BOTTOM,
     PLOT_TOP,
@@ -1203,3 +1203,28 @@ class TestTheFlameGraphSaysWhereYouAre:
                     and other["x0"] - 1e-9 <= middle <= other["x1"] + 1e-9
                 ]
                 assert len(containing) == 1, (depth, node, containing)
+
+
+class TestANodeOnlyStatesItsOwnCostWhenThatSaysSomething:
+    """The clause disambiguates a node holding both children and cost of its own. Everywhere
+    else it is noise — and it was firing on nearly every folder in the tree, announcing
+    "$0.00 of that is the node itself" about directories, which are not content and were never
+    read. Noise on every row is worse than noise on one: it teaches a reader to skip the line.
+    """
+
+    def test_a_folder_with_no_cost_of_its_own_says_nothing(self) -> None:
+        assert _own_clause({"flat_micros": 0, "total_micros": 5_000_000}) == ""
+
+    def test_a_file_does_not_restate_the_figure_beside_it(self) -> None:
+        """Its own cost is the whole of it, which the total already said."""
+        assert _own_clause({"flat_micros": 5_000_000, "total_micros": 5_000_000}) == ""
+
+    def test_a_folder_holding_loose_files_says_how_it_splits(self) -> None:
+        """The case the clause exists for: the total alone does not tell you this."""
+        clause = _own_clause({"flat_micros": 2_000_000, "total_micros": 5_000_000})
+        assert "of that is the node itself" in clause
+        assert "$2.0" in clause
+
+    def test_no_folder_in_a_real_tree_announces_a_zero(self) -> None:
+        html = icicle(chart_id="c", title="t", tree=sample_tree(1_000_000), total_micros=1_000_000)
+        assert "$0.00 of that is the node itself" not in html
