@@ -1202,25 +1202,18 @@ main h2::before {
   letter-spacing: -0.008em;
 }
 
-/* ── Motion ────────────────────────────────────────────────────────────────────────────
-   Sections arrive as you reach them. `animation-timeline` is progressive: where it is not
-   supported nothing animates and nothing is missing, which is the only acceptable way to
-   make an entrance depend on a browser feature. */
+/* ── Motion: deliberately none on the sections ─────────────────────────────────────────
+   There was a scroll-driven entrance here — `animation-timeline: view()` behind an
+   `@supports`, on the reasoning that an unsupported browser would simply see no animation.
 
-@supports (animation-timeline: view()) {
-  @media (prefers-reduced-motion: no-preference) {
-    @keyframes exhibit-in {
-      from { opacity: 0; transform: translateY(14px); }
-      to { opacity: 1; transform: none; }
-    }
+   That reasoning was wrong, and the way it was wrong is the point. The failure mode is not
+   "unsupported": Chrome supports it, applied it, and left eight of the nine sections parked
+   on the `from` keyframe at `opacity: 0`. `animation-fill-mode: both` holds an element at the
+   start of its timeline until that timeline advances, so the document rendered blank below
+   the first panel.
 
-    /* Applied to the section container only. Never to a chart's inner marks: a bar that
-       animates its own length is a bar that is briefly the wrong length. */
-    main > .panel,
-    main > .chart {
-      animation: exhibit-in linear both;
-      animation-timeline: view();
-      animation-range: entry 0% entry 32%;
-    }
-  }
-}
+   A page whose whole purpose is to show figures must not let decoration decide whether a
+   figure is visible. There is no version of a fade that is worth a reader seeing nothing, so
+   there is no fade. Motion stays on controls, where the worst case is a button that does not
+   animate.
+   ───────────────────────────────────────────────────────────────────────────────────────*/
