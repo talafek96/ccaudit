@@ -6,8 +6,10 @@
 uvx --from git+https://github.com/talafek96/ccaudit ccaudit
 ```
 
-That's it — no install, no config, no account, no network. It reads your local session
-records and prints a ranked breakdown of where the money went.
+That's it — no install, no config, no account, no network, no plugin. It reads your local
+session records and prints a ranked breakdown of where the money went. (There is an
+optional Claude Code plugin further down; it makes the tool available *inside* Claude
+Code, and the tool works fully without it.)
 
 (Not on PyPI yet, hence the `--from`. Working in a clone? `uv run ccaudit`.)
 
@@ -72,8 +74,10 @@ ccaudit notebook           # open a throwaway marimo notebook; deleted when you 
 ccaudit --watch            # live, while the session is still going
 ```
 
-Inside Claude Code — adds `/ccaudit:audit`, a skill your assistant can call, and a
-session-end hook that analyses each session in the background so later runs are instant:
+### Optional: the Claude Code plugin
+
+**Nothing above needs this.** The plugin adds `/ccaudit:audit`, a skill your assistant can
+call, and a session-end hook that analyses each finished session in the background:
 
 ```
 /plugin marketplace add talafek96/ccaudit
@@ -81,8 +85,14 @@ session-end hook that analyses each session in the background so later runs are 
 ```
 
 The hook runs the installed `ccaudit` if there is one and falls back to `uvx` if there
-isn't, so it works either way — no install required. It queues the session and returns in
-about a second; the analysis runs detached, after the session is gone.
+isn't — no install required either way. It queues the session and returns in about a
+second; the analysis runs detached, after the session is gone.
+
+What that buys is modest, and worth stating plainly rather than overselling: `ccaudit`
+caches every completed session it analyses anyway, so a second run is already faster than
+the first with no plugin involved. The hook only moves that first analysis earlier — to
+session end, instead of the next time you ask. On this project's own corpus (26 sessions,
+46 MB) a cold run took 2.0s against 1.7s warm.
 
 ## Numbers you can argue with
 
