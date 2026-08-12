@@ -100,6 +100,30 @@ def allocate(total_micros: int, weights: list[int]) -> list[int]:
     return shares
 
 
+def format_axis_micros(micros: int) -> str:
+    """Render a money value as an **axis tick**, which is a different job from a figure.
+
+    `format_micros` collapses anything under half a cent to "<$0.01", which is the honest thing
+    to do for a *figure*: below that, the precision is not warranted. A scale mark is not a
+    figure — it is the ruler the figures are read against — and a ruler whose marks cannot be
+    told apart is not a ruler. On a log axis spanning five decades, three of them fall below a
+    cent and every one of their labels would read "<$0.01".
+
+    So ticks keep as many decimals as the value needs, and no more. This is the only place that
+    diverges from `format_micros`, and it diverges on the axis only.
+    """
+    dollars = Decimal(micros) / MICROS_PER_DOLLAR
+    if dollars == 0:
+        return "$0"
+    sign = "-" if dollars < 0 else ""
+    magnitude = abs(dollars)
+    if magnitude >= 1:
+        return f"{sign}${magnitude.normalize():f}"
+    # Enough decimals to show the leading significant digit of a sub-dollar value.
+    decimals = -magnitude.adjusted()
+    return f"{sign}${magnitude.quantize(Decimal(1).scaleb(-decimals)):f}"
+
+
 def format_micros(micros: int, sig_figs: int) -> str:
     """Render micro-dollars as a USD string carrying no more precision than is warranted.
 

@@ -28,7 +28,7 @@ from collections.abc import Mapping, Sequence
 from html import escape
 from typing import Any
 
-from ccaudit.money import format_micros, format_share
+from ccaudit.money import format_axis_micros, format_micros, format_share
 from ccaudit.render.charts import (
     CHART_WIDTH,
     SERIES_SLOT_COUNT,
@@ -81,11 +81,23 @@ CENT = 10_000
 
 
 def _log_scale(value: float, low: float, high: float, start: int, end: int) -> int:
-    """Place a value on a log axis. ``value`` and the bounds are shifted by one so zero fits."""
+    """Place a value on a true log axis, with everything floored at 1.
+
+    This used to shift value and bounds by one "so zero fits". Nothing ever needs that: cost is
+    counted in micro-dollars and an item is *in* context because it was loaded, so reads start
+    at one. What the shift did do was bend the axis — with a shift, consecutive powers of ten
+    are no longer equally spaced, so the reads gridlines came out 232px and 303px apart on an
+    axis whose whole premise is that a step right is a multiplication.
+
+    The floor is kept as a guard rather than an assumption: a log axis has no zero, so a zero
+    is placed at the axis floor instead of crashing.
+    """
+    low = max(low, 1.0)
+    high = max(high, low)
     if high <= low:
         return start
-    position = (math.log10(value + 1) - math.log10(low + 1)) / (
-        math.log10(high + 1) - math.log10(low + 1)
+    position = (math.log10(max(value, 1.0)) - math.log10(low)) / (
+        math.log10(high) - math.log10(low)
     )
     return round(start + position * (end - start))
 
@@ -122,12 +134,20 @@ def cause_scatter(
     drawn = ranked[:MAX_POINTS]
     omitted = len(ranked) - len(drawn)
 
-    max_cost = max(int(item["total_micros"]) for item in drawn)
-    # From the cheapest item actually plotted rather than from zero: anchoring at zero left the
-    # bottom half of the plot empty and squeezed every point into a band, which hides exactly
-    # the spread the chart exists to show.
-    min_cost = min(int(item["total_micros"]) for item in drawn)
-    max_reads = max(int(item["reads"]) for item in drawn)
+    # Snapped out to whole powers of ten, so every horizontal line is a decade and they are
+    # therefore evenly spaced. Clamped to the data instead, the top and bottom lines were the
+    # priciest and cheapest items — landing 0.88 and 1.41 decades from their neighbours, so an
+    # axis that is uniform everywhere else looked broken at both ends, and the bottom label
+    # named a position whose value a reader could not work out.
+    #
+    # Still not anchored at zero: a log axis has no zero, and starting a decade below the
+    # cheapest item keeps the spread the chart exists to show.
+    max_cost = _decade_above(max(int(item["total_micros"]) for item in drawn))
+    min_cost = _decade_below(min(int(item["total_micros"]) for item in drawn))
+    # Snapped out to a decade for the same reason as the cost axis: left at the data maximum,
+    # the last vertical line sat a fraction of a decade from its neighbour while every other
+    # gap was a full one.
+    max_reads = _decade_above(max(int(item["reads"]) for item in drawn))
     max_size = max(int(item["size_tokens"]) for item in drawn) or 1
     # A second way to read the same points. Cause answers "what kind of cost is this"; category
     # answers "what kind of *thing* is this", which is the question when you are deciding what
@@ -140,7 +160,7 @@ def cause_scatter(
     body = [_grid(max_reads, min_cost, max_cost)]
     for item in drawn:
         swatch, cause = _cause(item)
-        x = _log_scale(int(item["reads"]), 0, max_reads, PLOT_LEFT, PLOT_RIGHT)
+        x = _log_scale(int(item["reads"]), 1, max_reads, PLOT_LEFT, PLOT_RIGHT)
         y = _log_scale(int(item["total_micros"]), min_cost, max_cost, PLOT_BOTTOM, PLOT_TOP)
         radius = MIN_RADIUS + round(
             (MAX_RADIUS - MIN_RADIUS) * math.sqrt(int(item["size_tokens"]) / max_size)
@@ -220,7 +240,7 @@ def _grid(max_reads: int, min_cost: int, max_cost: int) -> str:
     # other. A tick that cannot be read is worse than a missing one, so crowded ones are dropped.
     drawn_x: list[int] = []
     for reads in _ticks(max_reads):
-        x = _log_scale(reads, 0, max_reads, PLOT_LEFT, PLOT_RIGHT)
+        x = _log_scale(reads, 1, max_reads, PLOT_LEFT, PLOT_RIGHT)
         if any(abs(x - other) < MIN_TICK_GAP_X for other in drawn_x):
             continue
         drawn_x.append(x)
@@ -229,7 +249,7 @@ def _grid(max_reads: int, min_cost: int, max_cost: int) -> str:
     parts.append(
         gridlines(
             [
-                _log_scale(value, 0, max_reads, PLOT_LEFT, PLOT_RIGHT)
+                _log_scale(value, 1, max_reads, PLOT_LEFT, PLOT_RIGHT)
                 for value in _minor_values(1, max_reads)
             ],
             span=(PLOT_TOP, PLOT_BOTTOM),
@@ -254,10 +274,24 @@ def _grid(max_reads: int, min_cost: int, max_cost: int) -> str:
             continue
         drawn_y.append(y)
         parts.append(
-            tick_label(x=PLOT_LEFT - 6, y=y + 4, text=format_micros(cost, 2), anchor="end")
+            tick_label(x=PLOT_LEFT - 6, y=y + 4, text=format_axis_micros(cost), anchor="end")
         )
         parts.append(gridlines([y], span=(PLOT_LEFT, PLOT_RIGHT), vertical=False))
     return "".join(parts)
+
+
+def _decade_below(value: int) -> int:
+    """The power of ten at or below ``value`` — the axis floor."""
+    if value <= 0:
+        return 1
+    return int(10 ** math.floor(math.log10(value)))
+
+
+def _decade_above(value: int) -> int:
+    """The power of ten at or above ``value`` — the axis ceiling."""
+    if value <= 0:
+        return 1
+    return int(10 ** math.ceil(math.log10(value)))
 
 
 def _minor_values(lowest: float, highest: float) -> list[float]:
@@ -282,37 +316,33 @@ def _minor_values(lowest: float, highest: float) -> list[float]:
 
 
 def _money_ticks(lowest: int, highest: int) -> list[int]:
-    """Powers of ten that render as *distinct* money, plus the top of the range.
+    """Every power of ten across the range, which is where the gridlines go.
 
-    Ticks below a cent all format to "<$0.01", so a naive powers-of-ten ladder stacks four
-    identical labels down the axis and says nothing. An axis whose labels repeat is worse than
-    one with fewer of them.
+    The range is decade-aligned by the caller, so the first and last ticks *are* the ends and
+    nothing extra has to be appended for them. Labelled with `format_axis_micros`, because the
+    figure formatter collapses everything under half a cent to "<$0.01" and three of these
+    decades are below a cent — a ladder of identical labels says nothing.
     """
+    if lowest <= 0:
+        return []
     values: list[int] = []
-    seen: set[str] = set()
-    tick = CENT
-    while tick < lowest:
-        tick *= 10
+    tick = lowest
     while tick <= highest:
-        rendered = format_micros(tick, 2)
-        if rendered not in seen:
-            seen.add(rendered)
-            values.append(tick)
+        values.append(tick)
         tick *= 10
-    for edge in (lowest, highest):
-        if edge > 0 and format_micros(edge, 2) not in seen:
-            seen.add(format_micros(edge, 2))
-            values.append(edge)
     return values
 
 
 def _ticks(highest: int) -> list[int]:
-    """Powers of ten up to the maximum, plus the maximum itself, deduplicated and ordered."""
+    """Powers of ten up to the maximum, which is decade-aligned by the caller.
+
+    Nothing extra is appended for the end: the end *is* a power of ten, so appending it would
+    duplicate the last tick — and when it was not, that final tick landed a fraction of a
+    decade from its neighbour and made an otherwise uniform axis look wrong.
+    """
     values = [1]
     while values[-1] * 10 <= highest:
         values.append(values[-1] * 10)
-    if highest > 0 and highest not in values:
-        values.append(highest)
     return values
 
 

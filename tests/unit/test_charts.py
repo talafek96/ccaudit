@@ -13,13 +13,14 @@ these tests pin the renderer and only the renderer.
 import re
 from html import escape
 from itertools import pairwise
+from pathlib import Path
 from typing import Any
 
 import pytest
 
 from ccaudit.config.components import ATTRIBUTION_COMPONENTS, CHARGE_COMPONENTS, sig_figs_for
 from ccaudit.model.reconcile import UNATTRIBUTED_DISPLAY
-from ccaudit.money import format_micros, format_share
+from ccaudit.money import format_axis_micros, format_micros, format_share
 from ccaudit.render.charts import (
     CHART_WIDTH,
     SERIES_SLOT_COUNT,
@@ -45,7 +46,17 @@ from ccaudit.render.charts.bars import (
     stacked_bars,
 )
 from ccaudit.render.charts.hierarchy import icicle
-from ccaudit.render.charts.scatter import _cause, _money_ticks, cause_scatter, session_bars
+from ccaudit.render.charts.scatter import (
+    PLOT_BOTTOM,
+    PLOT_TOP,
+    _cause,
+    _decade_above,
+    _decade_below,
+    _log_scale,
+    _money_ticks,
+    cause_scatter,
+    session_bars,
+)
 from ccaudit.render.charts.timeline import (
     LABEL_GUTTER,
     MAX_SPANS,
@@ -681,10 +692,29 @@ class TestCausePlot:
         assert all(gap >= MIN_TICK_GAP_Y for gap in gaps), gaps
 
     def test_no_axis_label_is_repeated(self) -> None:
-        """Ticks below a cent all render as '<$0.01'; four identical labels say nothing."""
-        labels = _money_ticks(1, 50_000_000)
-        rendered = [format_micros(value, 2) for value in labels]
-        assert len(rendered) == len(set(rendered))
+        """Same invariant, checked against the formatter the axis actually uses.
+
+        It used to be checked against `format_micros`, which collapses everything under half a
+        cent to "<$0.01" — so the only way to satisfy it was to drop those decades, leaving the
+        axis ruled unevenly at the ends. Ticks now use `format_axis_micros`, which keeps them
+        distinct, and every decade can be drawn.
+        """
+        labels = _money_ticks(100, 50_000_000)
+        rendered = [format_axis_micros(value) for value in labels]
+        assert len(rendered) == len(set(rendered)), rendered
+
+    def test_every_gridline_is_a_decade_so_they_are_evenly_spaced(self) -> None:
+        """The reason the ends looked wrong: they were the data range, not powers of ten.
+
+        Clamped to the data, the bottom line sat 1.41 decades from its neighbour and the top
+        0.88 — uniform everywhere between, visibly broken at both ends.
+        """
+        ticks = _money_ticks(_decade_below(386), _decade_above(75_149_486))
+
+        assert ticks == [100, 1_000, 10_000, 100_000, 1_000_000, 10_000_000, 100_000_000]
+        positions = [_log_scale(t, ticks[0], ticks[-1], PLOT_BOTTOM, PLOT_TOP) for t in ticks]
+        gaps = [first - second for first, second in pairwise(positions)]
+        assert max(gaps) - min(gaps) <= 1, gaps
 
     def test_each_point_carries_its_figure_and_share(self, plot: str) -> None:
         for title in SVG_TITLE.findall(plot):
@@ -1067,3 +1097,42 @@ class TestEveryMeasurableAxisIsRuled:
             assert all(0 < turn < count for turn in ticks)
             assert all(turn > count * 0.05 for turn in ticks), count
             assert all(turn < count * 0.95 for turn in ticks), count
+
+
+class TestALogAxisIsEvenlySpaced:
+    """A step of one decade is the same distance anywhere on the axis. That is the whole claim
+    of a log scale, and the caption makes it: "a step right or up is a multiplication".
+
+    Both axes broke it in different ways — the cost axis was clamped to the data at its ends,
+    and the reads axis was shifted by one "so zero fits", which is not a log scale at all.
+    """
+
+    def positions(self, ticks: list[int], low: int, high: int) -> list[int]:
+        return [_log_scale(tick, low, high, 0, 1000) for tick in ticks]
+
+    def test_consecutive_decades_are_equally_far_apart(self) -> None:
+        gaps = [
+            second - first
+            for first, second in pairwise(self.positions([1, 10, 100, 1_000], 1, 1_000))
+        ]
+        assert max(gaps) - min(gaps) <= 1, gaps
+
+    def test_the_reads_axis_is_not_shifted(self) -> None:
+        """The shift put 1, 10 and 100 at 232px and 303px apart on a real plot."""
+        one, ten, hundred = self.positions([1, 10, 100], 1, 100)
+        assert abs((ten - one) - (hundred - ten)) <= 1
+
+    def test_a_zero_is_placed_at_the_floor_rather_than_crashing(self) -> None:
+        """A log axis has no zero. Nothing produces one here, but a guard beats an assumption."""
+        assert _log_scale(0, 1, 100, 0, 1000) == 0
+
+    def test_points_and_gridlines_share_one_scale(self) -> None:
+        """They were drawn by the same function with different floors, so a point could sit
+        beside the gridline for its own value."""
+        source = (
+            Path(__file__).resolve().parents[2] / "src/ccaudit/render/charts/scatter.py"
+        ).read_text(encoding="utf-8")
+        calls = re.findall(r"_log_scale\([^)]*\)", source)
+        reads_calls = [call for call in calls if "max_reads" in call]
+        assert reads_calls, "no reads call found; this test no longer checks anything"
+        assert all("1, max_reads" in call for call in reads_calls), reads_calls
