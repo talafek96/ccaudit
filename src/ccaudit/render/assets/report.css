@@ -1217,3 +1217,40 @@ main h2::before {
    there is no fade. Motion stays on controls, where the worst case is a button that does not
    animate.
    ───────────────────────────────────────────────────────────────────────────────────────*/
+
+/* ── Breathing room ────────────────────────────────────────────────────────────────────
+   The charts carried no padding, which cost nothing while they had no visible surface: text
+   flush against an edge nobody can see is just text on the page. Giving them a background
+   and a lit border made that edge real, and every title and note was suddenly touching it.
+   A surface you can see is a surface that has to be inset.
+
+   The panels get the same treatment on the left, where the accent spine now runs — 3px of
+   colour hard against the first character reads as a defect, not as a device. */
+
+.chart {
+  padding: 1.15rem 1.4rem 1.3rem;
+}
+
+/* The plot itself keeps the full inset width; only the frame moved. */
+.chart-svg,
+.chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.panel {
+  padding: 1.5rem 1.7rem;
+  padding-left: calc(1.7rem + 3px);
+}
+
+/* Charts sitting directly under a panel are part of the same exhibit, so they line up with
+   it rather than starting their own margin. */
+main > .chart + .chart { margin-top: 1rem; }
+
+/* Prose inside a surface should not run the full width of a wide monitor — a line of 140
+   characters is measured in eye movements, not in pixels. */
+.chart-note,
+.panel > p {
+  max-width: 78ch;
+}
