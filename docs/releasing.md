@@ -3,6 +3,12 @@
 Publishing a version of ccost to PyPI. Two one-time setup steps, then one command per
 release.
 
+> There was a `rel/stable` branch here until 0.1.0. It existed from when pushing it was what
+> triggered the publish; once a published GitHub Release became the trigger, it only fed a
+> containment check that `main` answers just as well — the workflow re-runs the whole gate on
+> the tagged commit regardless. It was ceremony describing itself. A maintenance line (shipping
+> 0.1.x while `main` moves to 0.2) is the one thing that would bring it back.
+
 ## The three names
 
 | Name | Is | Where it appears |
@@ -19,12 +25,12 @@ is registered against the *distribution*, the workflow asserts artifact filename
 
 **The git tag is the version.** `hatch-vcs` reads it at build time, so there is no number in
 a file that can disagree with the tag — "bumped and tagged" is one fact, not two that drift.
-`scripts/release.py` fast-forwards `rel/stable` to `main`, pushes the branch and its tag in one
-atomic push, and leaves a **draft GitHub Release**.
+`scripts/release.py` tags a commit on `main`, pushes the tag, and leaves a **draft GitHub
+Release**.
 
 **Nothing ships until you publish that Release.** Publishing it is what starts
 `.github/workflows/release.yml`, which re-runs the full gate on that exact commit, refuses
-anything not contained in `rel/stable`, waits for your approval, and uploads over OIDC —
+anything not contained in `main`, waits for your approval, and uploads over OIDC —
 **no API token exists anywhere**. A tag on its own publishes nothing, so tags stay cheap.
 
 ---
@@ -81,15 +87,13 @@ The script refuses, before changing anything, if:
 
 - the working tree is dirty — a release is built from a commit, not from your disk;
 - `main` and `origin/main` disagree — you would be releasing something unpushed;
-- `origin/rel/stable` has commits `main` does not — someone committed to the release branch
-  directly, so the release would contain code that never passed CI on `main`;
 - the tag already exists — a published version is never re-cut.
 
 The script prints a link to the draft Release it created. Then:
 
 1. **Open the draft**, read the generated notes, edit them, and press **Publish release**.
    Until you do, nothing has been built and nothing can reach PyPI.
-2. **`verify`** starts automatically: tag shape, containment in `rel/stable`, `ruff format
+2. **`verify`** starts automatically: tag shape, containment in `main`, `ruff format
    --check`, `ruff check`, `mypy`, `pytest`, then builds and asserts the artifact's version
    equals the tag.
 3. **`publish`** waits for you a second time. Open the run → **Review deployments** → tick
@@ -133,6 +137,8 @@ from a git URL is unaffected.
   `Workflow name` = `release.yml` (the filename) and `Environment name` = `pypi`.
 - **"File already exists"** — that version is on PyPI and cannot be replaced. Cut the next
   patch version; PyPI does not allow re-uploading, by design.
+- **"is not contained in main"** — the Release was published for a commit that is not on the
+  trunk. Release from `main`, using `scripts/release.py`.
 - **The `verify` job failed** — nothing was published. Fix it on `main`, then release again;
   the tag from the failed attempt still exists, so use the next version.
 - **Nothing happened when I pushed a tag** — that is the design. A tag publishes nothing on

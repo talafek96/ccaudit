@@ -9,9 +9,9 @@
 # only stops at the approval gate — turns the gate into noise you learn to click through.
 # Publishing a Release is unambiguous; nobody does it by accident.
 #
-# The release is still required to come off `rel/stable`, which is checked below. That check
-# can fail loudly here precisely because getting this far was deliberate: if you published a
-# Release for a commit that was never promoted, that is worth a red X, not a silent skip.
+# The release is still required to come off `main`, which is checked below. That check can fail
+# loudly here precisely because getting this far was deliberate: if you published a Release for a
+# commit that is not on the trunk, that is worth a red X, not a silent skip.
 name: release
 
 on:
@@ -52,16 +52,15 @@ jobs:
           echo "TAG=$TAG" >> "$GITHUB_ENV"
           echo "VERSION=${TAG#v}" >> "$GITHUB_ENV"
 
-      - name: the released commit must be on rel/stable
+      - name: the released commit must be on main
         run: |
           set -euo pipefail
-          git fetch --quiet origin refs/heads/rel/stable:refs/remotes/origin/rel/stable
+          git fetch --quiet origin refs/heads/main:refs/remotes/origin/main
           commit="$(git rev-parse HEAD)"
-          if ! git merge-base --is-ancestor "$commit" origin/rel/stable; then
-            echo "::error::$commit is not contained in rel/stable. A release is cut from the"
-            echo "::error::release branch; releasing any other commit publishes code that"
-            echo "::error::never sat on it. Use scripts/release.py, which promotes the branch"
-            echo "::error::and pushes its tag together."
+          if ! git merge-base --is-ancestor "$commit" origin/main; then
+            echo "::error::$commit is not contained in main. A release is cut from the trunk;"
+            echo "::error::releasing any other commit publishes something that was never"
+            echo "::error::reviewed there. Use scripts/release.py, which tags a commit on main."
             exit 1
           fi
 

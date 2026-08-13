@@ -888,8 +888,14 @@ install is worse than not publishing at all.
 
 ### Planned release pipeline
 
-- **REL-002**: A dedicated release branch, `rel/stable`, is the sole publication trigger.
-  Pushing to it is the deliberate act of cutting a release; no other branch publishes.
+- **REL-002**: Publishing a **GitHub Release** is the sole publication trigger, and the released
+  commit MUST be contained in `main`. Publishing the Release is the deliberate act of cutting a
+  release; a tag on its own publishes nothing.
+  *Amended 2026-08-14 (was: a dedicated `rel/stable` branch is the sole trigger, pushed to). A
+  branch push cannot answer "was this tagged?" about itself — the run starts before the tag
+  necessarily exists — and once the Release became the trigger, the branch only fed a containment
+  check that `main` answers just as well, since REL-003 re-runs the whole suite on the tagged
+  commit regardless. A maintenance line would justify reinstating it.*
 - **REL-003**: The pipeline MUST run the full verification suite — tests, linting, and type
   checking — and MUST publish only if every check passes. A red build publishes nothing.
 - **REL-004**: Publication MUST authenticate via OIDC trusted publishing, so no long-lived

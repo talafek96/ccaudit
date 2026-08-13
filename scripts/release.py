@@ -3,7 +3,7 @@
 # requires-python = ">=3.12"
 # dependencies = []
 # ///
-"""Cut a release: tag a commit on `rel/stable` and push, which is what triggers publishing.
+"""Cut a release: tag a commit on `main` and push, then draft the GitHub Release.
 
     uv run scripts/release.py patch          # 0.2.0 -> 0.2.1
     uv run scripts/release.py minor          # 0.2.1 -> 0.3.0
@@ -15,9 +15,15 @@
 tag *is* the release. That is the whole reason this script is short: it has one artifact to
 create, not two to keep in agreement.
 
-Everything is checked before anything is pushed, and the branch and the tag go together in
-one atomic push — a `rel/stable` that moved without its tag would be a release from nowhere,
-and a tag without the branch would be one the CD workflow refuses.
+Everything is checked before anything is pushed. There is one ref to create — the tag — because
+`main` is the only branch a release comes from.
+
+There used to be a `rel/stable` branch here, from when pushing it was what triggered the
+publish. Once a published GitHub Release became the trigger, the branch only fed a containment
+check that `main` answers just as well: the workflow re-runs the entire gate on the tagged
+commit anyway, so "code that never passed CI" was never what the branch was preventing. It was
+ceremony describing itself, and it is gone. A maintenance line — shipping 0.1.x while `main`
+moves to 0.2 — is the one thing that would bring it back, and is worth building when it exists.
 
 **Pushing does not publish.** Publishing is triggered by a GitHub *Release*, so this leaves a
 **draft** one for you to read and press the button on. That is the deliberate act, and it is
@@ -32,7 +38,6 @@ import subprocess
 import sys
 from dataclasses import dataclass
 
-RELEASE_BRANCH = "rel/stable"
 SOURCE_BRANCH = "main"
 REMOTE = "origin"
 
@@ -120,17 +125,6 @@ def check_preconditions() -> str:
             f"from what is pushed, not from what is local: push or pull {SOURCE_BRANCH} first."
         )
 
-    # `rel/stable` only ever fast-forwards from `main`. Anything else means someone committed
-    # to the release branch directly, and the release would contain code that never sat on
-    # main or passed its CI.
-    if git("rev-parse", "--verify", "--quiet", f"{REMOTE}/{RELEASE_BRANCH}", check=False):
-        behind = git("rev-list", "--count", f"{local}..{REMOTE}/{RELEASE_BRANCH}")
-        if behind != "0":
-            raise Refused(
-                f"{REMOTE}/{RELEASE_BRANCH} has {behind} commit(s) that {SOURCE_BRANCH} does "
-                f"not. It must only ever fast-forward from {SOURCE_BRANCH}; reconcile them "
-                f"before releasing."
-            )
     return local
 
 
@@ -172,26 +166,16 @@ def main() -> int:
         print(f"  from      {SOURCE_BRANCH} at {commit[:9]} — {subject}")
         print(f"  version   {current or 'none yet'} -> {following}")
         print(f"  tag       {tag}")
-        print(f"  push      {REMOTE} {RELEASE_BRANCH} + {tag}  (atomic)")
+        print(f"  push      {REMOTE} {tag}")
 
         if args.dry_run:
             print("\n  --dry-run: nothing was changed.")
             return 0
 
         # Local first, so a failure leaves nothing published to undo.
-        git("branch", "--force", RELEASE_BRANCH, commit)
         git("tag", "--annotate", tag, "--message", f"claude-cost-tracker {following}", commit)
         try:
-            # Atomic: the branch and its tag land together or not at all. Separately, a
-            # half-push leaves either a release the workflow refuses or a branch claiming to
-            # be stable that nothing verified.
-            git(
-                "push",
-                "--atomic",
-                REMOTE,
-                f"{RELEASE_BRANCH}:{RELEASE_BRANCH}",
-                f"refs/tags/{tag}",
-            )
+            git("push", REMOTE, f"refs/tags/{tag}")
         except Refused:
             # Roll the local tag back so a retry is not blocked by wreckage from this attempt.
             git("tag", "--delete", tag, check=False)

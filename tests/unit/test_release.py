@@ -79,17 +79,21 @@ class TestItRefusesBeforeItActs:
         """Principle I: every failure names the offending state and the way out of it."""
         assert issubclass(release.Refused, RuntimeError)
 
-    def test_the_branch_and_tag_are_pushed_atomically(self, release: ModuleType) -> None:
-        """Separately pushed, a half-failure leaves either a release the workflow refuses or a
-        rel/stable claiming to be stable that nothing verified."""
+    def test_a_release_creates_exactly_one_ref(self, release: ModuleType) -> None:
+        """The tag. Nothing else — a second ref is a second thing that can be half-pushed."""
         source = SCRIPT.read_text(encoding="utf-8")
-        assert '"--atomic"' in source
+        assert "--atomic" not in source
+        assert 'git("branch"' not in source
 
-    def test_it_releases_from_the_release_branch_the_workflow_checks(
-        self, release: ModuleType
-    ) -> None:
+    def test_it_releases_from_the_branch_the_workflow_checks(self, release: ModuleType) -> None:
         """A cross-file contract: the workflow asserts containment in this exact branch, so a
-        rename here without one there rejects every release."""
+        rename here without one there rejects every release.
+
+        This used to name `rel/stable`. That branch existed from when pushing it was the
+        trigger; once a published GitHub Release became the trigger it only fed a check that
+        `main` answers just as well, so it is gone rather than kept for symmetry.
+        """
         workflow = (SCRIPT.parents[1] / ".github/workflows/release.yml").read_text(encoding="utf-8")
-        assert release.RELEASE_BRANCH == "rel/stable"
-        assert release.RELEASE_BRANCH in workflow
+        assert release.SOURCE_BRANCH == "main"
+        assert "origin/main" in workflow
+        assert "rel/stable" not in workflow, "the retired release branch is back in the workflow"
