@@ -25,7 +25,8 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
+from itertools import product
+from pathlib import Path, PureWindowsPath
 from typing import Any
 
 from ccaudit.ingest.records import iter_records
@@ -48,6 +49,11 @@ _NON_ALPHANUMERIC = re.compile(r"[^a-zA-Z0-9]")
 # the "-" the separator after it became. `C:\Users\x` → `C--Users-x`. This is the only encoded
 # form that does not start with "-", which is what makes it distinguishable at all.
 _ENCODED_DRIVE = re.compile(r"^([A-Za-z])--")
+
+# How many doubled dashes in one name are worth enumerating readings for. Each one doubles the
+# candidate set, and a name carrying more than a handful is not a name we are going to decode
+# confidently anyway — past this the naive reading is the only one offered.
+_DOUBLED_DASH_LIMIT = 6
 
 # A session whose files were written this recently is *probably* still running. This is a hint
 # for the listing only — it is never what decides whether a stored figure is current, because
@@ -176,6 +182,29 @@ def encode_project_dir(project_path: Path) -> str:
     return _NON_ALPHANUMERIC.sub("-", str(project_path))
 
 
+def project_lookup_path(project_path: Path) -> Path:
+    """A project path as a lookup key: a relative one made absolute, an absolute one untouched.
+
+    ``ccaudit --project .`` has to mean *this directory*. Encoded as written, ``.`` becomes
+    ``-`` — which is the directory a POSIX machine records sessions run from ``/`` — so the
+    lookup landed on a stranger's session and reported it as this project's cost. That is the
+    same phantom this module's encoding exists to stop, reached from a third direction.
+
+    Resolution belongs **here and not in** :func:`encode_project_dir`, which must stay a
+    question about the path *string* rather than about this host: ``~/.claude`` is synced
+    between machines, and resolving ``C:\\Users\\x\\source`` on a POSIX box would prefix the
+    Linux working directory and encode a name that no machine ever wrote.
+
+    ``Path.is_absolute`` is the wrong test for "already anchored", in both directions:
+    ``/Users/x/p`` reports ``False`` on Windows and ``C:/Users/x/p`` reports ``False`` on POSIX.
+    Resolving on either answer would corrupt exactly the cross-machine lookup that works today.
+    Anchored under *either* convention counts as anchored.
+    """
+    if project_path.anchor or PureWindowsPath(project_path).drive:
+        return project_path
+    return project_path.resolve()
+
+
 def decode_project_dir(directory_name: str, *, must_exist: bool = True) -> Path | None:
     """Best-effort recovery of the project path from a project directory's name.
 
@@ -189,23 +218,56 @@ def decode_project_dir(directory_name: str, *, must_exist: bool = True) -> Path 
     (Principle X).
 
     A project directory that has since been deleted or renamed decodes to ``None``, as does one
-    recorded on a different machine. That is the honest answer: its transcripts are still
-    analysable, we just cannot say where the code lived.
+    recorded on a different machine, and so does one whose name reads two ways with both
+    readings present on disk. That is the honest answer: its transcripts are still analysable,
+    we just cannot say where the code lived.
     """
     drive = _ENCODED_DRIVE.match(directory_name)
     if drive is not None:
         # `C--Users-x` → `C:/Users/x`. Written with forward slashes so the decode does not
         # depend on the host separator; `Path` renders it in the host's own form.
-        body = directory_name[drive.end() :].replace("-", "/")
-        candidate = Path(f"{drive.group(1)}:/{body}")
+        prefix, body = f"{drive.group(1)}:/", directory_name[drive.end() :]
     elif directory_name.startswith("-"):
-        candidate = Path(directory_name.replace("-", "/"))
+        prefix, body = "", directory_name
     else:
         # Not the encoded form (a relative path, or a directory we did not create). Left alone.
         return None
+
+    candidates = [Path(prefix + reading) for reading in _readings(body)]
     if not must_exist:
-        return candidate
-    return candidate if candidate.is_dir() else None
+        # The naive reading, which is the documented one and what the caller asked for.
+        return candidates[0]
+    existing = [candidate for candidate in candidates if candidate.is_dir()]
+    # Exactly one reading on disk is an answer. Two is a coin toss, and a coin toss presented as
+    # a project path is the wrong kind of confident (Principle X).
+    return existing[0] if len(existing) == 1 else None
+
+
+def _readings(body: str) -> list[str]:
+    """The paths an encoded body could have come from, naive reading first.
+
+    A **doubled** dash is the one ambiguity worth modelling: it means two non-alphanumeric
+    characters ran together, and overwhelmingly that is a separator followed by the ``.`` of a
+    dot-directory. ``C--Users-x--claude`` is how ``C:\\Users\\x\\.claude`` is stored, and reading
+    it naively yields ``C:\\Users\\x\\claude`` — a different directory, which on a real machine
+    may well exist.
+
+    Every *single* dash is ambiguous too, and those are not modelled: with one reading per dash
+    the candidate set is exponential in the length of the name, and the payoff is a display
+    label. This buys back the common case and stays linear.
+    """
+    segments = body.split("--")
+    naive = "/".join(segment.replace("-", "/") for segment in segments)
+    if len(segments) - 1 not in range(1, _DOUBLED_DASH_LIMIT + 1):
+        return [naive]
+    plain = [segment.replace("-", "/") for segment in segments]
+    readings = []
+    for joins in product(("/", "/."), repeat=len(plain) - 1):
+        text = plain[0]
+        for join, segment in zip(joins, plain[1:], strict=True):
+            text += join + segment
+        readings.append(text)
+    return readings
 
 
 def scan_transcript(
@@ -291,14 +353,20 @@ def sessions_for_project(
 ) -> list[SessionRef]:
     """Sessions recorded for one project directory, newest first. Empty when it has none.
 
-    The encoded name is a single path segment with no separator and no drive in it, which is
-    what makes this join safe. It has not always been: an encoding that left the drive colon in
-    produced ``C:-Users-x``, and joining *that* onto the projects root made ``pathlib`` read the
-    leading ``C:`` as a drive and drop it — so every Windows lookup silently searched the
+    A relative path is resolved first (:func:`project_lookup_path`), because ``.`` is an
+    ordinary thing to pass and encodes to ``-`` — a real directory belonging to another machine.
+    Every caller gets that for free, which is the point of doing it here rather than at each
+    one; the resolution deliberately does not reach :func:`encode_project_dir`, which must stay
+    host-independent.
+
+    The encoded name is then a single path segment with no separator and no drive in it, which
+    is what makes this join safe. It has not always been: an encoding that left the drive colon
+    in produced ``C:-Users-x``, and joining *that* onto the projects root made ``pathlib`` read
+    the leading ``C:`` as a drive and drop it — so every Windows lookup silently searched the
     POSIX-shaped directory of some other machine instead, and found nothing or, worse, someone
     else's session.
     """
-    directory = projects_root(home) / encode_project_dir(project_path)
+    directory = projects_root(home) / encode_project_dir(project_lookup_path(project_path))
     if not directory.is_dir():
         return []
     sessions = [
