@@ -18,11 +18,13 @@ from ccaudit.ingest.discover import (
     MAX_TITLE_LENGTH,
     SHORT_ID_LENGTH,
     TranscriptTreeError,
+    _readings,
     claude_home,
     decode_project_dir,
     discover_sessions,
     encode_project_dir,
     fingerprint_transcript,
+    project_lookup_path,
     scan_transcript,
     session_ref,
     session_title,
@@ -527,3 +529,144 @@ class TestSessionNames:
     def test_a_name_is_collapsed_to_one_line(self) -> None:
         """A newline in a name breaks every single-line surface it appears on."""
         assert session_title({"type": "ai-title", "aiTitle": "two\n\n  lines"}) == "two lines"
+
+
+class TestARelativeProjectIsResolvedBeforeItIsLookedUp:
+    """`--project .` is an ordinary thing to type, and it encoded to `-`.
+
+    A regression this branch introduced. Under the old separator-only rule `.` encoded to `.`,
+    so the lookup landed on the projects *root*, whose glob matches nothing — an empty result,
+    and harmless. Under the measured rule `.` encodes to `-`, which is the directory a POSIX
+    machine records sessions run from `/`. So the lookup landed on a stranger's session and
+    reported it as this project's cost: the same phantom the encoding fix exists to stop,
+    reached from a third direction.
+
+    Resolution happens at the lookup, deliberately not in `encode_project_dir` — see
+    `TestALookupPathIsNotAnEncoding` below.
+    """
+
+    def test_a_dot_project_does_not_pick_up_another_machines_root_directory(
+        self, claude_config: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        projects = claude_config / "projects"
+        posix_root = projects / "-"
+        posix_root.mkdir()
+        (posix_root / "someone-elses.jsonl").write_text(f"{_record('a')}\n", encoding="utf-8")
+        work = tmp_path / "repo"
+        work.mkdir()
+        monkeypatch.chdir(work)
+
+        assert sessions_for_project(Path(".")) == []
+
+    def test_a_dot_project_finds_the_current_directory_s_own_sessions(
+        self, claude_config: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The other half: resolving must find the right answer, not merely avoid a wrong one."""
+        work = tmp_path / "repo"
+        work.mkdir()
+        _write_session(claude_config / "projects", work.resolve(), "mine", ["a"])
+        monkeypatch.chdir(work)
+
+        assert [ref.session_id for ref in sessions_for_project(Path("."))] == ["mine"]
+
+    def test_a_relative_subdirectory_resolves_against_the_working_directory(
+        self, claude_config: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        work = tmp_path / "repo"
+        (work / "sub").mkdir(parents=True)
+        _write_session(claude_config / "projects", (work / "sub").resolve(), "nested", ["a"])
+        monkeypatch.chdir(work)
+
+        assert [ref.session_id for ref in sessions_for_project(Path("sub"))] == ["nested"]
+
+
+class TestALookupPathIsNotAnEncoding:
+    """Resolving belongs to the lookup, never to the encoder.
+
+    `encode_project_dir` answers "what did the machine that recorded this session call it",
+    which is a question about the path *string*. `~/.claude` is synced between machines, so
+    asking a Windows host about a POSIX-recorded project is a real question with a real answer —
+    and resolving that path first would anchor it to this host and encode a name nobody wrote.
+    """
+
+    def test_a_relative_path_is_made_absolute(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+
+        assert project_lookup_path(Path(".")) == tmp_path.resolve()
+
+    @pytest.mark.parametrize("anchored", ["/Users/x/p", "C:/Users/x/p", r"C:\Users\x\p"])
+    def test_an_anchored_path_is_left_exactly_as_given(self, anchored: str) -> None:
+        """`Path.is_absolute` is the wrong test here, and wrong in both directions.
+
+        `/Users/x/p` reports False on Windows, and `C:/Users/x/p` reports False on POSIX. Either
+        answer, acted on, resolves a foreign path onto this host and looks up the wrong name.
+        """
+        assert project_lookup_path(Path(anchored)) == Path(anchored)
+
+    def test_the_encoder_itself_never_resolves(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """It must keep answering about the string, whatever the working directory is."""
+        monkeypatch.chdir(tmp_path)
+
+        assert encode_project_dir(Path("C:/Users/x/p")) == "C--Users-x-p"
+        assert encode_project_dir(Path("/Users/x/p")) == "-Users-x-p"
+
+
+class TestADoubledDashReadsTwoWays:
+    r"""`C--Users-x--claude` is how `C:\Users\x\.claude` is stored, and how `C:\Users\x\claude` is.
+
+    Reading it naively drops the dot. On a machine where the undotted directory happens to
+    exist, `must_exist=True` handed back a confidently wrong project path. Lookup always
+    encodes, so this could never *select* a stranger's session — it could only mislabel the
+    project column, which is still a number-adjacent surface telling the reader something false.
+    """
+
+    def test_both_readings_are_offered_naive_first(self) -> None:
+        assert _readings("Users-x--claude") == ["Users/x/claude", "Users/x/.claude"]
+
+    def test_a_name_without_a_doubled_dash_has_one_reading(self) -> None:
+        assert _readings("Users-x-src") == ["Users/x/src"]
+
+    def test_readings_stay_bounded(self) -> None:
+        """Each doubled dash doubles the set, so a pathological name falls back to the naive one."""
+        pathological = "a--b--c--d--e--f--g--h--i"
+
+        assert _readings(pathological) == ["a/b/c/d/e/f/g/h/i"]
+
+    def _present(self, monkeypatch: pytest.MonkeyPatch, *paths: Path) -> None:
+        """Stand in for the filesystem.
+
+        Faked rather than created, because the tie has to be observed at an *absolute* path and
+        `tmp_path` cannot provide one: pytest's own temporary directory names contain hyphens,
+        so the naive decode of any name built from it misses the whole prefix and returns None
+        for a reason that has nothing to do with the rule under test. A test that passed that
+        way would be fencing nothing.
+        """
+        existing = set(paths)
+        monkeypatch.setattr(Path, "is_dir", lambda self: self in existing)
+
+    def test_two_readings_that_both_exist_decode_to_none(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A coin toss presented as a project path is the wrong kind of confident."""
+        self._present(monkeypatch, Path("C:/Users/x/claude"), Path("C:/Users/x/.claude"))
+
+        assert decode_project_dir("C--Users-x--claude") is None
+
+    def test_the_dotted_reading_is_returned_when_it_is_the_only_one(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """And the rule pays for itself: `~/.claude` projects now decode instead of giving up."""
+        self._present(monkeypatch, Path("C:/Users/x/.claude"))
+
+        assert decode_project_dir("C--Users-x--claude") == Path("C:/Users/x/.claude")
+
+    def test_the_naive_reading_still_wins_when_it_is_the_only_one(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._present(monkeypatch, Path("C:/Users/x/claude"))
+
+        assert decode_project_dir("C--Users-x--claude") == Path("C:/Users/x/claude")
