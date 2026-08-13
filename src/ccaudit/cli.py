@@ -811,6 +811,12 @@ def _facts_for(ref: SessionRef, args: argparse.Namespace) -> dict[str, int]:
 
     Opt-in (`--facts`) because it analyses: a listing that reads file metadata is instant, and
     making it measure by default would make `ccaudit sessions` the slow command on a corpus.
+
+    Empty when the session cannot be priced at all, so the row carries no fact keys rather than
+    a zero — a listing is a *sweep*, and the same policy governs it as governs the other two
+    sweeps (`_analyse_selection`, the browser view). This was the third and last call site
+    analysing a discovered session without that guard, and it is the one `ccaudit sessions
+    --facts` runs, which is what the notebook shells out to on its first cell.
     """
     pricing = load_pricing()
     policy = getattr(args, "policy", DEFAULT_POLICY)
@@ -823,14 +829,18 @@ def _facts_for(ref: SessionRef, args: argparse.Namespace) -> dict[str, int]:
         stored = read_contribution(cache, key) if cache is not None and key else None
         if stored is not None:
             return session_facts(stored)
-        analysis = analyse_transcript(
-            ref.path,
-            pricing=pricing,
-            policy=policy,
-            project_path=str(ref.project_path) if ref.project_path else None,
-            provisional=ref.in_progress,
-            title=ref.title,
-        )
+        try:
+            analysis = analyse_transcript(
+                ref.path,
+                pricing=pricing,
+                policy=policy,
+                project_path=str(ref.project_path) if ref.project_path else None,
+                provisional=ref.in_progress,
+                title=ref.title,
+            )
+        except UnknownModelError as exc:
+            _LOGGER.info("no facts for %s: %s", ref.session_id, exc)
+            return {}
         if cache is not None and key is not None:
             try:
                 store_contribution(cache, key, contribution_of(analysis))
@@ -845,32 +855,42 @@ def _run_sessions(args: argparse.Namespace) -> int:
         if args.all or args.project is None
         else sessions_for_project(args.project)
     )
-    if args.project is not None and not args.all:
-        refs = sessions_for_project(args.project)
     if not refs:
         raise NoSessionsFound("no Claude Code sessions found in the local records.")
 
     if getattr(args, "json", False):
-        print(
-            json.dumps(
-                [
-                    {
-                        "session_id": ref.session_id,
-                        "short_id": ref.short_id,
-                        "title": ref.title,
-                        "display_name": ref.display_name,
-                        "project": str(ref.project_path or ref.project_dir),
-                        "modified_at": ref.modified_at.isoformat(),
-                        "record_count": ref.record_count,
-                        "byte_size": ref.byte_size,
-                        "in_progress": ref.in_progress,
-                        **(_facts_for(ref, args) if getattr(args, "facts", False) else {}),
-                    }
-                    for ref in refs
-                ],
-                indent=2,
+        measure = getattr(args, "facts", False)
+        rows: list[dict[str, Any]] = []
+        unmeasured: list[str] = []
+        for ref in refs:
+            facts = _facts_for(ref, args) if measure else {}
+            if measure and not facts:
+                unmeasured.append(ref.session_id)
+            rows.append(
+                {
+                    "session_id": ref.session_id,
+                    "short_id": ref.short_id,
+                    "title": ref.title,
+                    "display_name": ref.display_name,
+                    "project": str(ref.project_path or ref.project_dir),
+                    "modified_at": ref.modified_at.isoformat(),
+                    "record_count": ref.record_count,
+                    "byte_size": ref.byte_size,
+                    "in_progress": ref.in_progress,
+                    **facts,
+                }
             )
-        )
+        print(json.dumps(rows, indent=2))
+        # Named on stderr, never folded into the payload on stdout: a row without fact keys
+        # means "not measured", and a reader is entitled to know which rows those are and why
+        # rather than finding a gap and guessing at it (Principle X).
+        if unmeasured:
+            print(
+                f"ccaudit: {len(unmeasured)} session(s) carry no measured facts because this "
+                f"rate table cannot price the model they used: {', '.join(unmeasured)}. "
+                f"Every other figure here is unaffected.",
+                file=sys.stderr,
+            )
         return EXIT_OK
 
     console = build_console()

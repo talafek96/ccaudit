@@ -392,3 +392,72 @@ class TestAnOptionSurvivesTheSubcommand:
         assert args.top == 20
         assert args.merge_injected is True
         assert args.interval == 2.0
+
+
+class TestTheListingSurvivesAForeignSession:
+    """`ccaudit sessions --facts` is the third sweep, and it was the last one still unguarded.
+
+    It is also the one the generated notebook shells out to on its very first cell, so a single
+    session written into the shared `~/.claude` by another tool did not degrade the notebook —
+    it stopped it, with a `ccaudit exited 1` and a raw traceback.
+    """
+
+    FOREIGN_MODEL = "some-other-tool-model-1"
+
+    @pytest.fixture
+    def corpus(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+        home = tmp_path / "claude"
+        simple_session(session_id="ours", project_path="/repo/mine").write_to_project_tree(home)
+        foreign = TranscriptBuilder(session_id="theirs", project_path="/repo/mine")
+        foreign.add_user_text("do the thing")
+        foreign.add_turn(model=self.FOREIGN_MODEL, input_tokens=10, output_tokens=5)
+        foreign.write_to_project_tree(home)
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(home))
+        return home
+
+    def listing(self, capsys: pytest.CaptureFixture[str]) -> tuple[list[dict], str]:
+        out, err = capsys.readouterr()
+        return json.loads(out), err
+
+    def test_it_lists_everything_and_measures_what_it_can(
+        self, corpus: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        assert main(["sessions", "--all", "--json", "--facts"]) == EXIT_OK
+
+        rows, _ = self.listing(capsys)
+        by_id = {row["session_id"]: row for row in rows}
+        assert set(by_id) == {"ours", "theirs"}
+        assert by_id["ours"]["cost_micros"] > 0
+
+    def test_an_unpriceable_session_carries_no_fact_keys_rather_than_zeroes(
+        self, corpus: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A zero would say the session was free. Absent says "not measured", which is true."""
+        main(["sessions", "--all", "--json", "--facts"])
+
+        rows, _ = self.listing(capsys)
+        theirs = next(row for row in rows if row["session_id"] == "theirs")
+        assert "cost_micros" not in theirs
+        assert "turns" not in theirs
+        # The cheap facts, read from file metadata, are still there — only the measured ones go.
+        assert theirs["record_count"] > 0
+
+    def test_what_could_not_be_measured_is_named_on_stderr(
+        self, corpus: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Named, not counted, and not mixed into the payload a script parses (Principle X)."""
+        main(["sessions", "--all", "--json", "--facts"])
+
+        _, err = self.listing(capsys)
+        assert "theirs" in err
+        assert "cannot price" in err
+
+    def test_a_listing_without_facts_never_analyses_and_never_warns(
+        self, corpus: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """`--facts` is opt-in; without it the foreign session is just another row."""
+        assert main(["sessions", "--all", "--json"]) == EXIT_OK
+
+        rows, err = self.listing(capsys)
+        assert len(rows) == 2
+        assert err == ""
