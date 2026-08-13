@@ -7,10 +7,13 @@ release.
 
 **The git tag is the version.** `hatch-vcs` reads it at build time, so there is no number in
 a file that can disagree with the tag — "bumped and tagged" is one fact, not two that drift.
-`scripts/release.py` fast-forwards `rel/stable` to `main` and pushes the branch and its tag in
-one atomic push. The tag push starts `.github/workflows/release.yml`, which re-runs the full
-gate on that exact commit, refuses anything not contained in `rel/stable`, waits for a human,
-and uploads over OIDC — **no API token exists anywhere**.
+`scripts/release.py` fast-forwards `rel/stable` to `main`, pushes the branch and its tag in one
+atomic push, and leaves a **draft GitHub Release**.
+
+**Nothing ships until you publish that Release.** Publishing it is what starts
+`.github/workflows/release.yml`, which re-runs the full gate on that exact commit, refuses
+anything not contained in `rel/stable`, waits for your approval, and uploads over OIDC —
+**no API token exists anywhere**. A tag on its own publishes nothing, so tags stay cheap.
 
 ---
 
@@ -70,14 +73,20 @@ The script refuses, before changing anything, if:
   directly, so the release would contain code that never passed CI on `main`;
 - the tag already exists — a published version is never re-cut.
 
-Then, in GitHub Actions:
+The script prints a link to the draft Release it created. Then:
 
-1. **`verify`** runs automatically: tag shape, containment in `rel/stable`, `ruff format
+1. **Open the draft**, read the generated notes, edit them, and press **Publish release**.
+   Until you do, nothing has been built and nothing can reach PyPI.
+2. **`verify`** starts automatically: tag shape, containment in `rel/stable`, `ruff format
    --check`, `ruff check`, `mypy`, `pytest`, then builds and asserts the artifact's version
    equals the tag.
-2. **`publish`** waits. You will get a review request — open the run, **Review deployments**,
-   tick `pypi`, **Approve and deploy**.
-3. It uploads over OIDC and the version appears at <https://pypi.org/p/ccaudit>.
+3. **`publish`** waits for you a second time. Open the run → **Review deployments** → tick
+   `pypi` → **Approve and deploy**.
+4. It uploads over OIDC and the version appears at <https://pypi.org/p/ccaudit>.
+
+Two gates, deliberately, and they catch different things: publishing the Release is where you
+decide *this is a release*, and approving the deployment is where you decide *after seeing the
+gate pass*. If the gate fails, you never get asked the second question.
 
 ## After the first release
 
@@ -114,3 +123,7 @@ from a git URL is unaffected.
   patch version; PyPI does not allow re-uploading, by design.
 - **The `verify` job failed** — nothing was published. Fix it on `main`, then release again;
   the tag from the failed attempt still exists, so use the next version.
+- **Nothing happened when I pushed a tag** — that is the design. A tag publishes nothing on
+  its own; publish the GitHub Release for it.
+- **The release is a pre-release / the tag has a suffix** — only `vMAJOR.MINOR.PATCH` is
+  publishable. `v1.2.3-rc1` is refused by the first check, deliberately.

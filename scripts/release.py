@@ -16,12 +16,18 @@ tag *is* the release. That is the whole reason this script is short: it has one 
 create, not two to keep in agreement.
 
 Everything is checked before anything is pushed, and the branch and the tag go together in
-one atomic push — a `rel/stable` that moved without its tag would start a release the CD
-workflow then refuses, and a tag without the branch would be a release from nowhere.
+one atomic push — a `rel/stable` that moved without its tag would be a release from nowhere,
+and a tag without the branch would be one the CD workflow refuses.
+
+**Pushing does not publish.** Publishing is triggered by a GitHub *Release*, so this leaves a
+**draft** one for you to read and press the button on. That is the deliberate act, and it is
+also where the notes get written. Without `gh` installed the script prints the URL to create
+it by hand; nothing about the release depends on the tool being present.
 """
 
 import argparse
 import re
+import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -191,17 +197,52 @@ def main() -> int:
             git("tag", "--delete", tag, check=False)
             raise
 
-        print(f"\n  pushed. Publishing waits for approval: {_actions_url()}")
+        print(f"\n  pushed. {_draft_release(tag, following)}")
         return 0
     except Refused as refusal:
         print(f"release refused: {refusal}", file=sys.stderr)
         return 1
 
 
-def _actions_url() -> str:
+def _slug() -> str:
     remote = git("remote", "get-url", REMOTE, check=False)
-    slug = re.sub(r"^(git@github\.com:|https://github\.com/)|\.git$", "", remote)
-    return f"https://github.com/{slug}/actions" if slug else "the repository's Actions tab"
+    return re.sub(r"^(git@github\.com:|https://github\.com/)|\.git$", "", remote)
+
+
+def _draft_release(tag: str, version: Version) -> str:
+    """Leave a draft GitHub Release, which is what actually starts the publish when opened.
+
+    A draft on purpose. Creating it published would make this script the thing that ships to
+    PyPI, and the whole point of the Release trigger is that shipping is a separate, visible
+    decision — one a person makes after reading what is in it.
+    """
+    slug = _slug()
+    if not shutil.which("gh"):
+        target = f"https://github.com/{slug}/releases/new?tag={tag}" if slug else "GitHub"
+        return f"Publish a Release for {tag} to ship it: {target}"
+
+    drafted = subprocess.run(
+        [
+            "gh",
+            "release",
+            "create",
+            tag,
+            "--draft",
+            "--title",
+            f"ccaudit {version}",
+            # Notes from the commits since the last release, so the draft opens with something
+            # to edit rather than an empty box.
+            "--generate-notes",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=repo_root(),
+    )
+    if drafted.returncode != 0:
+        detail = drafted.stderr.strip() or "no detail"
+        return f"tag pushed, but drafting the Release failed ({detail}). Create it by hand."
+    return f"Draft Release ready — review it and press Publish to ship:\n  {drafted.stdout.strip()}"
 
 
 if __name__ == "__main__":

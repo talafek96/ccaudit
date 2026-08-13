@@ -4,15 +4,19 @@
 # workflow file, this environment — and mints a short-lived credential for the run that
 # matches. Nothing to rotate, nothing to leak, nothing in the repository's secrets.
 #
-# **The tag is the trigger, not a push to rel/stable.** A branch push cannot answer "was this
-# tagged?" about itself: the workflow starts before the tag necessarily exists, so the check
-# would be a race. Tagging is the deliberate act, so tagging is what starts this. That the
-# commit is on rel/stable is then verified here, which is the same guarantee without the race.
+# **Publishing a GitHub Release is the trigger.** Not a tag push: a tag is cheap and gets
+# created for all sorts of reasons, and every stray one starting a publish — even one that
+# only stops at the approval gate — turns the gate into noise you learn to click through.
+# Publishing a Release is unambiguous; nobody does it by accident.
+#
+# The release is still required to come off `rel/stable`, which is checked below. That check
+# can fail loudly here precisely because getting this far was deliberate: if you published a
+# Release for a commit that was never promoted, that is worth a red X, not a silent skip.
 name: release
 
 on:
-  push:
-    tags: ["v*"]
+  release:
+    types: [published]
 
 # Least privilege by default; each job asks for exactly what it needs.
 permissions:
@@ -25,30 +29,39 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
+          # The Release's tag, not the default branch: `on: release` checks out the default
+          # branch unless told otherwise, and building the wrong commit is the one mistake
+          # here that produces a plausible artifact rather than an error.
+          ref: ${{ github.event.release.tag_name }}
           # The containment check below reads history and other refs, so the default shallow
           # single-branch fetch is not enough. It is also what hatch-vcs needs to derive the
           # version at all — without the tags, the build has nothing to read.
           fetch-depth: 0
 
       - name: the tag must be a release version
+        env:
+          TAG: ${{ github.event.release.tag_name }}
         run: |
           set -euo pipefail
-          tag="${GITHUB_REF_NAME}"
-          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::$tag is not a vMAJOR.MINOR.PATCH release tag."
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::$TAG is not a vMAJOR.MINOR.PATCH release tag. Pre-release and"
+            echo "::error::dated tags are deliberately not publishable: the version scheme"
+            echo "::error::this project publishes under has three parts and nothing else."
             exit 1
           fi
-          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
-        id: tag
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "VERSION=${TAG#v}" >> "$GITHUB_ENV"
 
-      - name: the tagged commit must be on rel/stable
+      - name: the released commit must be on rel/stable
         run: |
           set -euo pipefail
           git fetch --quiet origin refs/heads/rel/stable:refs/remotes/origin/rel/stable
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/rel/stable; then
-            echo "::error::${GITHUB_SHA} is not contained in rel/stable. A release is cut from"
-            echo "::error::the release branch; tagging any other commit publishes code that"
-            echo "::error::never sat on it. Use scripts/release.py, which pushes both together."
+          commit="$(git rev-parse HEAD)"
+          if ! git merge-base --is-ancestor "$commit" origin/rel/stable; then
+            echo "::error::$commit is not contained in rel/stable. A release is cut from the"
+            echo "::error::release branch; releasing any other commit publishes code that"
+            echo "::error::never sat on it. Use scripts/release.py, which promotes the branch"
+            echo "::error::and pushes its tag together."
             exit 1
           fi
 
@@ -73,7 +86,7 @@ jobs:
           # construction. It is asserted anyway: "by construction" is exactly the kind of
           # claim that stops being true quietly, and the cost of being wrong here is a
           # permanent, unrecallable upload.
-          expected="${GITHUB_REF_NAME#v}"
+          expected="$VERSION"
           for artifact in dist/*; do
             case "$(basename "$artifact")" in
               ccaudit-"$expected".tar.gz|ccaudit-"$expected"-*.whl) ;;
