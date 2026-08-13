@@ -90,10 +90,11 @@ class Selection:
 # own: it renders whatever this returns, or refuses to.
 PayloadProvider = Callable[[Selection], Mapping[str, Any]]
 
-# Given one session id, the rankable facts about it (`render.data.session_facts`). Separate
-# from the payload provider because it is answered one session at a time: the picker has to be
-# usable before the corpus has been analysed, so these arrive after the page does.
-FactsProvider = Callable[[str], Mapping[str, int]]
+# Given one session id, the rankable facts about it (`render.data.session_facts`), or ``None``
+# when it has none to give — a session this rate table cannot price at all. Separate from the
+# payload provider because it is answered one session at a time: the picker has to be usable
+# before the corpus has been analysed, so these arrive after the page does.
+FactsProvider = Callable[[str], Mapping[str, int] | None]
 
 
 def terminal_command(selection: Selection) -> str:
@@ -410,10 +411,18 @@ class _Handler(BaseHTTPRequestHandler):
                         HTTPStatus.NOT_FOUND, "text/plain; charset=utf-8", "no such session\n"
                     )
                     return
+                measured = facts(wanted)
+                if measured is None:
+                    self._respond(
+                        HTTPStatus.NOT_FOUND,
+                        "text/plain; charset=utf-8",
+                        "session cannot be analysed\n",
+                    )
+                    return
                 self._respond(
                     HTTPStatus.OK,
                     "application/json; charset=utf-8",
-                    json.dumps(dict(facts(wanted))) + "\n",
+                    json.dumps(dict(measured)) + "\n",
                 )
             elif route.path == "/sessions":
                 self._respond(

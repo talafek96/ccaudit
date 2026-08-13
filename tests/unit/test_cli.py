@@ -8,6 +8,7 @@ ordinary warning path.
 import json
 import os
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -28,6 +29,7 @@ from ccaudit.cli import (
     select_sessions,
 )
 from ccaudit.ingest.discover import encode_project_dir
+from tests.fixtures.builder import TranscriptBuilder, simple_session
 
 
 class TestExitCodes:
@@ -254,3 +256,73 @@ class TestTheZeroArgumentDefault:
         monkeypatch.chdir(nested)
 
         assert self.selected([]) == ["newest", "middle", "oldest"]
+
+
+class TestTheInteractiveViewSurvivesAForeignSession:
+    """`~/.claude` is shared, and `--all` selects every session in it — including other tools'.
+
+    Reported on Windows as "`--all` fails". It did: the browser view raised
+    `UnknownModelError` out of the request handler on the first page load and the connection
+    was reset, because the UI's providers analysed each session directly instead of applying
+    the skip-and-name policy `_analyse_selection` already documents for a sweep.
+
+    Nothing here is Windows-specific — the trigger is one session priced by a model the rate
+    table does not carry, which is a shared-directory problem on every platform.
+    """
+
+    FOREIGN_MODEL = "some-other-tool-model-1"
+
+    @pytest.fixture
+    def corpus(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+        """A Claude home holding one priceable session and one written by another tool."""
+        home = tmp_path / "claude"
+        simple_session(session_id="ours", project_path="/repo/mine").write_to_project_tree(home)
+        foreign = TranscriptBuilder(session_id="theirs", project_path="/repo/theirs")
+        foreign.add_user_text("do the thing")
+        foreign.add_turn(model=self.FOREIGN_MODEL, input_tokens=10, output_tokens=5)
+        foreign.write_to_project_tree(home)
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(home))
+        return home
+
+    def providers(self, monkeypatch: pytest.MonkeyPatch, argv: list[str]) -> dict[str, Any]:
+        """Run `ccaudit ui`, capturing what it hands the server instead of serving."""
+        captured: dict[str, Any] = {}
+
+        def fake_serve_ui(provider: Any, sessions: Any, **kwargs: Any) -> None:
+            captured["provider"] = provider
+            captured["facts"] = kwargs["facts"]
+            captured["selection"] = kwargs["initial"]
+
+        monkeypatch.setattr("ccaudit.cli.serve_ui", fake_serve_ui)
+        assert main(argv) == EXIT_OK
+        return captured
+
+    def test_the_page_still_renders_and_names_what_it_could_not_price(
+        self, corpus: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The whole bug: one unpriceable session used to take the entire view down."""
+        captured = self.providers(monkeypatch, ["ui", "--all", "--no-open"])
+
+        payload = captured["provider"](captured["selection"])
+
+        assert payload["scope"]["sessions_included"] == ["ours"]
+        # Named, not counted: "1 skipped" tells a reader nothing they can act on (Principle X).
+        assert payload["scope"]["sessions_skipped"] == [f"theirs ({self.FOREIGN_MODEL})"]
+
+    def test_facts_for_an_unpriceable_session_are_absent_rather_than_zero(
+        self, corpus: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`None` becomes a 404 and blank cells; a zero would claim the session cost nothing."""
+        captured = self.providers(monkeypatch, ["ui", "--all", "--no-open"])
+
+        assert captured["facts"]("theirs") is None
+        assert captured["facts"]("ours")["cost_micros"] > 0
+
+    def test_a_selection_with_nothing_priceable_is_reported_not_raised(
+        self, corpus: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A `ValueError` is what the server answers as a 400; anything else kills the handler."""
+        captured = self.providers(monkeypatch, ["ui", "--session", "theirs", "--no-open"])
+
+        with pytest.raises(ValueError, match="cannot price"):
+            captured["provider"](captured["selection"])

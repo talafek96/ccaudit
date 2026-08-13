@@ -1,8 +1,12 @@
-"""Contract on the interactive surface — the parts that can be pinned without a socket.
+"""Contract on the interactive surface.
 
 The promises fenced here: a selection is read exactly as given or refused, the page is the report
 document with controls wrapped around it (one renderer, not two), the terminal equivalent of the
 current view is stated, and a payload that does not add up is never rendered.
+
+Nearly all of it is pinned without a socket. The one exception is the last class: what the server
+does with a session it cannot analyse is a question about the *response*, and the defect it
+fences was precisely that there was no response.
 """
 
 import json
@@ -11,6 +15,8 @@ from html import escape
 from http import HTTPStatus
 from pathlib import Path
 from typing import Any
+from urllib.error import HTTPError
+from urllib.request import urlopen
 
 import pytest
 
@@ -519,3 +525,38 @@ class TestEveryChoiceExplainsItself:
             assert "identical" in GROUPING_DESCRIPTIONS[grouping] or (
                 "same rows" in GROUPING_DESCRIPTIONS[grouping]
             ), grouping
+
+
+class TestASessionThatCannotBePricedIsAnAnswer:
+    """The facts endpoint over a real socket, because the bug was that it never answered at all.
+
+    A session `~/.claude` holds but this rate table cannot price used to raise straight out of
+    the request handler: no status line, connection reset, and — under `--all`, which selects
+    every foreign session on the machine — no page.
+    """
+
+    def request(self, url: str) -> tuple[int, str]:
+        try:
+            with urlopen(url, timeout=5) as response:
+                return response.status, response.read().decode("utf-8")
+        except HTTPError as error:
+            return error.code, error.read().decode("utf-8")
+
+    def test_it_answers_404_rather_than_dropping_the_connection(
+        self, payload: dict, sessions: list[SessionRef]
+    ) -> None:
+        """A blank cell says "not known". A dead socket says nothing, and looks like a crash."""
+
+        def facts(session_id: str) -> dict[str, int] | None:
+            return None if session_id == "sess-two" else {"cost_micros": 7}
+
+        with UiServer(lambda _s: payload, sessions, Selection(("sess-one",)), facts) as server:
+            unpriceable = self.request(f"{server.url}facts?session=sess-two")
+            priceable = self.request(f"{server.url}facts?session=sess-one")
+
+        assert unpriceable[0] == HTTPStatus.NOT_FOUND
+        assert "cannot be analysed" in unpriceable[1]
+        # And the sessions that *can* be priced are unaffected — one foreign session in the
+        # corpus must cost the reader nothing but that session's own row.
+        assert priceable[0] == HTTPStatus.OK
+        assert json.loads(priceable[1]) == {"cost_micros": 7}
