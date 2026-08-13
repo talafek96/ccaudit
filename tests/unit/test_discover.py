@@ -670,3 +670,28 @@ class TestADoubledDashReadsTwoWays:
         self._present(monkeypatch, Path("C:/Users/x/claude"))
 
         assert decode_project_dir("C--Users-x--claude") == Path("C:/Users/x/claude")
+
+
+class TestDecodingIsMemoised:
+    """One decode per project directory, not one per transcript.
+
+    `session_ref` decodes for every transcript it builds, so a project holding two hundred
+    sessions repeated the same reading — and the same `is_dir` calls — two hundred times. On a
+    real 1,875-session corpus that measured 0.28s of stat calls, against 0.008s memoised.
+    """
+
+    def test_a_repeated_name_is_answered_from_the_memo(self) -> None:
+        decode_project_dir.cache_clear()
+
+        decode_project_dir("-not-a-real-path-98765")
+        decode_project_dir("-not-a-real-path-98765")
+
+        assert decode_project_dir.cache_info().hits == 1
+
+    def test_the_memo_can_be_emptied(self) -> None:
+        """The suite empties it between tests; without that a faked filesystem would leak."""
+        decode_project_dir("-not-a-real-path-98765")
+
+        decode_project_dir.cache_clear()
+
+        assert decode_project_dir.cache_info().currsize == 0

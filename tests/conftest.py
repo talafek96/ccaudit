@@ -11,6 +11,19 @@ from pathlib import Path
 
 import pytest
 
+from ccaudit.ingest.discover import decode_project_dir
+
+
+@pytest.fixture(autouse=True)
+def _forget_decoded_project_dirs() -> None:
+    """Empty the project-path decode memo between tests.
+
+    ``decode_project_dir`` is keyed on the directory *name* and consults the filesystem, so a
+    result cached under one test's tree would be served to the next test using the same name.
+    Every test starts from an empty memo rather than from whatever ran before it.
+    """
+    decode_project_dir.cache_clear()
+
 
 @pytest.fixture
 def ccaudit_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
