@@ -8,7 +8,7 @@ ordinary warning path.
 import json
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 
@@ -29,6 +29,7 @@ from ccaudit.cli import (
     select_sessions,
 )
 from ccaudit.ingest.discover import encode_project_dir
+from ccaudit.model.policy import DEFAULT_POLICY
 from tests.fixtures.builder import TranscriptBuilder, simple_session
 
 
@@ -326,3 +327,68 @@ class TestTheInteractiveViewSurvivesAForeignSession:
 
         with pytest.raises(ValueError, match="cannot price"):
             captured["provider"](captured["selection"])
+
+
+class TestAnOptionSurvivesTheSubcommand:
+    """`ccaudit --project X ui` and `ccaudit ui --project X` must mean the same thing.
+
+    Both spellings are accepted, so both have to answer the same question. They did not:
+    argparse parses a subcommand into a fresh namespace and copies *all* of it back, so each
+    subcommand's own defaults overwrote what the reader had already typed. `--project X` before
+    the subcommand became `None`, and `ui` silently answered about the current directory
+    instead — the same wrong-corpus failure as a missed session, arrived at from the other end.
+
+    Nine of the shared options were affected, on five of the subcommands. This is the fence.
+    """
+
+    PROJECT: ClassVar[Path] = Path("/repo/somewhere")
+    # One representative of each kind: a value, a flag, and a choice.
+    TYPED: ClassVar[list[str]] = [
+        "--project",
+        str(PROJECT),
+        "--top",
+        "7",
+        "--by",
+        "file",
+        "--redact",
+    ]
+    EXPECTED: ClassVar[dict[str, object]] = {
+        "project": PROJECT,
+        "top": 7,
+        "group_by": "file",
+        "redact": True,
+    }
+
+    @pytest.mark.parametrize(
+        "subcommand", ["analyse", "sessions", "ui", "report", "footprint", "explain", "notebook"]
+    )
+    def test_typed_before_the_subcommand_it_still_arrives(self, subcommand: str) -> None:
+        args = build_parser().parse_args([*self.TYPED, subcommand])
+
+        for dest, expected in self.EXPECTED.items():
+            # `sessions` genuinely does not take --top/--by/--redact; what it does take must
+            # still survive, and what it does not must not have been invented.
+            if hasattr(args, dest):
+                assert getattr(args, dest) == expected, f"{subcommand} lost --{dest}"
+        assert args.project == self.PROJECT
+
+    @pytest.mark.parametrize(
+        "subcommand", ["analyse", "sessions", "ui", "report", "footprint", "explain", "notebook"]
+    )
+    def test_both_spellings_agree(self, subcommand: str) -> None:
+        """The point of the fix: order must not change the answer."""
+        before = build_parser().parse_args(["--project", str(self.PROJECT), subcommand])
+        assert before.project == self.PROJECT
+
+    @pytest.mark.parametrize("subcommand", ["analyse", "sessions", "ui", "report", "notebook"])
+    def test_an_option_nobody_typed_still_gets_its_default(self, subcommand: str) -> None:
+        """SUPPRESS on the subcommand must not leave the attribute missing — the top level
+        still supplies every default, or `args.policy` starts raising AttributeError."""
+        args = build_parser().parse_args([subcommand])
+
+        assert args.project is None
+        assert args.all is False
+        assert args.policy == DEFAULT_POLICY
+        assert args.top == 20
+        assert args.merge_injected is True
+        assert args.interval == 2.0
