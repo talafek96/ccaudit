@@ -100,22 +100,24 @@ class TestProjectDirectoryEncoding:
     That is deliberate: a Windows project directory is a name a Linux runner must still encode
     correctly, because ``~/.claude`` gets copied and synced between machines.
 
-    The expected names below are real directories observed under ``~/.claude/projects`` on a
-    Windows machine, cross-checked against the ``cwd`` their own transcripts record.
+    The *rule* these pin was measured against a real corpus — 203 of 204 project directories
+    matched it, checked against the ``cwd`` each transcript records. The *fixtures* are
+    synthetic, and deliberately so: nothing here should depend on an account that exists on
+    one machine, and only the shape of a path is under test, never whose path it is.
     """
 
     def test_encoding_a_path_matches_the_claude_code_form(self) -> None:
         assert encode_project_dir(Path("/Users/x/projects/ccaudit")) == "-Users-x-projects-ccaudit"
 
     def test_a_windows_drive_letter_keeps_its_colon_as_a_dash_of_its_own(self) -> None:
-        """`C:\\Users\\devic\\source` → `C--Users-devic-source`: two dashes, not one.
+        """`C:\\Users\\alice\\source` → `C--Users-alice-source`: two dashes, not one.
 
         The colon is a separate character and becomes a separate `-`. An encoding that replaced
-        only the separator produced `C:-Users-devic-source`, which is not a legal directory name
+        only the separator produced `C:-Users-alice-source`, which is not a legal directory name
         on Windows and matched nothing — so every Windows project found zero of its sessions.
         """
-        assert encode_project_dir(Path(r"C:\Users\devic\source")) == "C--Users-devic-source"
-        assert encode_project_dir(Path("C:/Users/devic/source")) == "C--Users-devic-source"
+        assert encode_project_dir(Path(r"C:\Users\alice\source")) == "C--Users-alice-source"
+        assert encode_project_dir(Path("C:/Users/alice/source")) == "C--Users-alice-source"
 
     def test_encoding_does_not_depend_on_the_host_separator(self) -> None:
         """Both separator styles encode identically, so the answer is the same on any platform."""
@@ -124,11 +126,11 @@ class TestProjectDirectoryEncoding:
     def test_every_character_that_is_not_a_letter_or_digit_becomes_a_dash(self) -> None:
         """Not just separators. Dots, underscores and spaces go too — measured, not assumed.
 
-        `C:\\Users\\devic\\.claude` is stored as `C--Users-devic--claude`, and an encoding that
+        `C:\\Users\\alice\\.claude` is stored as `C--Users-alice--claude`, and an encoding that
         kept the dot missed it. This is why the bug was never Windows-only: `~/.claude` is a
         directory a POSIX user has too.
         """
-        assert encode_project_dir(Path(r"C:\Users\devic\.claude")) == "C--Users-devic--claude"
+        assert encode_project_dir(Path(r"C:\Users\alice\.claude")) == "C--Users-alice--claude"
         assert encode_project_dir(Path("/home/y/my_project v2")) == "-home-y-my-project-v2"
 
     def test_a_drive_root_does_not_encode_to_the_posix_root(self) -> None:
@@ -144,8 +146,8 @@ class TestProjectDirectoryEncoding:
 
     def test_a_windows_directory_name_decodes_back_to_its_drive(self) -> None:
         """Without this every Windows session reports its encoded name instead of its project."""
-        assert decode_project_dir("C--Users-devic-source", must_exist=False) == Path(
-            "C:/Users/devic/source"
+        assert decode_project_dir("C--Users-alice-source", must_exist=False) == Path(
+            "C:/Users/alice/source"
         )
 
     def test_decoding_is_naive_and_therefore_lossy(self) -> None:
@@ -178,18 +180,18 @@ class TestProjectDirectoryEncoding:
         Runs on every platform, because the encoded name is an ordinary directory name
         everywhere and the encoding does not consult the host separator.
         """
-        directory = claude_config / "projects" / "C--Users-devic-source"
+        directory = claude_config / "projects" / "C--Users-alice-source"
         directory.mkdir(parents=True)
         (directory / "s1.jsonl").write_text(f"{_record('a')}\n", encoding="utf-8")
 
-        found = sessions_for_project(Path(r"C:\Users\devic\source"))
+        found = sessions_for_project(Path(r"C:\Users\alice\source"))
 
         assert [ref.session_id for ref in found] == ["s1"]
 
     def test_a_windows_project_never_matches_another_machines_posix_directory(
         self, claude_config: Path
     ) -> None:
-        """`C:\\Users\\devic\\source` is not `/Users/devic/source`, and must not resolve to it.
+        """`C:\\Users\\alice\\source` is not `/Users/alice/source`, and must not resolve to it.
 
         `~/.claude` is shared and synced, so POSIX-encoded directories from other machines sit
         beside the local ones. The old encoding left a drive colon in the name, which `pathlib`
@@ -197,14 +199,14 @@ class TestProjectDirectoryEncoding:
         session as this project's.
         """
         projects = claude_config / "projects"
-        foreign = projects / "-Users-devic-source"
+        foreign = projects / "-Users-alice-source"
         foreign.mkdir(parents=True)
         (foreign / "someone-elses.jsonl").write_text(f"{_record('a')}\n", encoding="utf-8")
         root = projects / "-"
         root.mkdir()
         (root / "also-not-ours.jsonl").write_text(f"{_record('b')}\n", encoding="utf-8")
 
-        assert sessions_for_project(Path(r"C:\Users\devic\source")) == []
+        assert sessions_for_project(Path(r"C:\Users\alice\source")) == []
         assert sessions_for_project(Path("C:/")) == []
 
 
