@@ -1,6 +1,6 @@
 [project]
 name = "ccaudit"
-version = "0.0.0"
+dynamic = ["version"]
 description = "Local-first cost observability for Claude Code sessions"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -22,8 +22,17 @@ notebook = [
 ccaudit = "ccaudit.cli:main"
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
+
+# The git tag is the version. Nothing to bump in a file, so a release cannot be tagged with
+# one number and built with another.
+[tool.hatch.version]
+source = "vcs"
+# A source tree with neither `.git` nor `PKG-INFO` — a GitHub zip download — otherwise fails
+# the build outright rather than producing something. Verified: without this it errors; with
+# it, the build succeeds and labels itself 0.0.0, which is honest about knowing nothing.
+raw-options = { fallback_version = "0.0.0" }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ccaudit"]

@@ -1,0 +1,115 @@
+# Publish a tagged release to PyPI over OIDC.
+#
+# **No token exists anywhere.** PyPI stores a trusted publisher — this repository, this
+# workflow file, this environment — and mints a short-lived credential for the run that
+# matches. Nothing to rotate, nothing to leak, nothing in the repository's secrets.
+#
+# **The tag is the trigger, not a push to rel/stable.** A branch push cannot answer "was this
+# tagged?" about itself: the workflow starts before the tag necessarily exists, so the check
+# would be a race. Tagging is the deliberate act, so tagging is what starts this. That the
+# commit is on rel/stable is then verified here, which is the same guarantee without the race.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+# Least privilege by default; each job asks for exactly what it needs.
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: verify the tag deserves a release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # The containment check below reads history and other refs, so the default shallow
+          # single-branch fetch is not enough. It is also what hatch-vcs needs to derive the
+          # version at all — without the tags, the build has nothing to read.
+          fetch-depth: 0
+
+      - name: the tag must be a release version
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::$tag is not a vMAJOR.MINOR.PATCH release tag."
+            exit 1
+          fi
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+        id: tag
+
+      - name: the tagged commit must be on rel/stable
+        run: |
+          set -euo pipefail
+          git fetch --quiet origin refs/heads/rel/stable:refs/remotes/origin/rel/stable
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/rel/stable; then
+            echo "::error::${GITHUB_SHA} is not contained in rel/stable. A release is cut from"
+            echo "::error::the release branch; tagging any other commit publishes code that"
+            echo "::error::never sat on it. Use scripts/release.py, which pushes both together."
+            exit 1
+          fi
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: the full gate, on the exact commit being published
+        run: |
+          set -euo pipefail
+          uv sync --group dev
+          uv run ruff format --check
+          uv run ruff check
+          uv run mypy
+          uv run pytest
+
+      - name: build, and check the artifact carries the tag's version
+        run: |
+          set -euo pipefail
+          uv build
+          # hatch-vcs derives the version from the tag, so this should be true by
+          # construction. It is asserted anyway: "by construction" is exactly the kind of
+          # claim that stops being true quietly, and the cost of being wrong here is a
+          # permanent, unrecallable upload.
+          expected="${GITHUB_REF_NAME#v}"
+          for artifact in dist/*; do
+            case "$(basename "$artifact")" in
+              ccaudit-"$expected".tar.gz|ccaudit-"$expected"-*.whl) ;;
+              *)
+                echo "::error::$(basename "$artifact") is not version $expected."
+                exit 1 ;;
+            esac
+          done
+          ls -la dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 7
+
+  publish:
+    name: publish to PyPI
+    needs: verify
+    runs-on: ubuntu-latest
+    # The environment is what makes this wait for a human, and it is also half of what PyPI
+    # trusts: the publisher is registered against this repository *and* this environment, so a
+    # workflow that did not go through it cannot upload even if it asked for the token.
+    environment:
+      name: pypi
+      url: https://pypi.org/p/ccaudit
+    permissions:
+      # The only permission that matters here. It lets the job request an OIDC token; it does
+      # not grant write access to anything in the repository.
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      # Publishes exactly what `verify` built and nothing else — the artifact is carried over
+      # rather than rebuilt, so what was gated is what is uploaded.
+      - uses: pypa/gh-action-pypi-publish@release/v1
