@@ -543,16 +543,26 @@ def _analyse_selection(args: argparse.Namespace, *, cached: bool = True) -> Sele
                 except sqlite3.Error as exc:
                     _LOGGER.info("could not cache %s: %s", ref.session_id, exc)
     if not analyses:
-        raise NoSessionsFound(
-            f"every selected session used a model this rate table cannot price: "
-            f"{', '.join(skipped)}. Run `ccaudit pricing refresh`, or add the model to "
-            f"{resolve_pricing_path()} with its min_cacheable_tokens."
-        )
+        raise NoSessionsFound(_nothing_priceable(skipped))
     return Selected(
         analyses=analyses,
         excluded=len(getattr(args, "exclude", None) or ()),
         skipped=skipped,
         recalled=recalled,
+    )
+
+
+def _nothing_priceable(skipped: Sequence[str]) -> str:
+    """What to say when a selection contained nothing this rate table could price.
+
+    One wording, because the terminal and the browser answer the same question and a reader who
+    hits it in one place and then the other must not have to work out that they are the same
+    problem (Principle IX).
+    """
+    return (
+        f"every selected session used a model this rate table cannot price: "
+        f"{', '.join(skipped)}. Run `ccaudit pricing refresh`, or add the model to "
+        f"{resolve_pricing_path()} with its min_cacheable_tokens."
     )
 
 
@@ -847,32 +857,52 @@ def _run_ui(args: argparse.Namespace) -> int:
 
     def provider(selection: Selection) -> dict[str, Any]:
         chosen = [ref for ref in refs if ref.session_id in selection.session_ids] or refs
-        analyses = [
-            analyse_transcript(
-                ref.path,
-                pricing=pricing,
-                policy=args.policy,
-                project_path=str(ref.project_path) if ref.project_path else None,
-                provisional=ref.in_progress,
-            )
-            for ref in chosen
-        ]
+        analyses: list[ReportInput] = []
+        skipped: list[str] = []
+        for ref in chosen:
+            try:
+                analyses.append(
+                    analyse_transcript(
+                        ref.path,
+                        pricing=pricing,
+                        policy=args.policy,
+                        project_path=str(ref.project_path) if ref.project_path else None,
+                        provisional=ref.in_progress,
+                    )
+                )
+            except UnknownModelError as exc:
+                # Same policy as a terminal sweep (`_analyse_selection`): `~/.claude` is a shared
+                # directory, other tools write their own sessions into it, and one session run
+                # against a model this rate table does not cover must not take the whole view
+                # down. `--all` makes that certain rather than unlikely — it selects every
+                # foreign session on the machine — and the page it took down was the entire UI.
+                # What was left out is named in the payload, never silently dropped.
+                skipped.append(f"{ref.session_id} ({exc.model})")
+        if not analyses:
+            # Reported back to the reader as a 400, not raised through the server: a selection
+            # nothing can price is an answer about the selection, not a broken server.
+            raise ValueError(_nothing_priceable(skipped))
         return build_report_data(
             analyses,
             redact=selection.redact,
             sessions_excluded_count=len(getattr(args, "exclude", None) or ()),
+            sessions_skipped=skipped,
             group_by=selection.group_by,
             merge_injected=selection.merge_injected,
         )
 
     by_id = {ref.session_id: ref for ref in refs}
 
-    def facts(session_id: str) -> dict[str, int]:
+    def facts(session_id: str) -> dict[str, int] | None:
         """The rankable facts for one session, served from the store when it is there.
 
         One session per call: the picker is on screen before any of this is known, so holding
         the page open for a corpus-wide analysis would trade the thing SC-025 protects for a
         column nobody has looked at yet.
+
+        ``None`` when the session cannot be priced at all, which the server answers as a 404 and
+        the page leaves as blank cells. A blank says "not known"; a zero would say "none", and
+        only one of those is true (Principle X).
         """
         ref = by_id[session_id]
         with _result_cache(enabled=True) as cache:
@@ -884,14 +914,18 @@ def _run_ui(args: argparse.Namespace) -> int:
             stored = read_contribution(cache, key) if cache is not None and key else None
             if stored is not None:
                 return session_facts(stored)
-            analysis = analyse_transcript(
-                ref.path,
-                pricing=pricing,
-                policy=args.policy,
-                project_path=str(ref.project_path) if ref.project_path else None,
-                provisional=ref.in_progress,
-                title=ref.title,
-            )
+            try:
+                analysis = analyse_transcript(
+                    ref.path,
+                    pricing=pricing,
+                    policy=args.policy,
+                    project_path=str(ref.project_path) if ref.project_path else None,
+                    provisional=ref.in_progress,
+                    title=ref.title,
+                )
+            except UnknownModelError as exc:
+                _LOGGER.info("no facts for %s: %s", ref.session_id, exc)
+                return None
             if cache is not None and key is not None:
                 try:
                     store_contribution(cache, key, contribution_of(analysis))
