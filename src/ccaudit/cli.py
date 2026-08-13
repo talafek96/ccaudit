@@ -1053,6 +1053,19 @@ def _run_report(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _notebook_scope(args: argparse.Namespace) -> list[str]:
+    """The `ccaudit sessions` arguments the notebook's picker selects its corpus with.
+
+    Mirrors what the listing itself does with the same flags, so the notebook opens over the
+    sessions the command that opened it was about. `--all` is also the answer when no project
+    was named, because that is what a bare `ccaudit sessions` lists.
+    """
+    project = getattr(args, "project", None)
+    if project is not None and not getattr(args, "all", False):
+        return ["--project", str(project)]
+    return ["--all"]
+
+
 def _run_notebook(args: argparse.Namespace) -> int:
     """Open a throwaway notebook, or write one to keep.
 
@@ -1065,8 +1078,9 @@ def _run_notebook(args: argparse.Namespace) -> int:
     launched and nothing is cleaned up, because the file is the deliverable.
     """
     console = build_console()
+    scope = _notebook_scope(args)
     if args.out is not None:
-        path = write_notebook(args.out)
+        path = write_notebook(args.out, scope=scope)
         console.print(f"Wrote {path}")
         console.print(
             f"Run it with:  uvx marimo edit --sandbox {path}\n"
@@ -1087,7 +1101,7 @@ def _run_notebook(args: argparse.Namespace) -> int:
     # the notebook (`__marimo__/`), and cleaning up the notebook while leaving that behind
     # would be the kind of litter this command exists not to leave.
     with tempfile.TemporaryDirectory(prefix="ccaudit-notebook-") as workspace:
-        path = write_notebook(Path(workspace) / DEFAULT_NOTEBOOK.name)
+        path = write_notebook(Path(workspace) / DEFAULT_NOTEBOOK.name, scope=scope)
         console.print(
             "Opening a marimo notebook. It is temporary — it and everything marimo writes "
             "beside it are deleted when you stop this command."

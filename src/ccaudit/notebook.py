@@ -25,6 +25,7 @@ correct rather than approximately correct — reselecting re-runs the real analy
 import json
 import shutil
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 
 DEFAULT_NOTEBOOK = Path("ccaudit-notebook.py")
@@ -33,6 +34,13 @@ DEFAULT_NOTEBOOK = Path("ccaudit-notebook.py")
 # the notebook cannot work it out for itself: it runs under marimo's sandbox interpreter, which
 # has marimo and altair in it and no ccaudit at all.
 COMMAND_PLACEHOLDER = "__CCAUDIT_COMMAND__"
+
+# And which corpus it is exploring. Also substituted at write time, and for the same reason the
+# command is: the notebook is a separate process that shells back in, so the scope has to travel
+# as arguments. It used to be the literal `--all`, which meant `ccaudit --project X notebook`
+# opened a picker over every session on the machine — a different question than the one the
+# command asked, from the surface whose whole claim is that it cannot disagree with the terminal.
+SCOPE_PLACEHOLDER = "__CCAUDIT_SCOPE__"
 
 
 def ccaudit_command() -> list[str]:
@@ -106,6 +114,10 @@ def _(json, subprocess):
     # runs under marimo's sandbox interpreter, and a ccaudit installed by `uvx` is not on PATH
     # at all — which failed here with an unexplained FileNotFoundError.
     CCAUDIT = __CCAUDIT_COMMAND__
+    # The corpus this notebook was opened over — `["--all"]`, or the project that was named.
+    # Written in by `ccaudit notebook` so the picker below asks about the same sessions the
+    # command did.
+    SCOPE = __CCAUDIT_SCOPE__
 
     def _run(args):
         try:
@@ -135,14 +147,14 @@ def _(json, subprocess):
         With ``facts`` the listing also carries what each session can be ranked by — cost,
         rounds, reads, .md files, skills. That analyses every session, so it is opt-in.
         """
-        result = _run(["sessions", "--all", "--json"] + (["--facts"] if facts else []))
+        result = _run(["sessions", *SCOPE, "--json"] + (["--facts"] if facts else []))
         if result.returncode != 0:
             raise RuntimeError(
                 f"ccaudit exited {result.returncode}: {result.stderr.strip() or 'no detail'}"
             )
         return json.loads(result.stdout)
 
-    return CCAUDIT, list_sessions, run_ccaudit
+    return CCAUDIT, SCOPE, list_sessions, run_ccaudit
 
 
 @app.cell
@@ -154,7 +166,14 @@ def _(list_sessions, mo, pd):
         [
             {
                 "session": row["display_name"],
-                "cost ($)": round(row.get("cost_micros", 0) / 1_000_000, 2),
+                # `None`, not 0, when the session carries no measured facts — a session this
+                # rate table cannot price has an *unknown* cost, and a $0.00 in this column
+                # would read as a free session and sort like one (Principle X).
+                "cost ($)": (
+                    None
+                    if row.get("cost_micros") is None
+                    else round(row["cost_micros"] / 1_000_000, 2)
+                ),
                 "rounds": row.get("turns"),
                 "reads": row.get("reads"),
                 ".md reads": row.get("md_reads"),
@@ -393,15 +412,25 @@ if __name__ == "__main__":
 '''
 
 
-def write_notebook(path: Path = DEFAULT_NOTEBOOK, *, command: list[str] | None = None) -> Path:
+def write_notebook(
+    path: Path = DEFAULT_NOTEBOOK,
+    *,
+    command: list[str] | None = None,
+    scope: Sequence[str] = ("--all",),
+) -> Path:
     """Write the notebook, returning the path written.
+
+    ``scope`` is the argument list the notebook's picker selects its corpus with — ``--all``, or
+    the project the reader named. It travels into the file because the notebook is a separate
+    process: a notebook opened by ``ccaudit --project X notebook`` that then listed every
+    session on the machine would be answering a question nobody asked.
 
     The file is written whole, in one call, so an interrupted run leaves no half-written
     notebook that looks complete.
     """
     source = NOTEBOOK_SOURCE.replace(
         COMMAND_PLACEHOLDER, json.dumps(command if command is not None else ccaudit_command())
-    )
+    ).replace(SCOPE_PLACEHOLDER, json.dumps(list(scope)))
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(source, encoding="utf-8")
     return path

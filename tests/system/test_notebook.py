@@ -15,7 +15,13 @@ from pathlib import Path
 import pytest
 
 from ccaudit.cli import EXIT_INTERRUPTED, EXIT_OK, EXIT_USAGE, main, marimo_command
-from ccaudit.notebook import COMMAND_PLACEHOLDER, NOTEBOOK_SOURCE, ccaudit_command, write_notebook
+from ccaudit.notebook import (
+    COMMAND_PLACEHOLDER,
+    NOTEBOOK_SOURCE,
+    SCOPE_PLACEHOLDER,
+    ccaudit_command,
+    write_notebook,
+)
 
 pytestmark = pytest.mark.system
 
@@ -247,13 +253,70 @@ class TestTheCommand:
         monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "empty"))
         assert main(["notebook", "--out", str(tmp_path / "nb.py")]) == EXIT_OK
 
-    def test_the_written_file_is_the_source_with_the_command_filled_in(
+    def test_the_written_file_is_the_source_with_the_placeholders_filled_in(
         self, tmp_path: Path
     ) -> None:
-        written = write_notebook(tmp_path / "nb.py", command=["/opt/ccaudit"]).read_text(
+        """Amended 2026-08-13: the notebook now also carries the *scope* it was opened over.
+
+        The invariant is unchanged and is still asserted in full — `write_notebook` is exactly
+        `NOTEBOOK_SOURCE` with its placeholders substituted and nothing else. What changed is
+        that there are two placeholders rather than one, because a notebook opened by
+        `ccaudit --project X notebook` used to list every session on the machine: the scope was
+        never passed to it, so the surface whose whole claim is that it cannot disagree with
+        the terminal was answering a different question. This assertion is widened to cover the
+        second substitution, not weakened — anything else `write_notebook` did would still fail
+        it.
+        """
+        written = write_notebook(
+            tmp_path / "nb.py", command=["/opt/ccaudit"], scope=["--project", "/repo/x"]
+        ).read_text(encoding="utf-8")
+
+        assert written == NOTEBOOK_SOURCE.replace(COMMAND_PLACEHOLDER, '["/opt/ccaudit"]').replace(
+            SCOPE_PLACEHOLDER, '["--project", "/repo/x"]'
+        )
+
+
+class TestTheNotebookExploresTheCorpusItWasOpenedOver:
+    """FR-074 is "nothing is browser-only", and it cuts both ways: nothing is notebook-only
+    either, and nothing may be notebook-*wider*. The picker used to be hardcoded to `--all`.
+    """
+
+    def test_a_named_project_travels_into_the_file(self, tmp_path: Path) -> None:
+        written = write_notebook(tmp_path / "nb.py", scope=["--project", "/repo/mine"]).read_text(
             encoding="utf-8"
         )
-        assert written == NOTEBOOK_SOURCE.replace(COMMAND_PLACEHOLDER, '["/opt/ccaudit"]')
+
+        assert 'SCOPE = ["--project", "/repo/mine"]' in written
+        # And the picker actually uses it, rather than carrying it as decoration.
+        assert '_run(["sessions", *SCOPE, "--json"]' in written
+
+    def test_the_default_is_the_whole_corpus(self, tmp_path: Path) -> None:
+        """A bare `ccaudit notebook` still opens over everything, as `ccaudit sessions` does."""
+        written = write_notebook(tmp_path / "nb.py").read_text(encoding="utf-8")
+
+        assert 'SCOPE = ["--all"]' in written
+
+    def test_no_placeholder_survives_into_the_written_file(self, tmp_path: Path) -> None:
+        """An unsubstituted placeholder is a `NameError` on the notebook's first cell."""
+        written = write_notebook(tmp_path / "nb.py").read_text(encoding="utf-8")
+
+        assert COMMAND_PLACEHOLDER not in written
+        assert SCOPE_PLACEHOLDER not in written
+
+    def test_the_command_scopes_the_notebook_it_writes(self, tmp_path: Path) -> None:
+        """End to end: `ccaudit --project X notebook --out f` writes a notebook scoped to X.
+
+        The expected string is built through `Path` and `json`, because the project is written
+        in as the host renders it — `\\repo\\mine` on Windows — and a literal here would pin
+        the test to one platform rather than to the behaviour.
+        """
+        path = tmp_path / "nb.py"
+        project = Path("/repo/mine")
+
+        assert main(["--project", str(project), "notebook", "--out", str(path)]) == EXIT_OK
+
+        expected = json.dumps(["--project", str(project)])
+        assert f"SCOPE = {expected}" in path.read_text(encoding="utf-8")
 
 
 class TestFindingCcauditAgain:
