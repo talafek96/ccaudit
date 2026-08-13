@@ -137,7 +137,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=0,
         help="raise log detail; repeat for debug.",
     )
-    _add_analysis_options(parser)
+    _add_analysis_options(parser, top_level=True)
     # The metavar is set explicitly so the two internal commands below stay out of the usage
     # line. They are an implementation detail of the plugin hook, not a surface to discover.
     subparsers = parser.add_subparsers(dest="command", metavar="{analyse,sessions,explain,pricing}")
@@ -150,13 +150,22 @@ def build_parser() -> argparse.ArgumentParser:
     _add_analysis_options(analyse)
 
     sessions = subparsers.add_parser("sessions", help="List the sessions that can be analysed.")
-    sessions.add_argument("--project", type=Path, default=None, help="Limit to one project.")
+    # `argparse.SUPPRESS` for the same reason as every other subcommand's copy — see
+    # `_add_analysis_options`. Without it, `ccaudit --project X sessions` listed the whole
+    # machine, because the subcommand's `None` overwrote the X the reader had already typed.
     sessions.add_argument(
-        "--all", action="store_true", help="Every session, not just this project."
+        "--project", type=Path, default=argparse.SUPPRESS, help="Limit to one project."
+    )
+    sessions.add_argument(
+        "--all",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Every session, not just this project.",
     )
     sessions.add_argument(
         "--json",
         action="store_true",
+        default=argparse.SUPPRESS,
         help="Machine-readable listing, for scripts and for the notebook.",
     )
     sessions.add_argument(
@@ -274,65 +283,101 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _add_analysis_options(parser: argparse.ArgumentParser) -> None:
+def _add_analysis_options(parser: argparse.ArgumentParser, *, top_level: bool = False) -> None:
     """Selection and output options, shared by the bare invocation and the subcommands.
 
     Repeated on the top-level parser on purpose: **zero arguments is a complete invocation**
     (FR-048), and so is `ccaudit --by category` without naming a subcommand.
+
+    **Only the top-level copy carries the defaults.** Argparse parses a subcommand into a fresh
+    namespace and then copies *all* of it over the one the top-level parse produced — so a
+    subcommand's default overwrites what the reader typed before the subcommand rather than
+    filling a gap. `ccaudit --project X ui` set `project=X` and then had it replaced with
+    `None`, silently, and answered about the current directory instead. Declaring the
+    subcommand's copy with `argparse.SUPPRESS` means it writes only the options actually typed,
+    so the two spellings agree — which is the whole point of accepting both.
     """
-    parser.add_argument("--session", nargs="+", default=None, help="Explicit session id(s).")
-    parser.add_argument("--project", type=Path, default=None, help="All sessions for a project.")
-    parser.add_argument("--all", action="store_true", help="Every session in the local corpus.")
+
+    def unless_typed(value: Any) -> dict[str, Any]:
+        """What this option is worth when nobody types it — on the top level only."""
+        return {"default": value if top_level else argparse.SUPPRESS}
+
+    parser.add_argument(
+        "--session", nargs="+", **unless_typed(None), help="Explicit session id(s)."
+    )
+    parser.add_argument(
+        "--project", type=Path, **unless_typed(None), help="All sessions for a project."
+    )
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        **unless_typed(False),
+        help="Every session in the local corpus.",
+    )
     parser.add_argument(
         "--latest",
         action="store_true",
+        **unless_typed(False),
         help="Only the most recent session of the selection (default: all of this project's).",
     )
-    parser.add_argument("--last", type=int, default=None, help="The N most recent in the set.")
-    parser.add_argument("--exclude", nargs="+", default=None, help="Drop session id(s) (FR-063).")
+    parser.add_argument(
+        "--last", type=int, **unless_typed(None), help="The N most recent in the set."
+    )
+    parser.add_argument(
+        "--exclude", nargs="+", **unless_typed(None), help="Drop session id(s) (FR-063)."
+    )
     parser.add_argument(
         "--split-injected",
         dest="merge_injected",
         action="store_false",
+        **unless_typed(True),
         help="Keep each project's copy of an injected item (the skill listing, tool schemas) "
         "as its own row instead of merging them.",
     )
     parser.add_argument(
         "--policy",
         choices=POLICIES,
-        default=DEFAULT_POLICY,
+        **unless_typed(DEFAULT_POLICY),
         help="How shared carry cost is divided among resident items.",
     )
     parser.add_argument(
         "--by",
         dest="group_by",
         choices=GROUPINGS,
-        default=DEFAULT_GROUPING,
+        **unless_typed(DEFAULT_GROUPING),
         help="Group the breakdown by this dimension.",
     )
     parser.add_argument(
         "--sort",
         dest="sort_by",
         choices=SORTS,
-        default=DEFAULT_SORT,
+        **unless_typed(DEFAULT_SORT),
         help="Ranking measure. Reorders rows; never changes what they sum to.",
     )
     parser.add_argument(
-        "--top", type=int, default=20, help="Item rows to show; cost is never hidden."
+        "--top", type=int, **unless_typed(20), help="Item rows to show; cost is never hidden."
     )
-    parser.add_argument("--json", action="store_true", help="Machine-readable output.")
+    parser.add_argument(
+        "--json", action="store_true", **unless_typed(False), help="Machine-readable output."
+    )
     parser.add_argument(
         "--watch",
         action="store_true",
+        **unless_typed(False),
         help="Redraw as the session progresses. Exits on interrupt or when the session ends.",
     )
     parser.add_argument(
         "--interval",
         type=float,
-        default=2.0,
+        **unless_typed(2.0),
         help="Seconds between coverage checks while watching.",
     )
-    parser.add_argument("--redact", action="store_true", help="Obscure paths, keep the structure.")
+    parser.add_argument(
+        "--redact",
+        action="store_true",
+        **unless_typed(False),
+        help="Obscure paths, keep the structure.",
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
