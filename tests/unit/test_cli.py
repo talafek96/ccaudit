@@ -376,9 +376,18 @@ class TestAnOptionSurvivesTheSubcommand:
         "subcommand", ["analyse", "sessions", "ui", "report", "footprint", "explain", "notebook"]
     )
     def test_both_spellings_agree(self, subcommand: str) -> None:
-        """The point of the fix: order must not change the answer."""
+        """The point of the fix: order must not change the answer.
+
+        This used to build only the *before* parse and assert on it, which named two spellings
+        and checked one. `ccaudit notebook --project X` was a usage error the whole time and
+        this test went green through a full CI run beside it. Both orders are parsed now, and
+        compared to each other rather than each to a constant.
+        """
         before = build_parser().parse_args(["--project", str(self.PROJECT), subcommand])
+        after = build_parser().parse_args([subcommand, "--project", str(self.PROJECT)])
+
         assert before.project == self.PROJECT
+        assert after.project == before.project
 
     @pytest.mark.parametrize("subcommand", ["analyse", "sessions", "ui", "report", "notebook"])
     def test_an_option_nobody_typed_still_gets_its_default(self, subcommand: str) -> None:

@@ -47,6 +47,7 @@ from ccaudit.ingest.discover import (
     SessionRef,
     discover_sessions,
     fingerprint_transcript,
+    project_lookup_path,
     sessions_for_cwd,
     sessions_for_project,
 )
@@ -227,6 +228,18 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="Write the notebook here and keep it, instead of opening a throwaway one.",
+    )
+    # The two selectors the notebook actually reads, so `ccaudit notebook --project X` parses —
+    # it was a usage error, while the same flag before the subcommand worked. `argparse.SUPPRESS`
+    # for the reason given in `_add_analysis_options`: only the top level carries defaults.
+    notebook_parser.add_argument(
+        "--project", type=Path, default=argparse.SUPPRESS, help="Explore one project."
+    )
+    notebook_parser.add_argument(
+        "--all",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Explore every session, not just this project.",
     )
 
     explain_parser = subparsers.add_parser(
@@ -1062,7 +1075,10 @@ def _notebook_scope(args: argparse.Namespace) -> list[str]:
     """
     project = getattr(args, "project", None)
     if project is not None and not getattr(args, "all", False):
-        return ["--project", str(project)]
+        # Resolved before it is written in, not after: the notebook runs as a separate process
+        # with its own working directory, so a relative `--project .` recorded verbatim would
+        # mean something different — or nothing — by the time the notebook re-ran it.
+        return ["--project", str(project_lookup_path(project))]
     return ["--all"]
 
 
