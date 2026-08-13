@@ -18,6 +18,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ccaudit.ingest.discover import encode_project_dir
+
 DEFAULT_MODEL = "claude-opus-5"
 DEFAULT_VERSION = "2.1.220"
 DEFAULT_SESSION_ID = "11111111-2222-3333-4444-555555555555"
@@ -348,10 +350,11 @@ class TranscriptBuilder:
     def write_to_project_tree(self, root: Path, filename: str | None = None) -> Path:
         """Write into a `~/.claude`-shaped tree, for discovery tests.
 
-        Claude Code encodes the project path into the directory name by replacing separators
-        with hyphens — a lossy encoding that cannot be reversed unambiguously.
+        The directory name comes from the encoder discovery itself uses, not from a second copy
+        of the rule here: a fixture tree built by a different rule than the one under test would
+        pass whatever the code did (Principle IX).
         """
-        encoded = self.project_path.replace("/", "-")
+        encoded = encode_project_dir(Path(self.project_path))
         target = root / "projects" / encoded / (filename or f"{self.session_id}.jsonl")
         return self.write(target)
 

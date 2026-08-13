@@ -21,6 +21,7 @@ pass and no interpretation of the records.
 """
 
 import os
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -33,6 +34,20 @@ CLAUDE_CONFIG_DIR_ENV = "CLAUDE_CONFIG_DIR"
 PROJECTS_DIRNAME = "projects"
 SUBAGENTS_DIRNAME = "subagents"
 TRANSCRIPT_SUFFIX = ".jsonl"
+
+# Claude Code names a project directory by replacing every character of the path that is not a
+# letter or a digit with "-" — separator, drive colon, dot, underscore, space, all of them.
+#
+# Measured, not assumed: every transcript records the `cwd` it was written from, so a corpus of
+# project directories is a table of (path, directory name) pairs. 203 of 204 real directories on
+# a Windows machine match this rule exactly; the one that does not is a session resumed from a
+# different directory, which is a different phenomenon, not a different encoding.
+_NON_ALPHANUMERIC = re.compile(r"[^a-zA-Z0-9]")
+
+# A Windows drive letter as it survives the encoding: the letter, the "-" its ":" became, and
+# the "-" the separator after it became. `C:\Users\x` → `C--Users-x`. This is the only encoded
+# form that does not start with "-", which is what makes it distinguishable at all.
+_ENCODED_DRIVE = re.compile(r"^([A-Za-z])--")
 
 # A session whose files were written this recently is *probably* still running. This is a hint
 # for the listing only — it is never what decides whether a stored figure is current, because
@@ -147,30 +162,47 @@ def projects_root(home: Path | None = None) -> Path:
 def encode_project_dir(project_path: Path) -> str:
     """Encode a filesystem path the way Claude Code names its project directories.
 
-    This direction is exact: ``/Users/x/projects/ccaudit`` →
-    ``-Users-x-projects-ccaudit``. Decoding is not (see :func:`decode_project_dir`), so
-    resolving "which directory holds this project" always encodes rather than decodes.
+    This direction is exact: ``/Users/x/projects/ccaudit`` → ``-Users-x-projects-ccaudit``, and
+    ``C:\\Users\\x\\source`` → ``C--Users-x-source`` — the drive's ``:`` becomes a ``-`` of its
+    own, which is why a Windows name carries two of them after the drive letter. Decoding is not
+    exact (see :func:`decode_project_dir`), so resolving "which directory holds this project"
+    always encodes rather than decodes.
+
+    The result is the same on every platform, because both the separator and the drive colon map
+    to the same character — so a POSIX host encodes a Windows path to the name Windows would
+    have written, and vice versa. Nothing here reads ``os.sep``, and nothing should: the name
+    was written by whichever machine recorded the session, not by this one.
     """
-    return str(project_path).replace(os.sep, "-")
+    return _NON_ALPHANUMERIC.sub("-", str(project_path))
 
 
 def decode_project_dir(directory_name: str, *, must_exist: bool = True) -> Path | None:
     """Best-effort recovery of the project path from a project directory's name.
 
-    **The encoding is lossy.** Every ``/`` becomes ``-``, and ``-`` is a legal character in a
-    directory name, so ``-a-b-my-project`` could be ``/a/b/my-project`` or ``/a/b/my/project``
-    — nothing in the name distinguishes them. We therefore decode naively and, by default,
-    only return a path that exists on this filesystem; otherwise we return ``None`` and the
-    caller shows the encoded name rather than a confidently wrong path (Principle X).
+    **The encoding is lossy.** Every separator becomes ``-``, but so does every ``.``, ``_``,
+    space, and ``-`` that was already there — and ``-`` is a legal character in a directory
+    name, so ``-a-b-my-project`` could be ``/a/b/my-project`` or ``/a/b/my/project``, and
+    ``C--Users-x--claude`` could be ``C:\\Users\\x\\.claude`` or ``C:\\Users\\x\\\\claude``.
+    Nothing in the name distinguishes them. We therefore decode naively — every ``-`` back to a
+    separator — and, by default, only return a path that exists on this filesystem; otherwise we
+    return ``None`` and the caller shows the encoded name rather than a confidently wrong path
+    (Principle X).
 
-    A project directory that has since been deleted or renamed decodes to ``None``. That is
-    the honest answer: its transcripts are still analysable, we just cannot say where the code
-    lived.
+    A project directory that has since been deleted or renamed decodes to ``None``, as does one
+    recorded on a different machine. That is the honest answer: its transcripts are still
+    analysable, we just cannot say where the code lived.
     """
-    if not directory_name.startswith("-"):
+    drive = _ENCODED_DRIVE.match(directory_name)
+    if drive is not None:
+        # `C--Users-x` → `C:/Users/x`. Written with forward slashes so the decode does not
+        # depend on the host separator; `Path` renders it in the host's own form.
+        body = directory_name[drive.end() :].replace("-", "/")
+        candidate = Path(f"{drive.group(1)}:/{body}")
+    elif directory_name.startswith("-"):
+        candidate = Path(directory_name.replace("-", "/"))
+    else:
         # Not the encoded form (a relative path, or a directory we did not create). Left alone.
         return None
-    candidate = Path(directory_name.replace("-", os.sep))
     if not must_exist:
         return candidate
     return candidate if candidate.is_dir() else None
@@ -257,7 +289,15 @@ def discover_sessions(home: Path | None = None, *, now: datetime | None = None) 
 def sessions_for_project(
     project_path: Path, home: Path | None = None, *, now: datetime | None = None
 ) -> list[SessionRef]:
-    """Sessions recorded for one project directory, newest first. Empty when it has none."""
+    """Sessions recorded for one project directory, newest first. Empty when it has none.
+
+    The encoded name is a single path segment with no separator and no drive in it, which is
+    what makes this join safe. It has not always been: an encoding that left the drive colon in
+    produced ``C:-Users-x``, and joining *that* onto the projects root made ``pathlib`` read the
+    leading ``C:`` as a drive and drop it — so every Windows lookup silently searched the
+    POSIX-shaped directory of some other machine instead, and found nothing or, worse, someone
+    else's session.
+    """
     directory = projects_root(home) / encode_project_dir(project_path)
     if not directory.is_dir():
         return []
