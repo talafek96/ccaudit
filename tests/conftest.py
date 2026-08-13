@@ -1,6 +1,6 @@
 """Shared fixtures.
 
-Every test that touches persistent state runs against an isolated ``CCAUDIT_HOME`` so a test
+Every test that touches persistent state runs against an isolated ``CCOST_HOME`` so a test
 run never reads or writes the developer's real state directory, and never reads the real
 ``~/.claude/`` transcripts (constitution: fixtures are committed and reproducible).
 """
@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from ccaudit.ingest.discover import decode_project_dir
+from claude_cost_tracker.ingest.discover import decode_project_dir
 
 
 @pytest.fixture(autouse=True)
@@ -26,10 +26,10 @@ def _forget_decoded_project_dirs() -> None:
 
 
 @pytest.fixture
-def ccaudit_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
-    """Point ``CCAUDIT_HOME`` at a per-test temporary directory."""
-    home = tmp_path / "ccaudit-home"
-    monkeypatch.setenv("CCAUDIT_HOME", str(home))
+def ccost_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
+    """Point ``CCOST_HOME`` at a per-test temporary directory."""
+    home = tmp_path / "ccost-home"
+    monkeypatch.setenv("CCOST_HOME", str(home))
     yield home
 
 
@@ -41,7 +41,7 @@ def _never_touch_real_claude_home(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
     default is an empty directory so an accidental discovery call finds nothing rather than
     the developer's actual sessions.
     """
-    if "CCAUDIT_ALLOW_REAL_CLAUDE_HOME" in os.environ:
+    if "CCOST_ALLOW_REAL_CLAUDE_HOME" in os.environ:
         return
     empty = tmp_path / "claude-config"
     empty.mkdir(parents=True, exist_ok=True)

@@ -7,7 +7,7 @@ breaks the session-level invariant for the whole report.
 
 import pytest
 
-from ccaudit.model.policy import (
+from claude_cost_tracker.model.policy import (
     DEFAULT_POLICY,
     POLICIES,
     UnknownPolicyError,

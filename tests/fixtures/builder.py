@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from ccaudit.ingest.discover import encode_project_dir
+from claude_cost_tracker.ingest.discover import encode_project_dir
 
 DEFAULT_MODEL = "claude-opus-5"
 DEFAULT_VERSION = "2.1.220"

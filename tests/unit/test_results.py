@@ -1,6 +1,6 @@
 """Contract on result persistence — freshness, idempotency, and all-or-nothing writes.
 
-These tests fence `ccaudit.store.results` (constitution Principle V). Each pins a named
+These tests fence `claude_cost_tracker.store.results` (constitution Principle V). Each pins a named
 invariant: F1 (never serve stale as current), F2 (re-running creates no second entry), K2 (a
 partial write is never readable as complete), and A1 (what comes back out adds up). A failure
 here is a breached contract, not a test to update.
@@ -13,11 +13,11 @@ from pathlib import Path
 
 import pytest
 
-from ccaudit.analyse import SessionAnalysis, analyse_transcript
-from ccaudit.ingest.discover import Fingerprint, fingerprint_transcript
-from ccaudit.ingest.records import IngestDiagnostic
-from ccaudit.store.db import connect
-from ccaudit.store.results import (
+from claude_cost_tracker.analyse import SessionAnalysis, analyse_transcript
+from claude_cost_tracker.ingest.discover import Fingerprint, fingerprint_transcript
+from claude_cost_tracker.ingest.records import IngestDiagnostic
+from claude_cost_tracker.store.db import connect
+from claude_cost_tracker.store.results import (
     ABSENT,
     CURRENT,
     STALE,
@@ -34,7 +34,7 @@ COMPUTED_AT = datetime(2026, 8, 11, 11, 0, 0, tzinfo=UTC)
 
 
 @pytest.fixture
-def conn(ccaudit_home: Path) -> Iterator[sqlite3.Connection]:
+def conn(ccost_home: Path) -> Iterator[sqlite3.Connection]:
     connection = connect()
     yield connection
     connection.close()
@@ -285,7 +285,7 @@ class TestIdempotency:
         assert figures(read_attributions(conn, first)) == figures(read_attributions(conn, second))
 
     def test_two_simultaneous_analyses_leave_one_result_with_identical_figures(
-        self, ccaudit_home: Path, transcript: Path, fingerprint: Fingerprint
+        self, ccost_home: Path, transcript: Path, fingerprint: Fingerprint
     ) -> None:
         """SC-033. The race is simulated deterministically: two independent analyses of the
         same records, stored over two connections, interleaved by hand. Real threads would
@@ -358,7 +358,7 @@ class TestPartialWrites:
         def explode(*_args: object, **_kwargs: object) -> None:
             raise RuntimeError("computation blew up mid-write")
 
-        monkeypatch.setattr("ccaudit.store.results._write_result_row", explode)
+        monkeypatch.setattr("claude_cost_tracker.store.results._write_result_row", explode)
 
         with pytest.raises(RuntimeError, match="blew up"):
             store_result(conn, analysis, fingerprint)
@@ -383,7 +383,7 @@ class TestPartialWrites:
         def explode(*_args: object, **_kwargs: object) -> None:
             raise RuntimeError("computation blew up mid-write")
 
-        monkeypatch.setattr("ccaudit.store.results._write_result_row", explode)
+        monkeypatch.setattr("claude_cost_tracker.store.results._write_result_row", explode)
         with pytest.raises(RuntimeError, match="blew up"):
             store_result(conn, analysis, advanced(fingerprint))
 

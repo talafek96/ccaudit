@@ -14,15 +14,15 @@ from pathlib import Path, PurePosixPath
 
 import pytest
 
-from ccaudit.config import BUNDLED_PRICING_PATH, UnknownModelError, load_pricing
-from ccaudit.ingest.records import AttachmentRecord, ToolResultRecord, parse_transcript
-from ccaudit.ingest.tokens import TokenQuantity
-from ccaudit.model.lanes import (
+from claude_cost_tracker.config import BUNDLED_PRICING_PATH, UnknownModelError, load_pricing
+from claude_cost_tracker.ingest.records import AttachmentRecord, ToolResultRecord, parse_transcript
+from claude_cost_tracker.ingest.tokens import TokenQuantity
+from claude_cost_tracker.model.lanes import (
     MAX_LOOKBACK_BLOCKS,
     LaneAssignment,
     classify_session,
 )
-from ccaudit.model.residency import Sizer, Timeline, build_timeline
+from claude_cost_tracker.model.residency import Sizer, Timeline, build_timeline
 from tests.fixtures.builder import TranscriptBuilder
 
 PRICING = load_pricing(BUNDLED_PRICING_PATH)

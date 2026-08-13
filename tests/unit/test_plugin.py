@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-PLUGIN = Path(__file__).resolve().parents[2] / "src" / "ccaudit" / "plugin"
+PLUGIN = Path(__file__).resolve().parents[2] / "src" / "claude_cost_tracker" / "plugin"
 
 
 class TestLayout:
@@ -24,12 +24,12 @@ class TestLayout:
     def test_the_content_directories_are_at_the_plugin_root(self) -> None:
         """Commands, skills, and hooks live at the root — not inside .claude-plugin/."""
         assert (PLUGIN / "commands" / "audit.md").is_file()
-        assert (PLUGIN / "skills" / "ccaudit" / "SKILL.md").is_file()
+        assert (PLUGIN / "skills" / "ccost" / "SKILL.md").is_file()
         assert (PLUGIN / "hooks" / "hooks.json").is_file()
 
     def test_the_manifest_is_valid_json_with_a_name_and_version(self) -> None:
         manifest = json.loads((PLUGIN / ".claude-plugin" / "plugin.json").read_text())
-        assert manifest["name"] == "ccaudit"
+        assert manifest["name"] == "claude-cost-tracker"
         assert manifest["version"]
         assert manifest["description"]
 
@@ -50,7 +50,7 @@ class TestFootprint:
 
     def test_the_skill_description_is_short_enough_to_be_resident(self) -> None:
         """The description is the only part that is always loaded. It has to earn its size."""
-        frontmatter = (PLUGIN / "skills" / "ccaudit" / "SKILL.md").read_text(encoding="utf-8")
+        frontmatter = (PLUGIN / "skills" / "ccost" / "SKILL.md").read_text(encoding="utf-8")
         description = frontmatter.split("description:", 1)[1].split("\n", 1)[0]
         assert 0 < len(description) < 600
 
@@ -66,7 +66,7 @@ class TestSessionEndHook:
             entry["command"] for group in hooks["hooks"]["SessionEnd"] for entry in group["hooks"]
         ]
         # The invariant is *what the hook does*, not the exact string it does it with. This
-        # asserted `== ["ccaudit _enqueue"]`, which pinned a spelling the contract never
+        # asserted `== ["ccost _enqueue"]`, which pinned a spelling the contract never
         # required and broke when the command grew a uvx fallback. Changed deliberately: the
         # thing that must stay true — every command enqueues, none analyses inline — is
         # asserted directly, and is now stated in a form a second command cannot slip past.
@@ -75,7 +75,7 @@ class TestSessionEndHook:
         assert not any("analyse" in command or "report" in command for command in commands)
 
     def test_the_hook_runs_without_the_tool_being_installed(self) -> None:
-        """A `uvx` user has no `ccaudit` on PATH, and had no working hook because of it.
+        """A `uvx` user has no `ccost` on PATH, and had no working hook because of it.
 
         Requiring an install for automatic capture made the feature unreachable for the setup
         the README leads with. The command falls back to uvx, which was measured at ~1.4s warm.
@@ -94,7 +94,7 @@ class TestSessionEndHook:
 class TestHonestyInstructions:
     @pytest.mark.parametrize(
         "relative",
-        ["commands/audit.md", "skills/ccaudit/SKILL.md"],
+        ["commands/audit.md", "skills/ccost/SKILL.md"],
     )
     def test_every_invocable_surface_says_the_figures_are_not_a_bill(self, relative: str) -> None:
         """FR-010 reaches the model-facing text too — that is where it gets paraphrased away."""
@@ -102,20 +102,20 @@ class TestHonestyInstructions:
         assert "API-equivalent" in text
         assert "not a bill" in text or "not a bill." in text or "never be worded as one" in text
 
-    @pytest.mark.parametrize("relative", ["commands/audit.md", "skills/ccaudit/SKILL.md"])
+    @pytest.mark.parametrize("relative", ["commands/audit.md", "skills/ccost/SKILL.md"])
     def test_every_invocable_surface_requires_the_share_alongside_the_figure(
         self, relative: str
     ) -> None:
         text = (PLUGIN / relative).read_text(encoding="utf-8")
         assert "share" in text.lower()
 
-    @pytest.mark.parametrize("relative", ["commands/audit.md", "skills/ccaudit/SKILL.md"])
+    @pytest.mark.parametrize("relative", ["commands/audit.md", "skills/ccost/SKILL.md"])
     def test_every_invocable_surface_protects_the_unattributed_line(self, relative: str) -> None:
         """It is the first thing that gets dropped for looking untidy (FR-012, FR-013)."""
         text = (PLUGIN / relative).read_text(encoding="utf-8")
         assert "unattributed" in text.lower()
 
-    @pytest.mark.parametrize("relative", ["commands/audit.md", "skills/ccaudit/SKILL.md"])
+    @pytest.mark.parametrize("relative", ["commands/audit.md", "skills/ccost/SKILL.md"])
     def test_every_invocable_surface_handles_exit_code_three(self, relative: str) -> None:
         """A breakdown that does not add up must not be reported as figures."""
         text = (PLUGIN / relative).read_text(encoding="utf-8")
@@ -124,6 +124,6 @@ class TestHonestyInstructions:
 
     def test_the_skill_explains_the_two_causes_with_opposite_fixes(self) -> None:
         """A ranking without a cause is a report, not a tool (US2)."""
-        text = (PLUGIN / "skills" / "ccaudit" / "SKILL.md").read_text(encoding="utf-8")
+        text = (PLUGIN / "skills" / "ccost" / "SKILL.md").read_text(encoding="utf-8")
         assert "Loading into context" in text
         assert "Keeping context loaded" in text

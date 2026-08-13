@@ -8,8 +8,8 @@ is not a reconciliation.
 
 import pytest
 
-from ccaudit.model.attribute import Attribution
-from ccaudit.model.reconcile import (
+from claude_cost_tracker.model.attribute import Attribution
+from claude_cost_tracker.model.reconcile import (
     ReconciliationError,
     assert_groups_reconcile,
     reconcile,

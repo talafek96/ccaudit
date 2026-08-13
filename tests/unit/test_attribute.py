@@ -9,11 +9,11 @@ from pathlib import Path
 
 import pytest
 
-from ccaudit.config import BUNDLED_PRICING_PATH, UnknownModelError, load_pricing
-from ccaudit.ingest.records import AttachmentRecord, ToolResultRecord, parse_transcript
-from ccaudit.ingest.tokens import TokenQuantity
-from ccaudit.model.attribute import attribute_session, price_turn
-from ccaudit.model.residency import Sizer, build_timeline
+from claude_cost_tracker.config import BUNDLED_PRICING_PATH, UnknownModelError, load_pricing
+from claude_cost_tracker.ingest.records import AttachmentRecord, ToolResultRecord, parse_transcript
+from claude_cost_tracker.ingest.tokens import TokenQuantity
+from claude_cost_tracker.model.attribute import attribute_session, price_turn
+from claude_cost_tracker.model.residency import Sizer, build_timeline
 from tests.fixtures.builder import TranscriptBuilder
 
 PRICING = load_pricing(BUNDLED_PRICING_PATH)

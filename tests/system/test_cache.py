@@ -16,14 +16,19 @@ from pathlib import Path
 
 import pytest
 
-from ccaudit import __version__
-from ccaudit.analyse import SessionContribution, analyse_transcript, contribution_of
-from ccaudit.cli import EXIT_OK, main
-from ccaudit.config import BUNDLED_PRICING_PATH, load_pricing
-from ccaudit.ingest.discover import IN_PROGRESS_WINDOW, fingerprint_transcript
-from ccaudit.store.cache import build_fingerprint, cache_key, read_contribution, store_contribution
-from ccaudit.store.codec import decode, encode
-from ccaudit.store.db import connect
+from claude_cost_tracker import __version__
+from claude_cost_tracker.analyse import SessionContribution, analyse_transcript, contribution_of
+from claude_cost_tracker.cli import EXIT_OK, main
+from claude_cost_tracker.config import BUNDLED_PRICING_PATH, load_pricing
+from claude_cost_tracker.ingest.discover import IN_PROGRESS_WINDOW, fingerprint_transcript
+from claude_cost_tracker.store.cache import (
+    build_fingerprint,
+    cache_key,
+    read_contribution,
+    store_contribution,
+)
+from claude_cost_tracker.store.codec import decode, encode
+from claude_cost_tracker.store.db import connect
 from tests.fixtures.builder import TranscriptBuilder
 
 pytestmark = pytest.mark.system
@@ -56,8 +61,8 @@ def corpus(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     # cache and prove nothing.
     _settle(home)
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(home))
-    monkeypatch.setenv("CCAUDIT_HOME", str(tmp_path / "state"))
-    monkeypatch.delenv("CCAUDIT_NO_CACHE", raising=False)
+    monkeypatch.setenv("CCOST_HOME", str(tmp_path / "state"))
+    monkeypatch.delenv("CCOST_NO_CACHE", raising=False)
     return home
 
 
@@ -102,13 +107,13 @@ class TestTheFiguresAreTheSameEitherWay:
         self, corpus: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
     ) -> None:
         cached = payload(capsys, "--all")
-        monkeypatch.setenv("CCAUDIT_NO_CACHE", "1")
+        monkeypatch.setenv("CCOST_NO_CACHE", "1")
         assert without_timestamp(payload(capsys, "--all")) == without_timestamp(cached)
 
 
 class TestItIsActuallyUsed:
     def test_the_second_run_is_served_from_the_store(self, corpus: Path) -> None:
-        from ccaudit.cli import _analyse_selection, build_parser
+        from claude_cost_tracker.cli import _analyse_selection, build_parser
 
         args = build_parser().parse_args(["--all"])
         first = _analyse_selection(args)
@@ -118,7 +123,7 @@ class TestItIsActuallyUsed:
 
     def test_every_restored_session_reconciles_on_its_own(self, corpus: Path) -> None:
         """Invariant S2 — checked on the way out, not only on the way in."""
-        from ccaudit.cli import _analyse_selection, build_parser
+        from claude_cost_tracker.cli import _analyse_selection, build_parser
 
         args = build_parser().parse_args(["--all"])
         _analyse_selection(args)
@@ -134,7 +139,7 @@ class TestTheKeyCoversWhatTheFiguresDependOn:
         analysis = analyse_transcript(transcript, pricing=PRICING)
         fingerprint = fingerprint_transcript(transcript)
         key = cache_key("alpha-1", fingerprint, "proportional", PRICING.fingerprint)
-        conn = connect(tmp_path / "state" / "ccaudit.db")
+        conn = connect(tmp_path / "state" / "ccost.db")
         store_contribution(conn, key, contribution_of(analysis))
         return conn, key
 
@@ -166,7 +171,7 @@ class TestAnyDoubtDiscards:
         key = cache_key(
             "alpha-1", fingerprint_transcript(transcript), "proportional", PRICING.fingerprint
         )
-        conn = connect(tmp_path / "state" / "ccaudit.db")
+        conn = connect(tmp_path / "state" / "ccost.db")
         store_contribution(conn, key, contribution_of(analysis))
         conn.execute("UPDATE analysis_result SET contribution = ?", (b"not zlib",))
         conn.commit()
@@ -181,7 +186,7 @@ class TestAnyDoubtDiscards:
         key = cache_key(
             "alpha-1", fingerprint_transcript(transcript), "proportional", PRICING.fingerprint
         )
-        conn = connect(tmp_path / "state" / "ccaudit.db")
+        conn = connect(tmp_path / "state" / "ccost.db")
         store_contribution(conn, key, contribution_of(analysis))
 
         tampered = encode(contribution_of(analysis), SessionContribution)
@@ -210,7 +215,7 @@ class TestAnInProgressSessionIsNeverServed:
     def test_it_is_not_cached(self, corpus: Path) -> None:
         """Its records are still growing, so a cached figure is one for a session that no
         longer exists (FR-108). Touching the files puts them back inside the live window."""
-        from ccaudit.cli import _analyse_selection, build_parser
+        from claude_cost_tracker.cli import _analyse_selection, build_parser
 
         for transcript in corpus.rglob("*.jsonl"):
             os.utime(transcript, None)
@@ -220,7 +225,7 @@ class TestAnInProgressSessionIsNeverServed:
 
     def test_a_finished_session_is_cached(self, corpus: Path) -> None:
         """The other half: without this, the test above would pass on a broken cache."""
-        from ccaudit.cli import _analyse_selection, build_parser
+        from claude_cost_tracker.cli import _analyse_selection, build_parser
 
         args = build_parser().parse_args(["--all"])
         _analyse_selection(args)
@@ -256,8 +261,8 @@ class TestABuildChangeInvalidatesWhatItProduced:
     def test_it_moves_when_the_code_moves(self, tmp_path: Path) -> None:
         """Driven over a copy of the package, because the running one cannot be edited."""
         package = Path(build_fingerprint.__module__.replace(".", "/")).parent
-        source = Path(__file__).resolve().parents[2] / "src" / "ccaudit"
-        copied = tmp_path / "ccaudit"
+        source = Path(__file__).resolve().parents[2] / "src" / "claude_cost_tracker"
+        copied = tmp_path / "claude-cost-tracker"
         shutil.copytree(source, copied, ignore=shutil.ignore_patterns("__pycache__"))
 
         def fingerprint_of(root: Path) -> str:

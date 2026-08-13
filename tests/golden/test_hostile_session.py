@@ -12,10 +12,10 @@ from pathlib import Path
 
 import pytest
 
-from ccaudit.analyse import analyse_transcript
-from ccaudit.config import BUNDLED_PRICING_PATH, load_pricing
-from ccaudit.ingest.records import parse_transcript
-from ccaudit.ingest.tokens import resolve_tool_result_tokens
+from claude_cost_tracker.analyse import analyse_transcript
+from claude_cost_tracker.config import BUNDLED_PRICING_PATH, load_pricing
+from claude_cost_tracker.ingest.records import parse_transcript
+from claude_cost_tracker.ingest.tokens import resolve_tool_result_tokens
 
 pytestmark = pytest.mark.golden
 

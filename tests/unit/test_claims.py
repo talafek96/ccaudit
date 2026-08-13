@@ -1,6 +1,6 @@
 """Contract on claims — expiry as crash recovery, and a wait that always ends.
 
-These tests fence `ccaudit.store.claims` (constitution Principle V) against invariants K1 (an
+These tests fence `claude_cost_tracker.store.claims` (constitution Principle V) against invariants K1 (an
 expired claim is reclaimable by anyone, with no manual cleanup) and K3 (a reader waits a
 bounded interval, then computes the result itself).
 
@@ -17,8 +17,8 @@ from pathlib import Path
 
 import pytest
 
-from ccaudit.ingest.discover import Fingerprint
-from ccaudit.store.claims import (
+from claude_cost_tracker.ingest.discover import Fingerprint
+from claude_cost_tracker.store.claims import (
     DONE,
     Claim,
     ClaimError,
@@ -28,7 +28,7 @@ from ccaudit.store.claims import (
     take_claim,
     wait_for_claim,
 )
-from ccaudit.store.db import connect
+from claude_cost_tracker.store.db import connect
 
 SESSION = "11111111-2222-3333-4444-555555555555"
 FINGERPRINT = Fingerprint(record_count=7, last_record_uuid="asst-0007", byte_size=2329)
@@ -56,7 +56,7 @@ class FakeClock:
 
 
 @pytest.fixture
-def conn(ccaudit_home: Path) -> Iterator[sqlite3.Connection]:
+def conn(ccost_home: Path) -> Iterator[sqlite3.Connection]:
     connection = connect()
     yield connection
     connection.close()
@@ -85,9 +85,7 @@ class TestTakingAClaim:
         assert current_claim(conn, SESSION, FINGERPRINT) == taken
         assert "being analysed by pid 111 on box-a" in taken.describe(NOON)
 
-    def test_two_racing_processes_do_not_both_believe_they_hold_it(
-        self, ccaudit_home: Path
-    ) -> None:
+    def test_two_racing_processes_do_not_both_believe_they_hold_it(self, ccost_home: Path) -> None:
         """The upsert applies once; the loser is told `None` and can act on it."""
         first, second = connect(), connect()
         try:

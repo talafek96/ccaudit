@@ -19,16 +19,16 @@ from urllib.request import Request, urlopen
 
 import pytest
 
-from ccaudit.analyse import analyse_transcript
-from ccaudit.cli import EXIT_OK, main
-from ccaudit.config import load_pricing
-from ccaudit.ingest.discover import SessionRef, discover_sessions
-from ccaudit.render.data import (
+from claude_cost_tracker.analyse import analyse_transcript
+from claude_cost_tracker.cli import EXIT_OK, main
+from claude_cost_tracker.config import load_pricing
+from claude_cost_tracker.ingest.discover import SessionRef, discover_sessions
+from claude_cost_tracker.render.data import (
     ANALYSED_SESSION_METRICS,
     build_report_data,
     session_facts,
 )
-from ccaudit.render.serve import Selection, UiServer
+from claude_cost_tracker.render.serve import Selection, UiServer
 from tests.fixtures.builder import TranscriptBuilder
 
 pytestmark = pytest.mark.system
@@ -55,7 +55,7 @@ def corpus(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     quiet.write_to_project_tree(home)
 
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(home))
-    monkeypatch.setenv("CCAUDIT_HOME", str(tmp_path / "state"))
+    monkeypatch.setenv("CCOST_HOME", str(tmp_path / "state"))
     return home
 
 

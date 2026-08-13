@@ -6,11 +6,11 @@
 
 **Status**: Draft
 
-**Input**: User description: "ccaudit — a local-first cost observability tool for Claude Code sessions that attributes spend to individual files and folders, including the cost of keeping content resident in context across turns, and that a team runs repeatedly during development to find and fix what is expensive."
+**Input**: User description: "claude-cost-tracker — a local-first cost observability tool for Claude Code sessions that attributes spend to individual files and folders, including the cost of keeping content resident in context across turns, and that a team runs repeatedly during development to find and fix what is expensive."
 
 ## Overview
 
-**ccaudit** answers one question that no existing tool answers: *for a given Claude Code session, how much did each individual file cost me, and why?*
+**claude-cost-tracker** answers one question that no existing tool answers: *for a given Claude Code session, how much did each individual file cost me, and why?*
 
 The "why" is the hard part and the reason the tool must exist. Content that enters a
 conversation is paid for **twice**: once when it is loaded, and then again on **every

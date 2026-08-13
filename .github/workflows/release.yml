@@ -89,7 +89,7 @@ jobs:
           expected="$VERSION"
           for artifact in dist/*; do
             case "$(basename "$artifact")" in
-              ccaudit-"$expected".tar.gz|ccaudit-"$expected"-*.whl) ;;
+              claude_cost_tracker-"$expected".tar.gz|claude_cost_tracker-"$expected"-*.whl) ;;
               *)
                 echo "::error::$(basename "$artifact") is not version $expected."
                 exit 1 ;;
@@ -112,7 +112,7 @@ jobs:
     # workflow that did not go through it cannot upload even if it asked for the token.
     environment:
       name: pypi
-      url: https://pypi.org/p/ccaudit
+      url: https://pypi.org/p/ccost
     permissions:
       # The only permission that matters here. It lets the job request an OIDC token; it does
       # not grant write access to anything in the repository.

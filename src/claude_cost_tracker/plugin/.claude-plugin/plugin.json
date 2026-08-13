@@ -1,0 +1,8 @@
+{
+  "name": "claude-cost-tracker",
+  "description": "Where did this Claude Code session's money go? Per-file cost attribution, including the cost of keeping content loaded across turns.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Tal Afek"
+  }
+}

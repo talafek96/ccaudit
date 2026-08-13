@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from ccaudit.ingest.records import (
+from claude_cost_tracker.ingest.records import (
     TranscriptFormatError,
     Usage,
     parse_transcript,
@@ -310,19 +310,19 @@ class TestIterations:
 class TestTokenCoercion:
     def test_a_non_numeric_token_count_raises_rather_than_being_zeroed(self) -> None:
         """A format change must surface, not silently become a zero in someone's total."""
-        from ccaudit.ingest.records import _as_int
+        from claude_cost_tracker.ingest.records import _as_int
 
         with pytest.raises(TranscriptFormatError, match="expected a token count"):
             _as_int("lots")
 
     def test_a_negative_token_count_raises(self) -> None:
-        from ccaudit.ingest.records import _as_int
+        from claude_cost_tracker.ingest.records import _as_int
 
         with pytest.raises(TranscriptFormatError, match="negative"):
             _as_int(-5)
 
     def test_a_missing_count_is_zero(self) -> None:
-        from ccaudit.ingest.records import _as_int
+        from claude_cost_tracker.ingest.records import _as_int
 
         assert _as_int(None) == 0
 

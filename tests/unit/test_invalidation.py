@@ -15,16 +15,16 @@ from pathlib import Path
 
 import pytest
 
-from ccaudit.ingest.records import AttachmentRecord, ToolResultRecord, parse_transcript
-from ccaudit.ingest.tokens import TokenQuantity
-from ccaudit.model.invalidation import (
+from claude_cost_tracker.ingest.records import AttachmentRecord, ToolResultRecord, parse_transcript
+from claude_cost_tracker.ingest.tokens import TokenQuantity
+from claude_cost_tracker.model.invalidation import (
     InvalidationEvent,
     TurnWrite,
     detect_invalidations,
     forced_reload_micros_at,
     reload_details,
 )
-from ccaudit.model.residency import Sizer, Timeline, build_timeline
+from claude_cost_tracker.model.residency import Sizer, Timeline, build_timeline
 from tests.fixtures.builder import TranscriptBuilder
 
 

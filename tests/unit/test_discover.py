@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from ccaudit.ingest.discover import (
+from claude_cost_tracker.ingest.discover import (
     IN_PROGRESS_WINDOW,
     MAX_TITLE_LENGTH,
     SHORT_ID_LENGTH,
@@ -109,7 +109,10 @@ class TestProjectDirectoryEncoding:
     """
 
     def test_encoding_a_path_matches_the_claude_code_form(self) -> None:
-        assert encode_project_dir(Path("/Users/x/projects/ccaudit")) == "-Users-x-projects-ccaudit"
+        assert (
+            encode_project_dir(Path("/Users/x/projects/claude-cost-tracker"))
+            == "-Users-x-projects-claude-cost-tracker"
+        )
 
     def test_a_windows_drive_letter_keeps_its_colon_as_a_dash_of_its_own(self) -> None:
         """`C:\\Users\\alice\\source` → `C--Users-alice-source`: two dashes, not one.

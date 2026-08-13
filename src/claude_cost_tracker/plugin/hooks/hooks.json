@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ccost _enqueue 2>/dev/null || uvx --from git+https://github.com/talafek96/ccost _enqueue",
+            "timeout": 20
+          }
+        ]
+      }
+    ]
+  }
+}

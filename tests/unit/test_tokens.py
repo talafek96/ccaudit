@@ -11,9 +11,9 @@ from collections.abc import Callable
 
 import pytest
 
-from ccaudit.config.components import BASIS_VALUES, CONFIDENCE_VALUES
-from ccaudit.ingest.records import ToolResultRecord
-from ccaudit.ingest.tokens import (
+from claude_cost_tracker.config.components import BASIS_VALUES, CONFIDENCE_VALUES
+from claude_cost_tracker.ingest.records import ToolResultRecord
+from claude_cost_tracker.ingest.tokens import (
     HIGH_RESOLUTION_IMAGE_TOKEN_CAP,
     LEGACY_IMAGE_TOKEN_CAP,
     PIXELS_PER_IMAGE_TOKEN,

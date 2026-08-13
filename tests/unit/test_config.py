@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from ccaudit.config import (
+from claude_cost_tracker.config import (
     ATTRIBUTION_COMPONENTS,
     BUNDLED_PRICING_PATH,
     CHARGE_COMPONENTS,
@@ -13,15 +13,15 @@ from ccaudit.config import (
     MissingThresholdError,
     UnknownModelError,
     attribution_component,
-    ccaudit_home,
+    ccost_home,
     charge_component,
     clear_pricing_cache,
     load_pricing,
     resolve_pricing_path,
     sig_figs_for,
 )
-from ccaudit.config.categories import CATEGORIES, categorize
-from ccaudit.money import cost_micros
+from claude_cost_tracker.config.categories import CATEGORIES, categorize
+from claude_cost_tracker.money import cost_micros
 
 BUNDLED = load_pricing(BUNDLED_PRICING_PATH)
 
@@ -190,7 +190,7 @@ class TestTableResolution:
     """Rates must not be pinned to the tool's version — see config/refresh.py."""
 
     def test_explicit_env_path_wins(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("CCAUDIT_PRICING", str(tmp_path / "team.toml"))
+        monkeypatch.setenv("CCOST_PRICING", str(tmp_path / "team.toml"))
         path, origin = resolve_pricing_path()
         assert path == tmp_path / "team.toml"
         assert "explicit" in origin
@@ -198,8 +198,8 @@ class TestTableResolution:
     def test_user_table_beats_the_bundled_seed(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.delenv("CCAUDIT_PRICING", raising=False)
-        monkeypatch.setenv("CCAUDIT_HOME", str(tmp_path))
+        monkeypatch.delenv("CCOST_PRICING", raising=False)
+        monkeypatch.setenv("CCOST_HOME", str(tmp_path))
         (tmp_path / "pricing.toml").write_text("schema_version = 1\n", encoding="utf-8")
         path, origin = resolve_pricing_path()
         assert path == tmp_path / "pricing.toml"
@@ -208,8 +208,8 @@ class TestTableResolution:
     def test_falls_back_to_the_bundled_seed(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.delenv("CCAUDIT_PRICING", raising=False)
-        monkeypatch.setenv("CCAUDIT_HOME", str(tmp_path))
+        monkeypatch.delenv("CCOST_PRICING", raising=False)
+        monkeypatch.setenv("CCOST_HOME", str(tmp_path))
         path, origin = resolve_pricing_path()
         assert path == BUNDLED_PRICING_PATH
         assert origin == "bundled"
@@ -217,8 +217,8 @@ class TestTableResolution:
     def test_home_is_created_on_demand_not_at_install(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setenv("CCAUDIT_HOME", str(tmp_path / "state"))
-        assert ccaudit_home() == tmp_path / "state"
+        monkeypatch.setenv("CCOST_HOME", str(tmp_path / "state"))
+        assert ccost_home() == tmp_path / "state"
 
     def test_provenance_names_the_table_and_its_date(self) -> None:
         """How old the rates are is part of a figure's basis, not a footnote."""
@@ -227,7 +227,7 @@ class TestTableResolution:
 
     def test_a_missing_table_raises_with_the_path(self, tmp_path: Path) -> None:
         clear_pricing_cache()
-        with pytest.raises(FileNotFoundError, match="CCAUDIT_PRICING"):
+        with pytest.raises(FileNotFoundError, match="CCOST_PRICING"):
             load_pricing(tmp_path / "absent.toml")
 
 
@@ -238,7 +238,7 @@ class TestCategories:
             ("CLAUDE.md", "docs"),
             ("docs/cost-model.md", "docs"),
             ("README.rst", "docs"),
-            ("src/ccaudit/money.py", "source"),
+            ("src/claude_cost_tracker/money.py", "source"),
             ("app/main.go", "source"),
             ("specs/001-feature/spec.md", "spec"),
             (".specify/memory/constitution.md", "spec"),
@@ -290,7 +290,7 @@ class TestStaleRates:
         note = pricing.staleness_note(date(2026, 8, 12))
         assert note is not None
         assert "223 days ago" in note
-        assert "ccaudit pricing refresh" in note
+        assert "ccost pricing refresh" in note
 
     def test_the_boundary_is_the_declared_threshold(self, tmp_path: Path) -> None:
         pricing = load_pricing(self._table(tmp_path, "2026-01-01"))

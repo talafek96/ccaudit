@@ -11,16 +11,16 @@ from pathlib import Path
 
 import pytest
 
-from ccaudit.analyse import SessionAnalysis, analyse_transcript
-from ccaudit.config import BUNDLED_PRICING_PATH, load_pricing
-from ccaudit.config.categories import (
+from claude_cost_tracker.analyse import SessionAnalysis, analyse_transcript
+from claude_cost_tracker.config import BUNDLED_PRICING_PATH, load_pricing
+from claude_cost_tracker.config.categories import (
     INJECTED_ITEM_DESCRIPTIONS,
     INJECTED_ITEM_NAMES,
     injected_name,
 )
-from ccaudit.config.components import CHARGE_COMPONENTS, sig_figs_for
-from ccaudit.model.reconcile import ReconciliationError
-from ccaudit.render.data import (
+from claude_cost_tracker.config.components import CHARGE_COMPONENTS, sig_figs_for
+from claude_cost_tracker.model.reconcile import ReconciliationError
+from claude_cost_tracker.render.data import (
     ANALYSED_SESSION_METRICS,
     SCHEMA_VERSION,
     UNRECORDED_PROJECT,

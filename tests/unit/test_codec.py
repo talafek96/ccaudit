@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 
 import pytest
 
-from ccaudit.store.codec import UnsupportedTypeError, decode, encode
+from claude_cost_tracker.store.codec import UnsupportedTypeError, decode, encode
 
 
 @dataclass(frozen=True)

@@ -12,7 +12,7 @@ from typing import Any, ClassVar
 
 import pytest
 
-from ccaudit.cli import (
+from claude_cost_tracker.cli import (
     EXIT_DATA_ERROR,
     EXIT_DOES_NOT_ADD_UP,
     EXIT_INTERRUPTED,
@@ -28,8 +28,8 @@ from ccaudit.cli import (
     main,
     select_sessions,
 )
-from ccaudit.ingest.discover import encode_project_dir
-from ccaudit.model.policy import DEFAULT_POLICY
+from claude_cost_tracker.ingest.discover import encode_project_dir
+from claude_cost_tracker.model.policy import DEFAULT_POLICY
 from tests.fixtures.builder import TranscriptBuilder, simple_session
 
 
@@ -69,7 +69,8 @@ class TestParser:
         with pytest.raises(SystemExit) as exc:
             build_parser().parse_args(["--version"])
         assert exc.value.code == 0
-        assert "ccaudit" in capsys.readouterr().out
+        # `--version` prints the command it was invoked as, not the distribution name.
+        assert "ccost" in capsys.readouterr().out
 
     def test_an_unknown_command_is_a_usage_error(self) -> None:
         with pytest.raises(SystemExit) as exc:
@@ -93,33 +94,33 @@ class TestErrorTranslation:
         error: BaseException,
         expected: int,
         monkeypatch: pytest.MonkeyPatch,
-        ccaudit_home: Path,
+        ccost_home: Path,
     ) -> None:
         def explode(*_: object, **__: object) -> int:
             raise error
 
-        monkeypatch.setattr("ccaudit.cli._run_pricing", explode)
+        monkeypatch.setattr("claude_cost_tracker.cli._run_pricing", explode)
         assert main(["pricing", "show"]) == expected
 
     def test_a_reconciliation_failure_says_it_is_our_defect(
         self,
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
-        ccaudit_home: Path,
+        ccost_home: Path,
     ) -> None:
         def explode(*_: object, **__: object) -> int:
             raise ReconciliationError("attributed 5 but total is 7")
 
-        monkeypatch.setattr("ccaudit.cli._run_pricing", explode)
+        monkeypatch.setattr("claude_cost_tracker.cli._run_pricing", explode)
         main(["pricing", "show"])
         stderr = capsys.readouterr().err
         assert "does not add up" in stderr
-        assert "defect in ccaudit" in stderr
+        assert "defect in claude-cost-tracker" in stderr
 
 
 class TestPricingCommand:
     def test_show_names_the_table_and_its_date(
-        self, capsys: pytest.CaptureFixture[str], ccaudit_home: Path
+        self, capsys: pytest.CaptureFixture[str], ccost_home: Path
     ) -> None:
         assert main(["pricing", "show"]) == EXIT_OK
         out = capsys.readouterr().out
@@ -130,16 +131,16 @@ class TestPricingCommand:
     def test_show_tells_you_how_to_update_bundled_rates(
         self,
         capsys: pytest.CaptureFixture[str],
-        ccaudit_home: Path,
+        ccost_home: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Rates are not pinned to the release, and the surface has to say so."""
-        monkeypatch.delenv("CCAUDIT_PRICING", raising=False)
+        monkeypatch.delenv("CCOST_PRICING", raising=False)
         main(["pricing", "show"])
-        assert "ccaudit pricing refresh" in capsys.readouterr().out
+        assert "ccost pricing refresh" in capsys.readouterr().out
 
     def test_refresh_from_a_local_file_needs_no_network(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture[str], ccaudit_home: Path
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str], ccost_home: Path
     ) -> None:
         source = tmp_path / "rates.json"
         source.write_text(
@@ -157,10 +158,10 @@ class TestPricingCommand:
         assert main(["pricing", "refresh", "--from", str(source), "--dry-run"]) == EXIT_OK
         out = capsys.readouterr().out
         assert "dry run" in out
-        assert not (ccaudit_home / "pricing.toml").exists()
+        assert not (ccost_home / "pricing.toml").exists()
 
     def test_both_source_flags_at_once_is_a_usage_error(
-        self, tmp_path: Path, ccaudit_home: Path
+        self, tmp_path: Path, ccost_home: Path
     ) -> None:
         code = main(
             [
@@ -175,12 +176,12 @@ class TestPricingCommand:
         assert code == EXIT_USAGE
 
     def test_a_bad_source_leaves_rates_unchanged_and_exits_data_error(
-        self, tmp_path: Path, ccaudit_home: Path
+        self, tmp_path: Path, ccost_home: Path
     ) -> None:
         assert main(["pricing", "refresh", "--from", str(tmp_path / "absent.json")]) == (
             EXIT_DATA_ERROR
         )
-        assert not (ccaudit_home / "pricing.toml").exists()
+        assert not (ccost_home / "pricing.toml").exists()
 
 
 class TestLogging:
@@ -190,15 +191,15 @@ class TestLogging:
         """Analysis needs nothing from the log file; failing to open it must not be fatal."""
         blocked = tmp_path / "blocked"
         blocked.write_text("not a directory", encoding="utf-8")
-        monkeypatch.setenv("CCAUDIT_HOME", str(blocked / "state"))
+        monkeypatch.setenv("CCOST_HOME", str(blocked / "state"))
         configure_logging(0)  # must not raise
 
     def test_logging_writes_to_the_state_directory(
-        self, ccaudit_home: Path, monkeypatch: pytest.MonkeyPatch
+        self, ccost_home: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The hook path logs failures rather than surfacing them into a session (FR-054)."""
         configure_logging(0)
-        assert (ccaudit_home / "ccaudit.log").exists()
+        assert (ccost_home / "ccost.log").exists()
 
 
 class TestTheZeroArgumentDefault:
@@ -286,7 +287,7 @@ class TestTheInteractiveViewSurvivesAForeignSession:
         return home
 
     def providers(self, monkeypatch: pytest.MonkeyPatch, argv: list[str]) -> dict[str, Any]:
-        """Run `ccaudit ui`, capturing what it hands the server instead of serving."""
+        """Run `ccost ui`, capturing what it hands the server instead of serving."""
         captured: dict[str, Any] = {}
 
         def fake_serve_ui(provider: Any, sessions: Any, **kwargs: Any) -> None:
@@ -294,7 +295,7 @@ class TestTheInteractiveViewSurvivesAForeignSession:
             captured["facts"] = kwargs["facts"]
             captured["selection"] = kwargs["initial"]
 
-        monkeypatch.setattr("ccaudit.cli.serve_ui", fake_serve_ui)
+        monkeypatch.setattr("claude_cost_tracker.cli.serve_ui", fake_serve_ui)
         assert main(argv) == EXIT_OK
         return captured
 
@@ -330,7 +331,7 @@ class TestTheInteractiveViewSurvivesAForeignSession:
 
 
 class TestAnOptionSurvivesTheSubcommand:
-    """`ccaudit --project X ui` and `ccaudit ui --project X` must mean the same thing.
+    """`ccost --project X ui` and `ccost ui --project X` must mean the same thing.
 
     Both spellings are accepted, so both have to answer the same question. They did not:
     argparse parses a subcommand into a fresh namespace and copies *all* of it back, so each
@@ -379,7 +380,7 @@ class TestAnOptionSurvivesTheSubcommand:
         """The point of the fix: order must not change the answer.
 
         This used to build only the *before* parse and assert on it, which named two spellings
-        and checked one. `ccaudit notebook --project X` was a usage error the whole time and
+        and checked one. `ccost notebook --project X` was a usage error the whole time and
         this test went green through a full CI run beside it. Both orders are parsed now, and
         compared to each other rather than each to a constant.
         """
@@ -404,11 +405,11 @@ class TestAnOptionSurvivesTheSubcommand:
 
 
 class TestTheListingSurvivesAForeignSession:
-    """`ccaudit sessions --facts` is the third sweep, and it was the last one still unguarded.
+    """`ccost sessions --facts` is the third sweep, and it was the last one still unguarded.
 
     It is also the one the generated notebook shells out to on its very first cell, so a single
     session written into the shared `~/.claude` by another tool did not degrade the notebook —
-    it stopped it, with a `ccaudit exited 1` and a raw traceback.
+    it stopped it, with a `ccost exited 1` and a raw traceback.
     """
 
     FOREIGN_MODEL = "some-other-tool-model-1"

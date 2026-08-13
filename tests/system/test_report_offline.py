@@ -16,12 +16,12 @@ from tempfile import TemporaryDirectory
 
 import pytest
 
-from ccaudit.analyse import analyse_transcript
-from ccaudit.config import BUNDLED_PRICING_PATH, load_pricing
-from ccaudit.config.components import ATTRIBUTION_COMPONENTS, CHARGE_COMPONENTS
-from ccaudit.model.reconcile import UNATTRIBUTED_DISPLAY
-from ccaudit.render.data import DEFAULT_GROUPING, build_report_data
-from ccaudit.render.report import (
+from claude_cost_tracker.analyse import analyse_transcript
+from claude_cost_tracker.config import BUNDLED_PRICING_PATH, load_pricing
+from claude_cost_tracker.config.components import ATTRIBUTION_COMPONENTS, CHARGE_COMPONENTS
+from claude_cost_tracker.model.reconcile import UNATTRIBUTED_DISPLAY
+from claude_cost_tracker.render.data import DEFAULT_GROUPING, build_report_data
+from claude_cost_tracker.render.report import (
     EXPAND_STEP,
     TOP_ITEMS,
     _comparison_members,
@@ -144,7 +144,7 @@ class TestEveryFigureIsHonest:
         assert "could not be parsed" in html
 
     def test_the_payload_is_embedded_for_the_reader_to_check(self, html: str) -> None:
-        assert 'id="ccaudit-data"' in html
+        assert 'id="ccost-data"' in html
         assert "api_equivalent_estimate" in html
 
 

@@ -7,9 +7,9 @@ which is exactly why it is checked rather than assumed.
 
 import pytest
 
-from ccaudit.analyse import SessionAnalysis, analyse_transcript
-from ccaudit.config import BUNDLED_PRICING_PATH, load_pricing
-from ccaudit.render.data import (
+from claude_cost_tracker.analyse import SessionAnalysis, analyse_transcript
+from claude_cost_tracker.config import BUNDLED_PRICING_PATH, load_pricing
+from claude_cost_tracker.render.data import (
     GROUPINGS,
     SORTS,
     UnknownGroupingError,

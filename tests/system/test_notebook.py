@@ -14,12 +14,12 @@ from pathlib import Path
 
 import pytest
 
-from ccaudit.cli import EXIT_INTERRUPTED, EXIT_OK, EXIT_USAGE, main, marimo_command
-from ccaudit.notebook import (
+from claude_cost_tracker.cli import EXIT_INTERRUPTED, EXIT_OK, EXIT_USAGE, main, marimo_command
+from claude_cost_tracker.notebook import (
     COMMAND_PLACEHOLDER,
     NOTEBOOK_SOURCE,
     SCOPE_PLACEHOLDER,
-    ccaudit_command,
+    ccost_command,
     write_notebook,
 )
 
@@ -49,9 +49,9 @@ class TestItIsAValidNotebook:
 
 
 class TestItCostsThisProjectNoDependency:
-    def test_ccaudit_never_imports_marimo(self) -> None:
+    def test_ccost_never_imports_marimo(self) -> None:
         """The runtime dependency set stays `rich` and nothing else (Principle II)."""
-        source = Path("src/ccaudit").rglob("*.py")
+        source = Path("src/claude_cost_tracker").rglob("*.py")
         for module in source:
             tree = ast.parse(module.read_text(encoding="utf-8"))
             for node in ast.walk(tree):
@@ -78,25 +78,25 @@ class TestItCostsThisProjectNoDependency:
 
 class TestItComputesNoFigure:
     def test_every_figure_comes_from_the_cli(self, notebook: str) -> None:
-        """FR-074 by construction: the notebook renders what ccaudit returns.
+        """FR-074 by construction: the notebook renders what ccost returns.
 
         A notebook that summed per-session figures itself would be a second implementation of
         the arithmetic, free to disagree with the first.
         """
-        assert "[*CCAUDIT, *args]" in notebook
+        assert "[*CCOST, *args]" in notebook
         assert '"--json"' in notebook
 
-    def test_it_is_told_where_to_find_ccaudit(self, notebook: str) -> None:
-        """`ccaudit` is not on PATH under `uvx`, and the notebook runs under a different
+    def test_it_is_told_where_to_find_ccost(self, notebook: str) -> None:
+        """`ccost` is not on PATH under `uvx`, and the notebook runs under a different
         interpreter besides — so the command is resolved at write time and written in as an
         absolute path. Assuming the bare name failed with a bare FileNotFoundError."""
         assert COMMAND_PLACEHOLDER not in notebook
-        command = json.loads(notebook.split("CCAUDIT = ", 1)[1].split("\n", 1)[0])
+        command = json.loads(notebook.split("CCOST = ", 1)[1].split("\n", 1)[0])
         assert Path(command[0]).is_absolute()
 
-    def test_a_missing_ccaudit_says_what_to_do(self, notebook: str) -> None:
+    def test_a_missing_ccost_says_what_to_do(self, notebook: str) -> None:
         """The failure it replaces gave the reader nothing to act on."""
-        assert "cannot run ccaudit at" in notebook
+        assert "cannot run ccost at" in notebook
         assert "uv tool install" in notebook
 
     def test_it_labels_its_figures_as_estimates(self, notebook: str) -> None:
@@ -113,7 +113,7 @@ class TestItComputesNoFigure:
 
 
 class TestTheThrowawayNotebook:
-    """The default is the same bargain as `ccaudit ui`: one command, nothing left behind."""
+    """The default is the same bargain as `ccost ui`: one command, nothing left behind."""
 
     @pytest.fixture
     def launched(self, monkeypatch: pytest.MonkeyPatch) -> list:
@@ -261,19 +261,19 @@ class TestTheCommand:
         The invariant is unchanged and is still asserted in full — `write_notebook` is exactly
         `NOTEBOOK_SOURCE` with its placeholders substituted and nothing else. What changed is
         that there are two placeholders rather than one, because a notebook opened by
-        `ccaudit --project X notebook` used to list every session on the machine: the scope was
+        `ccost --project X notebook` used to list every session on the machine: the scope was
         never passed to it, so the surface whose whole claim is that it cannot disagree with
         the terminal was answering a different question. This assertion is widened to cover the
         second substitution, not weakened — anything else `write_notebook` did would still fail
         it.
         """
         written = write_notebook(
-            tmp_path / "nb.py", command=["/opt/ccaudit"], scope=["--project", "/repo/x"]
+            tmp_path / "nb.py", command=["/opt/claude-cost-tracker"], scope=["--project", "/repo/x"]
         ).read_text(encoding="utf-8")
 
-        assert written == NOTEBOOK_SOURCE.replace(COMMAND_PLACEHOLDER, '["/opt/ccaudit"]').replace(
-            SCOPE_PLACEHOLDER, '["--project", "/repo/x"]'
-        )
+        assert written == NOTEBOOK_SOURCE.replace(
+            COMMAND_PLACEHOLDER, '["/opt/claude-cost-tracker"]'
+        ).replace(SCOPE_PLACEHOLDER, '["--project", "/repo/x"]')
 
 
 class TestTheNotebookExploresTheCorpusItWasOpenedOver:
@@ -291,7 +291,7 @@ class TestTheNotebookExploresTheCorpusItWasOpenedOver:
         assert '_run(["sessions", *SCOPE, "--json"]' in written
 
     def test_the_default_is_the_whole_corpus(self, tmp_path: Path) -> None:
-        """A bare `ccaudit notebook` still opens over everything, as `ccaudit sessions` does."""
+        """A bare `ccost notebook` still opens over everything, as `ccost sessions` does."""
         written = write_notebook(tmp_path / "nb.py").read_text(encoding="utf-8")
 
         assert 'SCOPE = ["--all"]' in written
@@ -304,7 +304,7 @@ class TestTheNotebookExploresTheCorpusItWasOpenedOver:
         assert SCOPE_PLACEHOLDER not in written
 
     def test_the_command_scopes_the_notebook_it_writes(self, tmp_path: Path) -> None:
-        """End to end: `ccaudit --project X notebook --out f` writes a notebook scoped to X.
+        """End to end: `ccost --project X notebook --out f` writes a notebook scoped to X.
 
         The expected string is built through `Path` and `json`, because the project is written
         in as the host renders it — `\\repo\\mine` on Windows — and a literal here would pin
@@ -319,10 +319,10 @@ class TestTheNotebookExploresTheCorpusItWasOpenedOver:
         assert f"SCOPE = {expected}" in path.read_text(encoding="utf-8")
 
 
-class TestFindingCcauditAgain:
-    """`ccaudit` on PATH is the assumption that broke this on a real machine.
+class TestFindingCcostAgain:
+    """`ccost` on PATH is the assumption that broke this on a real machine.
 
-    Installed with `uvx --from git+... ccaudit`, the executable lives in a uv cache directory
+    Installed with `uvx --from git+... claude-cost-tracker`, the executable lives in a uv cache directory
     and never reaches PATH; the notebook's first cell died with `FileNotFoundError [WinError 2]`
     and nothing to act on. So the command is resolved when the notebook is written, by the
     process that knows the answer.
@@ -331,27 +331,27 @@ class TestFindingCcauditAgain:
     def test_it_prefers_the_executable_that_is_running(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
-        launcher = tmp_path / "ccaudit"
+        launcher = tmp_path / "ccost"
         launcher.write_text("#!/bin/sh\n")
         monkeypatch.setattr("sys.argv", [str(launcher)])
-        assert ccaudit_command() == [str(launcher.resolve())]
+        assert ccost_command() == [str(launcher.resolve())]
 
     def test_it_falls_back_to_one_on_path(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr("sys.argv", ["pytest"])
-        monkeypatch.setattr("shutil.which", lambda name: "/usr/local/bin/ccaudit")
-        assert ccaudit_command() == ["/usr/local/bin/ccaudit"]
+        monkeypatch.setattr("shutil.which", lambda name: "/usr/local/bin/claude-cost-tracker")
+        assert ccost_command() == ["/usr/local/bin/claude-cost-tracker"]
 
     def test_it_falls_back_to_this_interpreter(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """`python -m ccaudit` works wherever the package is importable, which is here."""
+        """`python -m claude_cost_tracker` works wherever the package is importable, which is here."""
         monkeypatch.setattr("sys.argv", ["pytest"])
         monkeypatch.setattr("shutil.which", lambda name: None)
-        assert ccaudit_command()[1:] == ["-m", "ccaudit"]
+        assert ccost_command()[1:] == ["-m", "claude_cost_tracker"]
 
     def test_every_form_is_absolute(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The notebook runs from a different directory, under a different interpreter."""
         monkeypatch.setattr("sys.argv", ["pytest"])
         monkeypatch.setattr("shutil.which", lambda name: None)
-        assert Path(ccaudit_command()[0]).is_absolute()
+        assert Path(ccost_command()[0]).is_absolute()
 
 
 class TestChartsRenderWithoutWarnings:

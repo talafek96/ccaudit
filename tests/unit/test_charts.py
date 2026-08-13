@@ -18,10 +18,14 @@ from typing import Any
 
 import pytest
 
-from ccaudit.config.components import ATTRIBUTION_COMPONENTS, CHARGE_COMPONENTS, sig_figs_for
-from ccaudit.model.reconcile import UNATTRIBUTED_DISPLAY
-from ccaudit.money import format_axis_micros, format_micros, format_share
-from ccaudit.render.charts import (
+from claude_cost_tracker.config.components import (
+    ATTRIBUTION_COMPONENTS,
+    CHARGE_COMPONENTS,
+    sig_figs_for,
+)
+from claude_cost_tracker.model.reconcile import UNATTRIBUTED_DISPLAY
+from claude_cost_tracker.money import format_axis_micros, format_micros, format_share
+from claude_cost_tracker.render.charts import (
     CHART_WIDTH,
     SERIES_SLOT_COUNT,
     UNATTRIBUTED_SWATCH,
@@ -33,7 +37,7 @@ from ccaudit.render.charts import (
     series_swatch,
     truncate,
 )
-from ccaudit.render.charts.bars import (
+from claude_cost_tracker.render.charts.bars import (
     CHARACTER_WIDTH,
     COLUMN_GAP,
     ROW_BAR_WIDTH,
@@ -45,8 +49,8 @@ from ccaudit.render.charts.bars import (
     cumulative_sparkline,
     stacked_bars,
 )
-from ccaudit.render.charts.hierarchy import _own_clause, icicle
-from ccaudit.render.charts.scatter import (
+from claude_cost_tracker.render.charts.hierarchy import _own_clause, icicle
+from claude_cost_tracker.render.charts.scatter import (
     PLOT_BOTTOM,
     PLOT_TOP,
     _cause,
@@ -57,7 +61,7 @@ from ccaudit.render.charts.scatter import (
     cause_scatter,
     session_bars,
 )
-from ccaudit.render.charts.timeline import (
+from claude_cost_tracker.render.charts.timeline import (
     LABEL_GUTTER,
     MAX_SPANS,
     TRACK_WIDTH,
@@ -65,7 +69,7 @@ from ccaudit.render.charts.timeline import (
     _turn_ticks,
     residency_timeline,
 )
-from ccaudit.render.report import ASSETS
+from claude_cost_tracker.render.report import ASSETS
 
 TAGS = re.compile(r"<[^>]+>")
 SVG_TITLE = re.compile(r"<title>(.*?)</title>", re.DOTALL)
@@ -685,7 +689,7 @@ class TestCausePlot:
         The bottom of the cost axis printed "$0.01" and "$0.09" over one another, which reads
         as one unintelligible label. Positions, not strings, are what must differ.
         """
-        from ccaudit.render.charts.scatter import MIN_TICK_GAP_Y, _grid
+        from claude_cost_tracker.render.charts.scatter import MIN_TICK_GAP_Y, _grid
 
         grid = _grid(58, 1_000, 57_000_000)
         ys = sorted(float(y) for y in re.findall(r'x="68" y="([\d.]+)"', grid))
@@ -1131,7 +1135,7 @@ class TestALogAxisIsEvenlySpaced:
         """They were drawn by the same function with different floors, so a point could sit
         beside the gridline for its own value."""
         source = (
-            Path(__file__).resolve().parents[2] / "src/ccaudit/render/charts/scatter.py"
+            Path(__file__).resolve().parents[2] / "src/claude_cost_tracker/render/charts/scatter.py"
         ).read_text(encoding="utf-8")
         calls = re.findall(r"_log_scale\([^)]*\)", source)
         reads_calls = [call for call in calls if "max_reads" in call]
@@ -1144,9 +1148,9 @@ class TestTheFlameGraphSaysWhereYouAre:
     breakdown *of*. Naming the last click instead of the path is not a smaller version of that
     — it is the wrong answer, and a confident one.
 
-    Pinned after clicking a folder four levels down produced "All / src/ccaudit" for
-    /Users/talafek/projects/ccaudit/src/ccaudit. Verified in Chrome: the same click now yields
-    All / Users/talafek / projects / ccaudit / src/ccaudit, clicking the focused node does not
+    Pinned after clicking a folder four levels down produced "All / src/claude_cost_tracker" for
+    /Users/talafek/projects/claude-cost-tracker/src/claude_cost_tracker. Verified in Chrome: the same click now yields
+    All / Users/talafek / projects / claude-cost-tracker / src/claude_cost_tracker, clicking the focused node does not
     stack it, and a crumb walks back up.
     """
 

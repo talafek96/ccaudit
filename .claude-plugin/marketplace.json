@@ -1,12 +1,12 @@
 {
-  "name": "ccaudit",
+  "name": "claude-cost-tracker",
   "owner": {
     "name": "Tal Afek"
   },
   "plugins": [
     {
-      "name": "ccaudit",
-      "source": "./src/ccaudit/plugin",
+      "name": "claude-cost-tracker",
+      "source": "./src/claude_cost_tracker/plugin",
       "description": "Where did this Claude Code session's money go? Per-file cost attribution, including the cost of keeping content loaded across turns."
     }
   ]

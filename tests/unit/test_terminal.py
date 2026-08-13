@@ -13,18 +13,18 @@ from pathlib import Path
 import pytest
 from rich.console import Console
 
-from ccaudit.analyse import SessionAnalysis, analyse_transcript
-from ccaudit.config import BUNDLED_PRICING_PATH, load_pricing
-from ccaudit.config.components import CHARGE_COMPONENTS, sig_figs_for
-from ccaudit.model.reconcile import UNATTRIBUTED_DISPLAY
-from ccaudit.money import format_micros
-from ccaudit.render.data import (
+from claude_cost_tracker.analyse import SessionAnalysis, analyse_transcript
+from claude_cost_tracker.config import BUNDLED_PRICING_PATH, load_pricing
+from claude_cost_tracker.config.components import CHARGE_COMPONENTS, sig_figs_for
+from claude_cost_tracker.model.reconcile import UNATTRIBUTED_DISPLAY
+from claude_cost_tracker.money import format_micros
+from claude_cost_tracker.render.data import (
     SESSION_LIST_LIMIT,
     build_report_data,
     summarise_ids,
     summarise_versions,
 )
-from ccaudit.render.terminal import PLAIN_WIDTH, render_report
+from claude_cost_tracker.render.terminal import PLAIN_WIDTH, render_report
 from tests.fixtures.builder import TranscriptBuilder
 
 PRICING = load_pricing(BUNDLED_PRICING_PATH)
@@ -300,7 +300,7 @@ class TestCorpusScaleOutput:
 
     Running `--all` over ~900 sessions printed every UUID, then 37 Claude Code versions, then
     thirty near-identical limitation notes — several screens before the first number. The
-    identifiers are still in the payload and still listed by `ccaudit sessions`; what changes
+    identifiers are still in the payload and still listed by `ccost sessions`; what changes
     here is that the summary stops being buried under them.
     """
 

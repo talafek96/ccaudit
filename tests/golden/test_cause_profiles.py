@@ -16,8 +16,8 @@ from pathlib import Path
 
 import pytest
 
-from ccaudit.analyse import analyse_transcript
-from ccaudit.config import BUNDLED_PRICING_PATH, load_pricing
+from claude_cost_tracker.analyse import analyse_transcript
+from claude_cost_tracker.config import BUNDLED_PRICING_PATH, load_pricing
 
 pytestmark = pytest.mark.golden
 

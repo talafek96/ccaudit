@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from ccaudit.cli import EXIT_NO_SESSIONS, EXIT_OK, EXIT_USAGE, main
+from claude_cost_tracker.cli import EXIT_NO_SESSIONS, EXIT_OK, EXIT_USAGE, main
 from tests.fixtures.builder import TranscriptBuilder
 
 pytestmark = pytest.mark.system
@@ -45,7 +45,7 @@ def corpus(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     other.write_to_project_tree(home)
 
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(home))
-    monkeypatch.setenv("CCAUDIT_HOME", str(tmp_path / "state"))
+    monkeypatch.setenv("CCOST_HOME", str(tmp_path / "state"))
     return home
 
 
@@ -162,7 +162,7 @@ class TestSelection:
     ) -> None:
         code, _, err = run(["--session", "no-such-session"], capsys)
         assert code == EXIT_NO_SESSIONS
-        assert "ccaudit sessions" in err
+        assert "ccost sessions" in err
 
 
 class TestPolicy:

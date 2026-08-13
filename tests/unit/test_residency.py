@@ -9,9 +9,9 @@ from pathlib import Path
 
 import pytest
 
-from ccaudit.ingest.records import AttachmentRecord, ToolResultRecord, parse_transcript
-from ccaudit.ingest.tokens import TokenQuantity
-from ccaudit.model.residency import Sizer, Timeline, absolute_identity, build_timeline
+from claude_cost_tracker.ingest.records import AttachmentRecord, ToolResultRecord, parse_transcript
+from claude_cost_tracker.ingest.tokens import TokenQuantity
+from claude_cost_tracker.model.residency import Sizer, Timeline, absolute_identity, build_timeline
 from tests.fixtures.builder import TranscriptBuilder
 
 

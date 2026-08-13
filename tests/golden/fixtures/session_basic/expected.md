@@ -31,7 +31,7 @@ only case in this fixture where that rule is exercised.
 
 ## Rates in effect
 
-Model `claude-opus-5` on every turn, from `src/ccaudit/config/pricing.toml`:
+Model `claude-opus-5` on every turn, from `src/claude_cost_tracker/config/pricing.toml`:
 
 | Component | Rate | Micro-dollars per token |
 |---|---|---:|

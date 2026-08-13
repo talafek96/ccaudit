@@ -15,9 +15,9 @@ from pathlib import Path
 
 import pytest
 
-from ccaudit.analyse import analyse_transcript
-from ccaudit.cli import EXIT_OK, main
-from ccaudit.config import BUNDLED_PRICING_PATH, load_pricing
+from claude_cost_tracker.analyse import analyse_transcript
+from claude_cost_tracker.cli import EXIT_OK, main
+from claude_cost_tracker.config import BUNDLED_PRICING_PATH, load_pricing
 from tests.fixtures.builder import TranscriptBuilder
 
 pytestmark = pytest.mark.system
@@ -80,7 +80,7 @@ class TestCorpus:
                 )
             builder.write_to_project_tree(home)
         monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(home))
-        monkeypatch.setenv("CCAUDIT_HOME", str(tmp_path / "state"))
+        monkeypatch.setenv("CCOST_HOME", str(tmp_path / "state"))
 
         started = time.monotonic()
         assert main(["--all", "--json"]) == EXIT_OK
@@ -100,7 +100,7 @@ class TestCorpus:
             builder.add_turn(input_tokens=5, cache_read=1_600, output_tokens=25)
             builder.write_to_project_tree(home)
         monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(home))
-        monkeypatch.setenv("CCAUDIT_HOME", str(tmp_path / "state"))
+        monkeypatch.setenv("CCOST_HOME", str(tmp_path / "state"))
 
         main(["--all", "--json"])  # warm any lazily-loaded configuration
         capsys.readouterr()

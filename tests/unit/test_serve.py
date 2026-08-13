@@ -20,10 +20,10 @@ from urllib.request import urlopen
 
 import pytest
 
-from ccaudit.analyse import SessionAnalysis
-from ccaudit.ingest.discover import SessionRef, fingerprint_transcript
-from ccaudit.model.reconcile import ReconciliationError
-from ccaudit.render.data import (
+from claude_cost_tracker.analyse import SessionAnalysis
+from claude_cost_tracker.ingest.discover import SessionRef, fingerprint_transcript
+from claude_cost_tracker.model.reconcile import ReconciliationError
+from claude_cost_tracker.render.data import (
     ANALYSED_SESSION_METRICS,
     CHEAP_SESSION_METRICS,
     GROUPING_DESCRIPTIONS,
@@ -31,8 +31,8 @@ from ccaudit.render.data import (
     SESSION_METRICS,
     build_report_data,
 )
-from ccaudit.render.report import ASSETS, REPORT_TITLE, render_report_html
-from ccaudit.render.serve import (
+from claude_cost_tracker.render.report import ASSETS, REPORT_TITLE, render_report_html
+from claude_cost_tracker.render.serve import (
     Selection,
     UiHttpServer,
     UiServer,
@@ -115,9 +115,9 @@ class TestNothingIsBrowserOnly:
     ) -> None:
         """FR-074, made visible to the reader rather than merely true."""
         selection = Selection(session_ids=("sess-one",), group_by="ext", redact=True)
-        assert terminal_command(selection) == "ccaudit --session sess-one --by ext --redact"
+        assert terminal_command(selection) == "ccost --session sess-one --by ext --redact"
         html = render_ui_html(payload, sessions=sessions, selection=selection)
-        assert "ccaudit --session sess-one --by ext --redact" in html
+        assert "ccost --session sess-one --by ext --redact" in html
 
     def test_the_json_matches_the_cli_serialisation_byte_for_byte(self, payload: dict) -> None:
         assert payload_json(payload) == json.dumps(payload, indent=2, sort_keys=False) + "\n"
@@ -130,7 +130,7 @@ class TestOneRendererTwoShells:
         html = render_ui_html(
             payload, sessions=sessions, selection=Selection(session_ids=("sess-one",))
         )
-        assert '<script type="application/json" id="ccaudit-data">' in html
+        assert '<script type="application/json" id="ccost-data">' in html
         assert f"<title>{escape(REPORT_TITLE)}</title>" in html
         # The shell, not its class name: this pins that the report document is *wrapped* by
         # controls, which is the property. A previous version asserted `class="ui-controls"`
@@ -168,7 +168,7 @@ class TestOneRendererTwoShells:
         html = render_ui_html(
             payload, sessions=sessions, selection=Selection(session_ids=("sess-one",))
         )
-        assert "ccaudit report" in html
+        assert "ccost report" in html
         assert "not the shareable artifact" in html
 
 
@@ -318,11 +318,11 @@ class TestFilteringSurvivesRevealingMoreRows:
         return (ASSETS / "report.js").read_text(encoding="utf-8")
 
     def test_the_reveal_announces_itself(self) -> None:
-        assert "ccaudit:rows-revealed" in self.script()
+        assert "claude-cost-tracker:rows-revealed" in self.script()
         assert "dispatchEvent" in self.script()
 
     def test_the_filter_reapplies_on_that_announcement(self) -> None:
-        assert "addEventListener('ccaudit:rows-revealed'" in self.script()
+        assert "addEventListener('claude-cost-tracker:rows-revealed'" in self.script()
 
     def test_filtering_does_not_reuse_the_truncation_hidden_state(self) -> None:
         """Two meanings for one flag is how clearing a filter revealed rows nobody asked for.

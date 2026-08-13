@@ -116,43 +116,6 @@ wheels = [
 ]
 
 [[package]]
-name = "ccaudit"
-source = { editable = "." }
-dependencies = [
-    { name = "rich" },
-]
-
-[package.optional-dependencies]
-notebook = [
-    { name = "altair" },
-    { name = "marimo" },
-    { name = "pandas" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "mypy" },
-    { name = "pytest" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "altair", marker = "extra == 'notebook'", specifier = ">=5" },
-    { name = "marimo", marker = "extra == 'notebook'", specifier = ">=0.9" },
-    { name = "pandas", marker = "extra == 'notebook'", specifier = ">=2" },
-    { name = "rich", specifier = ">=13.7" },
-]
-provides-extras = ["notebook"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "mypy", specifier = ">=1.11" },
-    { name = "pytest", specifier = ">=8.0" },
-    { name = "ruff", specifier = ">=0.6" },
-]
-
-[[package]]
 name = "cffi"
 version = "2.1.1"
 source = { registry = "https://pypi.org/simple" }
@@ -235,6 +198,43 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/6d/cd/a361394c94b2129d604bb846f624a8e88255a3ee33129c434a00d715e64f/cffi-2.1.1-cp315-cp315t-win32.whl", hash = "sha256:06c72bb76605a4b0cd0aad6930b69d4baf7dd5d806cfc409b824191099700e66", size = 182707, upload-time = "2026-08-03T21:21:11.226Z" },
     { url = "https://files.pythonhosted.org/packages/9b/b5/ba2b299993c26577d529b6ae29841f9e15b9fcf004d65f423f4fcf94ade9/cffi-2.1.1-cp315-cp315t-win_amd64.whl", hash = "sha256:d9c275eaacd24aa73f94ffd6de08fc3f932424d8b6c376f4bed7cde376fe7bc3", size = 193772, upload-time = "2026-08-03T21:21:12.39Z" },
     { url = "https://files.pythonhosted.org/packages/aa/29/35e016098c814cd93de9cd320c66b5bfba14dc6ecedd3cb518fa7c408c69/cffi-2.1.1-cp315-cp315t-win_arm64.whl", hash = "sha256:d18e5ac0f2f03f4f518d3e23db0f0cad7faa1da8620e9c09461d443bbf6e6692", size = 186360, upload-time = "2026-08-03T21:21:13.636Z" },
+]
+
+[[package]]
+name = "claude-cost-tracker"
+source = { editable = "." }
+dependencies = [
+    { name = "rich" },
+]
+
+[package.optional-dependencies]
+notebook = [
+    { name = "altair" },
+    { name = "marimo" },
+    { name = "pandas" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "mypy" },
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "altair", marker = "extra == 'notebook'", specifier = ">=5" },
+    { name = "marimo", marker = "extra == 'notebook'", specifier = ">=0.9" },
+    { name = "pandas", marker = "extra == 'notebook'", specifier = ">=2" },
+    { name = "rich", specifier = ">=13.7" },
+]
+provides-extras = ["notebook"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "mypy", specifier = ">=1.11" },
+    { name = "pytest", specifier = ">=8.0" },
+    { name = "ruff", specifier = ">=0.6" },
 ]
 
 [[package]]

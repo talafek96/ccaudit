@@ -11,7 +11,7 @@ the project's, the user's own, or bundled with Claude Code — so nothing here c
 
 import pytest
 
-from ccaudit.ingest.skills import (
+from claude_cost_tracker.ingest.skills import (
     ORIGIN_PLUGIN,
     ORIGIN_UNSTATED,
     parse_listing,

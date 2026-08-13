@@ -1,14 +1,34 @@
 [project]
-name = "ccaudit"
+name = "claude-cost-tracker"
 dynamic = ["version"]
 description = "Local-first cost observability for Claude Code sessions"
 readme = "README.md"
 requires-python = ">=3.12"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+keywords = [
+    "claude",
+    "claude-code",
+    "cost",
+    "session",
+    "token-usage",
+    "observability",
+    "anthropic",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: System :: Monitoring",
+    "Typing :: Typed",
+]
 dependencies = [
     "rich>=13.7",
 ]
 
-# Convenience only. `ccaudit notebook` writes a notebook that declares its own dependencies
+# Convenience only. `ccost notebook` writes a notebook that declares its own dependencies
 # inline (PEP 723), so `uvx marimo edit --sandbox <file>` needs none of this — the extra exists
 # for someone who would rather have marimo installed than sandboxed.
 [project.optional-dependencies]
@@ -19,7 +39,11 @@ notebook = [
 ]
 
 [project.scripts]
-ccaudit = "ccaudit.cli:main"
+ccost = "claude_cost_tracker.cli:main"
+# An alias named after the distribution, so `uvx claude-cost-tracker` resolves without
+# `--from`. Not a second way to use the tool — `ccost` is the command; this exists so the
+# one-liner in the README works for someone who has never installed it.
+"claude-cost-tracker" = "claude_cost_tracker.cli:main"
 
 [build-system]
 requires = ["hatchling", "hatch-vcs"]
@@ -35,7 +59,7 @@ source = "vcs"
 raw-options = { fallback_version = "0.0.0" }
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/ccaudit"]
+packages = ["src/claude_cost_tracker"]
 
 [dependency-groups]
 dev = [

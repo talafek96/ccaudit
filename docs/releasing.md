@@ -1,7 +1,19 @@
 # Releasing
 
-Publishing a version of ccaudit to PyPI. Two one-time setup steps, then one command per
+Publishing a version of ccost to PyPI. Two one-time setup steps, then one command per
 release.
+
+## The three names
+
+| Name | Is | Where it appears |
+|---|---|---|
+| `claude-cost-tracker` | the distribution | PyPI, the repo, `pip install`, `uvx` |
+| `ccost` | the command | what you type; `[project.scripts]` |
+| `claude_cost_tracker` | the import package | `src/`, every import, `python -m` |
+
+They are deliberately different, and the release path touches all three: the trusted publisher
+is registered against the *distribution*, the workflow asserts artifact filenames built from the
+*import package* (PEP 625 renders `-` as `_`), and `--version` prints the *command*.
 
 ## How it works, in one paragraph
 
@@ -23,7 +35,7 @@ anything not contained in `rel/stable`, waits for your approval, and uploads ove
 
 This is what makes the publish wait for you, and it is half of what PyPI will trust.
 
-1. Go to **<https://github.com/talafek96/ccaudit/settings/environments>**
+1. Go to **<https://github.com/talafek96/claude-cost-tracker/settings/environments>**
 2. **New environment** → name it exactly `pypi` → **Configure environment**
 3. Tick **Required reviewers**, add yourself, **Save protection rules**
 
@@ -31,7 +43,7 @@ The name must be exactly `pypi`; the workflow and PyPI both refer to it by that 
 
 ### Step 2 — register the pending publisher on PyPI
 
-`ccaudit` does not exist on PyPI yet, so this is a *pending* publisher: it reserves the name
+`ccost` does not exist on PyPI yet, so this is a *pending* publisher: it reserves the name
 and is converted into a real one by the first successful upload.
 
 1. Sign in at **<https://pypi.org>** (enable 2FA if you have not — PyPI requires it to publish)
@@ -40,9 +52,9 @@ and is converted into a real one by the first successful upload.
 
    | Field | Value |
    |---|---|
-   | PyPI Project Name | `ccaudit` |
+   | PyPI Project Name | `claude-cost-tracker` |
    | Owner | `talafek96` |
-   | Repository name | `ccaudit` |
+   | Repository name | `claude-cost-tracker` |
    | Workflow name | `release.yml` |
    | Environment name | `pypi` |
 
@@ -82,7 +94,7 @@ The script prints a link to the draft Release it created. Then:
    equals the tag.
 3. **`publish`** waits for you a second time. Open the run → **Review deployments** → tick
    `pypi` → **Approve and deploy**.
-4. It uploads over OIDC and the version appears at <https://pypi.org/p/ccaudit>.
+4. It uploads over OIDC and the version appears at <https://pypi.org/p/claude-cost-tracker>.
 
 Two gates, deliberately, and they catch different things: publishing the Release is where you
 decide *this is a release*, and approving the deployment is where you decide *after seeing the
@@ -90,18 +102,18 @@ gate pass*. If the gate fails, you never get asked the second question.
 
 ## After the first release
 
-Update the README's install line, which currently points at the git URL because there was
-nothing on PyPI:
+The README already points at PyPI. Check the one-liner actually resolves:
 
 ```sh
-uvx ccaudit          # instead of uvx --from git+https://github.com/talafek96/ccaudit ccaudit
+uvx claude-cost-tracker    # the zero-install one-liner
+uv tool install claude-cost-tracker   # then just `ccost`
 ```
 
 ## What a version means to someone running it
 
-| How they got it | `ccaudit --version` says |
+| How they got it | `ccost --version` says |
 |---|---|
-| `uvx ccaudit`, `pip install ccaudit` | `0.1.0` |
+| `uvx ccost`, `pip install claude-cost-tracker` | `0.1.0` |
 | `uvx --from git+…@v0.1.0` | `0.1.0` — identical |
 | `uvx --from git+…` (tip of `main`) | `0.1.1.dev7+g1a2b3c4` |
 

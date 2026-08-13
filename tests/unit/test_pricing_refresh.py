@@ -13,8 +13,8 @@ from pathlib import Path
 
 import pytest
 
-from ccaudit.config import BUNDLED_PRICING_PATH, MissingThresholdError, load_pricing
-from ccaudit.config.refresh import (
+from claude_cost_tracker.config import BUNDLED_PRICING_PATH, MissingThresholdError, load_pricing
+from claude_cost_tracker.config.refresh import (
     RefreshError,
     RefreshReport,
     build_table,

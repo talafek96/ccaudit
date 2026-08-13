@@ -15,9 +15,9 @@ from pathlib import Path
 
 import pytest
 
-from ccaudit.cli import EXIT_OK, main
-from ccaudit.config import sig_figs_for
-from ccaudit.money import format_micros
+from claude_cost_tracker.cli import EXIT_OK, main
+from claude_cost_tracker.config import sig_figs_for
+from claude_cost_tracker.money import format_micros
 from tests.fixtures.builder import TranscriptBuilder
 
 pytestmark = pytest.mark.system
@@ -37,7 +37,7 @@ def corpus(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     builder.add_turn(input_tokens=6, cache_read=13_300, output_tokens=40)
     builder.write_to_project_tree(home)
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(home))
-    monkeypatch.setenv("CCAUDIT_HOME", str(tmp_path / "state"))
+    monkeypatch.setenv("CCOST_HOME", str(tmp_path / "state"))
     return home
 
 

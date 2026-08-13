@@ -6,8 +6,8 @@ anywhere is obtainable here.
 ## Invocation
 
 ```
-uvx ccaudit [COMMAND] [OPTIONS]        # zero-install
-ccaudit     [COMMAND] [OPTIONS]        # after `uv tool install ccaudit`
+uvx ccost [COMMAND] [OPTIONS]        # zero-install
+ccost     [COMMAND] [OPTIONS]        # after `uv tool install claude-cost-tracker`
 ```
 
 **Zero arguments is a complete invocation** (FR-048): analyse every session of the project in
@@ -107,8 +107,8 @@ act on it.
 
 | Variable | Purpose |
 |---|---|
-| `CCAUDIT_HOME` | State directory (default: platform user-state path) |
-| `CCAUDIT_PRICING` | Override the pricing/threshold config path |
+| `CCOST_HOME` | State directory (default: platform user-state path) |
+| `CCOST_PRICING` | Override the pricing/threshold config path |
 | `CLAUDE_CONFIG_DIR` | Honour Claude Code's own override when locating transcripts |
 
 No variable is required. There is no credential, no key, and no network access (FR-029, FR-030).

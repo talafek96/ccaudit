@@ -3,7 +3,7 @@
 Guidance for Claude Code in this repository. The engineering standards live in the
 constitution, imported below — read it as part of this file. Keep this wrapper thin.
 
-**ccaudit** is a local-first cost observability tool for Claude Code sessions. It answers
+**claude-cost-tracker** is a local-first cost observability tool for Claude Code sessions. It answers
 "where did the money go?" down to the individual file, tool call, and prompt — including
 the cost of keeping context resident across turns.
 

@@ -141,8 +141,8 @@ version-spanning comparisons are identifiable (FR-028).
 
 **The table is not pinned to the tool's version.** It resolves most-specific-first:
 
-1. `$CCAUDIT_PRICING` — an explicit path, for tests and for a team-managed table.
-2. `$CCAUDIT_HOME/pricing.toml` — the user's own table, written by `ccaudit pricing refresh`.
+1. `$CCOST_PRICING` — an explicit path, for tests and for a team-managed table.
+2. `$CCOST_HOME/pricing.toml` — the user's own table, written by `ccost pricing refresh`.
    It lives outside the installed package and **survives upgrades**.
 3. The table bundled with the release — a dated seed, never the mechanism that keeps a machine
    current.
@@ -157,7 +157,7 @@ every installed copy — someone has to cut a release to fix a number. Hence the
 properties keep it compatible with the no-network guarantee:
 
 - **It is not on the analysis path.** Analysing a session makes no network request and needs no
-  credential; only `ccaudit pricing refresh`, typed by the user, reaches out (FR-029, FR-030,
+  credential; only `ccost pricing refresh`, typed by the user, reaches out (FR-029, FR-030,
   SC-011). Offline operation is unchanged.
 - **No user data leaves the machine.** The request is a plain GET for a public rate table. FR-030
   governs session data, and none is involved in either direction.
@@ -250,7 +250,7 @@ The pipe-detection requirement keeps the tool scriptable.
 
 ## 11. Distribution: `uvx` first, plugin second
 
-**Decision.** Primary entry is `uvx ccaudit` (no install) with `uv tool install ccaudit` for
+**Decision.** Primary entry is `uvx ccost` (no install) with `uv tool install claude-cost-tracker` for
 repeat use. The Claude Code plugin is a thin wrapper: `.claude-plugin/plugin.json`, a slash
 command, a model-invocable skill, and an optional `SessionEnd` hook — all invoking the same CLI.
 

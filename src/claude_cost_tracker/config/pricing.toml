@@ -1,0 +1,103 @@
+# Pricing, cache multipliers, and cacheability minimums — the one place these live.
+#
+# Principle IX: adding or correcting a rate is a ONE-PLACE edit. No pricing constant may
+# appear at a call site. Override this file's location with CCOST_PRICING.
+#
+# Prices are published API list rates in USD per million tokens. Every figure this tool
+# reports is API-EQUIVALENT COST imputed from these rates — never a billed amount (FR-010).
+#
+# Sources: Anthropic model/pricing and prompt-caching documentation as loaded 2026-08-11.
+# Re-verify `min_cacheable_tokens` when adding a model: it has NOT moved monotonically
+# across generations and cannot be derived from a version ordering (docs/cost-model.md §2).
+
+schema_version = 1
+priced_on = "2026-08-11"
+
+[cache]
+# Rate multipliers applied to the model's base *input* rate (docs/cost-model.md §1).
+read_multiplier = 0.1        # content already loaded, re-shown every turn
+write_multiplier_5m = 1.25   # loading into context, 5-minute reuse window
+write_multiplier_1h = 2.0    # loading into context, 1-hour reuse window
+# When a request does not record which reuse window was in effect, we price at the 5-minute
+# multiplier and downgrade the figure's confidence rather than silently assuming (FR-080,
+# docs/cost-model.md §5.5). Assuming 5m where 1h applied understates reload cost by ~60%.
+unknown_ttl_multiplier = 1.25
+unknown_ttl_confidence = "low"
+
+# --- Claude 5 family -----------------------------------------------------------------
+
+[models."claude-opus-5"]
+input_usd_per_mtok = 5.0
+output_usd_per_mtok = 25.0
+min_cacheable_tokens = 512
+
+[models."claude-fable-5"]
+input_usd_per_mtok = 10.0
+output_usd_per_mtok = 50.0
+min_cacheable_tokens = 512
+
+[models."claude-mythos-5"]
+input_usd_per_mtok = 10.0
+output_usd_per_mtok = 50.0
+min_cacheable_tokens = 512
+
+[models."claude-sonnet-5"]
+# An introductory rate of $2.00/$10.00 applies through 2026-08-31. We price at the standard
+# rate: the tool imputes list price and does not model promotional windows. A session priced
+# during the intro period is therefore over-stated in dollars; its share of total is not,
+# which is why every absolute is paired with a share (FR-011).
+input_usd_per_mtok = 3.0
+output_usd_per_mtok = 15.0
+min_cacheable_tokens = 1024
+
+# --- Claude 4.x family ---------------------------------------------------------------
+
+[models."claude-opus-4-8"]
+input_usd_per_mtok = 5.0
+output_usd_per_mtok = 25.0
+min_cacheable_tokens = 1024
+
+[models."claude-opus-4-7"]
+input_usd_per_mtok = 5.0
+output_usd_per_mtok = 25.0
+min_cacheable_tokens = 2048
+
+[models."claude-opus-4-6"]
+input_usd_per_mtok = 5.0
+output_usd_per_mtok = 25.0
+min_cacheable_tokens = 4096
+
+[models."claude-opus-4-5"]
+input_usd_per_mtok = 5.0
+output_usd_per_mtok = 25.0
+min_cacheable_tokens = 4096
+
+[models."claude-opus-4-1"]
+input_usd_per_mtok = 15.0
+output_usd_per_mtok = 75.0
+min_cacheable_tokens = 1024
+
+[models."claude-opus-4-0"]
+input_usd_per_mtok = 15.0
+output_usd_per_mtok = 75.0
+min_cacheable_tokens = 1024
+
+[models."claude-sonnet-4-6"]
+input_usd_per_mtok = 3.0
+output_usd_per_mtok = 15.0
+min_cacheable_tokens = 1024
+
+[models."claude-sonnet-4-5"]
+input_usd_per_mtok = 3.0
+output_usd_per_mtok = 15.0
+min_cacheable_tokens = 1024
+
+[models."claude-sonnet-4-0"]
+input_usd_per_mtok = 3.0
+output_usd_per_mtok = 15.0
+min_cacheable_tokens = 1024
+
+[models."claude-haiku-4-5"]
+input_usd_per_mtok = 1.0
+output_usd_per_mtok = 5.0
+min_cacheable_tokens = 4096

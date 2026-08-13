@@ -1,6 +1,6 @@
 """Contract on the SQLite store — the schema constraints and the write boundary.
 
-These tests are the durable fence on `ccaudit.store.db` and `ccaudit.store.schema.sql`
+These tests are the durable fence on `claude_cost_tracker.store.db` and `claude_cost_tracker.store.schema.sql`
 (constitution Principle V). Each one pins a named data-model invariant: a failure here means
 a previously agreed contract was breached, not that the test needs updating.
 """
@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from ccaudit.store.db import (
+from claude_cost_tracker.store.db import (
     DB_FILENAME,
     SCHEMA_VERSION,
     connect,
@@ -22,8 +22,8 @@ from ccaudit.store.db import (
 
 
 @pytest.fixture
-def conn(ccaudit_home: Path) -> Iterator[sqlite3.Connection]:
-    """A store in an isolated CCAUDIT_HOME, created on demand exactly as in production."""
+def conn(ccost_home: Path) -> Iterator[sqlite3.Connection]:
+    """A store in an isolated CCOST_HOME, created on demand exactly as in production."""
     connection = connect()
     yield connection
     connection.close()
@@ -90,22 +90,20 @@ def _open_a_transaction(conn: sqlite3.Connection) -> None:
 
 
 class TestConnect:
-    def test_state_directory_and_database_are_created_on_first_use(
-        self, ccaudit_home: Path
-    ) -> None:
+    def test_state_directory_and_database_are_created_on_first_use(self, ccost_home: Path) -> None:
         """No setup step and no first-run wizard: the store appears on demand (FR-050)."""
-        assert not ccaudit_home.exists()
+        assert not ccost_home.exists()
         connection = connect()
         try:
-            assert (ccaudit_home / DB_FILENAME).is_file()
-            assert database_path() == ccaudit_home / DB_FILENAME
+            assert (ccost_home / DB_FILENAME).is_file()
+            assert database_path() == ccost_home / DB_FILENAME
         finally:
             connection.close()
 
     def test_schema_version_is_recorded(self, conn: sqlite3.Connection) -> None:
         assert conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
 
-    def test_connecting_twice_is_idempotent_and_keeps_data(self, ccaudit_home: Path) -> None:
+    def test_connecting_twice_is_idempotent_and_keeps_data(self, ccost_home: Path) -> None:
         """Re-running must not recreate or wipe the store (Scripting Standards: idempotent)."""
         first = connect()
         try:

@@ -21,7 +21,7 @@ All four clean is the Definition of Done for every commit.
 
 ```sh
 cd <a project with session history>
-uvx ccaudit
+uvx ccost
 ```
 
 **Expect:** a ranked per-file breakdown of the most recent session, with no setup step.
@@ -38,7 +38,7 @@ uvx ccaudit
 ## Scenario 2 — Reconciliation *(SC-001, SC-002 — the core promise)*
 
 ```sh
-uvx ccaudit --json > result.json
+uvx ccost --json > result.json
 ```
 
 **Verify:**
@@ -54,8 +54,8 @@ uvx ccaudit --json > result.json
 ## Scenario 3 — Why a file is expensive *(SC-010 — the falsifiable test)*
 
 ```sh
-uvx ccaudit --sort cost --top 10
-uvx ccaudit --sort reads --top 10
+uvx ccost --sort cost --top 10
+uvx ccost --sort reads --top 10
 ```
 
 **Verify:** the two top-10 orderings differ materially on at least one real session.
@@ -101,7 +101,7 @@ Use a fixture where a tool/MCP server is added mid-session.
 With a Claude Code session **still running**:
 
 ```sh
-uvx ccaudit
+uvx ccost
 ```
 
 **Verify:**
@@ -116,9 +116,9 @@ uvx ccaudit
 ## Scenario 7 — Freshness *(SC-030)*
 
 ```sh
-uvx ccaudit --session S      # analyse
+uvx ccost --session S      # analyse
 # ...continue the session...
-uvx ccaudit --session S      # analyse again
+uvx ccost --session S      # analyse again
 ```
 
 **Verify:** the second run either recomputes, or reports the stored result **with explicit
@@ -130,7 +130,7 @@ current.
 ## Scenario 8 — Concurrency and crash recovery *(SC-033, SC-034, SC-035)*
 
 ```sh
-uvx ccaudit --session S & uvx ccaudit --session S & wait
+uvx ccost --session S & uvx ccost --session S & wait
 ```
 
 **Verify:** both complete, figures identical, exactly one stored result.
@@ -145,8 +145,8 @@ manual cleanup; a reader waiting on a live claim returns within `--wait` rather 
 ## Scenario 9 — Multi-session with exclusion *(SC-020, SC-021, SC-022)*
 
 ```sh
-uvx ccaudit --all --by category
-uvx ccaudit --all --exclude <one session> --by category
+uvx ccost --all --by category
+uvx ccost --all --exclude <one session> --by category
 ```
 
 **Verify:**
@@ -161,7 +161,7 @@ uvx ccaudit --all --exclude <one session> --by category
 ## Scenario 10 — Shareable report *(SC-012, SC-024)*
 
 ```sh
-uvx ccaudit report --out audit.html
+uvx ccost report --out audit.html
 ```
 
 Move `audit.html` to a machine with no tooling, disconnect the network, open it.
@@ -178,7 +178,7 @@ Move `audit.html` to a machine with no tooling, disconnect the network, open it.
 ## Scenario 11 — Interactive UI *(SC-025)*
 
 ```sh
-uvx ccaudit ui
+uvx ccost ui
 ```
 
 **Verify:** starts in under 5 seconds, binds loopback only, makes no external requests, supports
@@ -189,7 +189,7 @@ drill-down/sort/filter/session-selection, and **leaves nothing running** after e
 ## Scenario 12 — Traceability *(SC-008)*
 
 ```sh
-uvx ccaudit explain <figure-id>
+uvx ccost explain <figure-id>
 ```
 
 **Verify:** component, formula, inputs, policy, basis, confidence, and the source record
@@ -212,10 +212,10 @@ records counted in the summary.
 Install the plugin, run a session, then:
 
 ```sh
-uvx ccaudit --by item --kind tool_schema
+uvx ccost --by item --kind tool_schema
 ```
 
-**Verify:** ccaudit's own resident contribution is reported and is **under 0.5%** of session cost.
+**Verify:** claude-cost-tracker's own resident contribution is reported and is **under 0.5%** of session cost.
 Uninstall and confirm a later session contains no trace of it while stored results remain.
 
 ---

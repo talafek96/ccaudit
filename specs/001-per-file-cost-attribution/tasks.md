@@ -19,7 +19,7 @@ Stories 8 and 9 are recorded at the end as deferred, not scheduled.
 
 ## Path Conventions
 
-Single Python package per `plan.md`: `src/ccaudit/` with layers `config → ingest → model → render`
+Single Python package per `plan.md`: `src/claude_cost_tracker/` with layers `config → ingest → model → render`
 (`store` beside `model`); tests under `tests/{unit,component,golden,system,fixtures}/`.
 
 **Definition of Done for every task** (constitution IV, `quickstart.md`):
@@ -35,9 +35,9 @@ uv run ruff format && uv run ruff check && uv run mypy && uv run pytest
 **Purpose**: Make the package layout and the test tree real. `pyproject.toml`, `uv.lock`, CI, ruff,
 and mypy already exist — this phase extends them, it does not recreate them.
 
-- [X] T001 Add `rich` as the single runtime dependency and declare the `ccaudit` console entry point in `pyproject.toml`
-- [X] T002 [P] Create the package skeleton — `src/ccaudit/__main__.py` plus empty `__init__.py` for `src/ccaudit/config/`, `src/ccaudit/ingest/`, `src/ccaudit/model/`, `src/ccaudit/store/`, `src/ccaudit/render/`
-- [X] T003 [P] Create the test tree — `tests/unit/`, `tests/component/`, `tests/golden/`, `tests/system/`, `tests/fixtures/`, with a shared `tests/conftest.py` providing an isolated `CCAUDIT_HOME` tmp fixture
+- [X] T001 Add `rich` as the single runtime dependency and declare the `ccost` console entry point in `pyproject.toml`
+- [X] T002 [P] Create the package skeleton — `src/claude_cost_tracker/__main__.py` plus empty `__init__.py` for `src/claude_cost_tracker/config/`, `src/claude_cost_tracker/ingest/`, `src/claude_cost_tracker/model/`, `src/claude_cost_tracker/store/`, `src/claude_cost_tracker/render/`
+- [X] T003 [P] Create the test tree — `tests/unit/`, `tests/component/`, `tests/golden/`, `tests/system/`, `tests/fixtures/`, with a shared `tests/conftest.py` providing an isolated `CCOST_HOME` tmp fixture
 - [X] T004 [P] Register `golden` and `system` pytest markers and include the new packages in `[tool.mypy]`/`[tool.ruff]` scope in `pyproject.toml`
 
 ---
@@ -51,31 +51,31 @@ turns transcripts into facts. Every user story consumes these.
 
 ### Central configuration (Principle IX)
 
-- [X] T005 [P] Create `src/ccaudit/config/pricing.toml` — per-model input/output/cache rates, TTL write multipliers (1.25× at 5m, 2× at 1h), and the **non-monotonic** cacheability minimums (Opus 5 = 512, Opus 4.8/Sonnet 5/Sonnet 4.6 = 1024, Opus 4.7 = 2048, Opus 4.6/4.5/Haiku 4.5 = 4096)
-- [X] T006 [P] Create `src/ccaudit/config/components.py` — the four cost components as the single authoritative registry: `id`, `technical_name`, mandated `plain_name` ("loading into context" / "keeping context loaded" / "your new typing" / "what Claude wrote back"), and `description` (FR-016)
-- [X] T007 [P] Create `src/ccaudit/config/categories.py` — file-category rules mapping a path to `docs | source | spec | skill | schema | other`
-- [X] T008 Create `src/ccaudit/config/__init__.py` — the loader: parse the table once, resolve it `$CCAUDIT_PRICING` → `$CCAUDIT_HOME/pricing.toml` → bundled seed (FR-099), and **raise** on an unknown model or a missing threshold rather than defaulting (Principle I, research §7)
-- [X] T008a Create `src/ccaudit/config/refresh.py` — `ccaudit pricing refresh`: fetch a public rate table, **merge** it onto the current one, and write to `$CCAUDIT_HOME` so the result survives upgrades (FR-099, FR-100). Preserves hand-verified thresholds, keeps models the source omits, and reports multiplier divergence rather than applying it (FR-101, FR-102)
-- [X] T008b Implement the `pricing` command in `src/ccaudit/cli.py` — `pricing show` (which table, which rates, how old) and `pricing refresh [--source-url URL | --from FILE] [--dry-run]`, printing the full change report
+- [X] T005 [P] Create `src/claude_cost_tracker/config/pricing.toml` — per-model input/output/cache rates, TTL write multipliers (1.25× at 5m, 2× at 1h), and the **non-monotonic** cacheability minimums (Opus 5 = 512, Opus 4.8/Sonnet 5/Sonnet 4.6 = 1024, Opus 4.7 = 2048, Opus 4.6/4.5/Haiku 4.5 = 4096)
+- [X] T006 [P] Create `src/claude_cost_tracker/config/components.py` — the four cost components as the single authoritative registry: `id`, `technical_name`, mandated `plain_name` ("loading into context" / "keeping context loaded" / "your new typing" / "what Claude wrote back"), and `description` (FR-016)
+- [X] T007 [P] Create `src/claude_cost_tracker/config/categories.py` — file-category rules mapping a path to `docs | source | spec | skill | schema | other`
+- [X] T008 Create `src/claude_cost_tracker/config/__init__.py` — the loader: parse the table once, resolve it `$CCOST_PRICING` → `$CCOST_HOME/pricing.toml` → bundled seed (FR-099), and **raise** on an unknown model or a missing threshold rather than defaulting (Principle I, research §7)
+- [X] T008a Create `src/claude_cost_tracker/config/refresh.py` — `ccost pricing refresh`: fetch a public rate table, **merge** it onto the current one, and write to `$CCOST_HOME` so the result survives upgrades (FR-099, FR-100). Preserves hand-verified thresholds, keeps models the source omits, and reports multiplier divergence rather than applying it (FR-101, FR-102)
+- [X] T008b Implement the `pricing` command in `src/claude_cost_tracker/cli.py` — `pricing show` (which table, which rates, how old) and `pricing refresh [--source-url URL | --from FILE] [--dry-run]`, printing the full change report
 - [X] T009 [P] Unit-test the config registry in `tests/unit/test_config.py` — unknown model raises, thresholds are read per model and never derived from ordering, plain names have exactly one definition site
 - [X] T009a [P] Unit-test the refresh in `tests/unit/test_pricing_refresh.py` — a new model arrives without a threshold and raises on use; existing thresholds and omitted models survive; an empty source refuses to overwrite a working table. No test in this file touches the network
-- [X] T010 Create `src/ccaudit/money.py` — integer micro-dollars: `cost_micros(tokens, rate, multiplier)`, largest-remainder allocation across a resident set, and confidence-driven significant-figure formatting for the presentation edge (research §8, FR-095)
+- [X] T010 Create `src/claude_cost_tracker/money.py` — integer micro-dollars: `cost_micros(tokens, rate, multiplier)`, largest-remainder allocation across a resident set, and confidence-driven significant-figure formatting for the presentation edge (research §8, FR-095)
 - [X] T011 [P] Unit-test money primitives in `tests/unit/test_money.py` — largest-remainder slices sum **exactly** to the pool for adversarial weight vectors; no float appears in a stored or compared value
 
 ### Store
 
-- [X] T012 Create `src/ccaudit/store/schema.sql` — tables for Session, Turn, Charge, ContextItem, Injection, ResidencySpan, CacheLane, InvalidationEvent, Attribution, AnalysisResult, Claim, IngestDiagnostic, with `UNIQUE(message_id, request_id)` and `UNIQUE(session_id, fingerprint, policy)` per data-model invariants F2/K1
-- [X] T013 Create `src/ccaudit/store/db.py` — connection with WAL, schema creation on demand under `CCAUDIT_HOME`, migration hook, and a single-transaction write context (invariant K2)
+- [X] T012 Create `src/claude_cost_tracker/store/schema.sql` — tables for Session, Turn, Charge, ContextItem, Injection, ResidencySpan, CacheLane, InvalidationEvent, Attribution, AnalysisResult, Claim, IngestDiagnostic, with `UNIQUE(message_id, request_id)` and `UNIQUE(session_id, fingerprint, policy)` per data-model invariants F2/K1
+- [X] T013 Create `src/claude_cost_tracker/store/db.py` — connection with WAL, schema creation on demand under `CCOST_HOME`, migration hook, and a single-transaction write context (invariant K2)
 - [X] T014 [P] Unit-test the store in `tests/unit/test_store_db.py` — state directory created on first use with no setup step (FR-050), dedup and result uniqueness constraints enforced, a failed transaction leaves nothing readable
 
 ### Ingest — facts, never conclusions
 
-- [X] T015 Create `src/ccaudit/ingest/records.py` — transcript record types and parsing, the `usage` block (all three input measures, FR-083), per-turn `model` and `cache_ttl`, `producing_version` stamp (FR-028), `is_sidechain`/`parent_turn_id`, and `compactMetadata` (FR-025); unparseable records are counted and carried, never skipped silently (FR-027)
-- [X] T016 [P] Create `src/ccaudit/ingest/dedup.py` — deduplicate on `(message.id, requestId)` across resume, fork, and compaction before any arithmetic (FR-021, PITFALLS)
-- [X] T017 [P] Create `src/ccaudit/ingest/discover.py` — locate sessions under `~/.claude/` (honouring `CLAUDE_CONFIG_DIR`) read-only, and compute the coverage fingerprint `(record_count, last_record_uuid, byte_size)` without a full parse (research §3, FR-085)
-- [X] T018 [P] Create `src/ccaudit/ingest/tokens.py` — the exact → measured → declared ladder, recording the tier as `basis`; image tokens from decoded PNG/JPEG/WebP header dimensions via the published area formula capped at the per-image maximum. **`chars // 4` is never applied to images** and is marked estimated wherever used at all (research §6)
-- [X] T019 [P] Create `src/ccaudit/ingest/anchors.py` — parse `/context` ground-truth tables and reconcile computed totals against them, reporting disagreement rather than adjusting either side (FR-026)
-- [X] T020 Persist and surface `IngestDiagnostic` rows from `src/ccaudit/ingest/records.py` through `src/ccaudit/store/db.py` — unparseable counts, unrecognised versions, anchor mismatches, each with a sample record identifier
+- [X] T015 Create `src/claude_cost_tracker/ingest/records.py` — transcript record types and parsing, the `usage` block (all three input measures, FR-083), per-turn `model` and `cache_ttl`, `producing_version` stamp (FR-028), `is_sidechain`/`parent_turn_id`, and `compactMetadata` (FR-025); unparseable records are counted and carried, never skipped silently (FR-027)
+- [X] T016 [P] Create `src/claude_cost_tracker/ingest/dedup.py` — deduplicate on `(message.id, requestId)` across resume, fork, and compaction before any arithmetic (FR-021, PITFALLS)
+- [X] T017 [P] Create `src/claude_cost_tracker/ingest/discover.py` — locate sessions under `~/.claude/` (honouring `CLAUDE_CONFIG_DIR`) read-only, and compute the coverage fingerprint `(record_count, last_record_uuid, byte_size)` without a full parse (research §3, FR-085)
+- [X] T018 [P] Create `src/claude_cost_tracker/ingest/tokens.py` — the exact → measured → declared ladder, recording the tier as `basis`; image tokens from decoded PNG/JPEG/WebP header dimensions via the published area formula capped at the per-image maximum. **`chars // 4` is never applied to images** and is marked estimated wherever used at all (research §6)
+- [X] T019 [P] Create `src/claude_cost_tracker/ingest/anchors.py` — parse `/context` ground-truth tables and reconcile computed totals against them, reporting disagreement rather than adjusting either side (FR-026)
+- [X] T020 Persist and surface `IngestDiagnostic` rows from `src/claude_cost_tracker/ingest/records.py` through `src/claude_cost_tracker/store/db.py` — unparseable counts, unrecognised versions, anchor mismatches, each with a sample record identifier
 - [X] T021 [P] Unit-test record parsing in `tests/unit/test_records.py` — all three input measures summed for prompt size, version stamp captured, malformed record counted not dropped
 - [X] T022 [P] Unit-test dedup in `tests/unit/test_dedup.py` — a resumed and a forked session counted exactly once; re-ingest does not double any figure
 - [X] T023 [P] Unit-test discovery and fingerprinting in `tests/unit/test_discover.py` — fingerprint changes when the session advances, is stable when it does not, and no write ever touches `~/.claude/` (FR-020)
@@ -87,8 +87,8 @@ turns transcripts into facts. Every user story consumes these.
 - [X] T026 Create `tests/fixtures/builder.py` — a synthetic transcript builder (turns, usage blocks, tool results, injections, models, TTLs, compaction, sidechains). **Synthetic only; never real user transcripts** (git-conventions)
 - [X] T027 Create the baseline fixture session under `tests/fixtures/sessions/baseline/` — a small multi-turn session with file reads, resident instruction content, and a known token profile
 - [X] T028 Component-test the ingest stage end-to-end over fixtures in `tests/component/test_ingest_pipeline.py` — transcript in, deduplicated facts and diagnostics out, idempotent across repeat runs (FR-094)
-- [X] T029 Create `src/ccaudit/cli.py` and wire `src/ccaudit/__main__.py` — argument parsing for the command table in `contracts/cli.md`, and the exit-code contract (`0` success, `1` usage, `2` no sessions, `3` breakdown does not add up, `4` data error, `130` interrupted)
-- [X] T030 Configure logging in `src/ccaudit/cli.py` — the constitution's four levels, with a file target under `CCAUDIT_HOME` so hook-path failures log rather than surface into a user's session (FR-054)
+- [X] T029 Create `src/claude_cost_tracker/cli.py` and wire `src/claude_cost_tracker/__main__.py` — argument parsing for the command table in `contracts/cli.md`, and the exit-code contract (`0` success, `1` usage, `2` no sessions, `3` breakdown does not add up, `4` data error, `130` interrupted)
+- [X] T030 Configure logging in `src/claude_cost_tracker/cli.py` — the constitution's four levels, with a file target under `CCOST_HOME` so hook-path failures log rather than surface into a user's session (FR-054)
 - [X] T031 [P] Unit-test the CLI surface in `tests/unit/test_cli_exit_codes.py` — each exit code reachable and distinct; exit `3` is never reachable from an ordinary warning path
 
 **Checkpoint**: Facts can be extracted from a transcript, stored, and re-extracted idempotently.
@@ -104,15 +104,15 @@ including an explicit unattributed line, reconciling to the session total by exa
 per-category breakdowns each sum to the session total, the unattributed remainder is shown
 explicitly, and repeat runs are byte-identical (SC-001, SC-002, SC-009).
 
-- [X] T032 [US1] Create `src/ccaudit/model/residency.py` — the per-turn resident set: injections in, spans out, eviction and compaction survival applied so carry stops when content leaves (FR-003, FR-004)
-- [X] T033 [P] [US1] Create `src/ccaudit/model/policy.py` — the proportional (default) and exclusive carry-splitting policies over integer weights, using largest-remainder allocation from `src/ccaudit/money.py` (FR-006, invariant A3)
-- [X] T034 [US1] Create `src/ccaudit/model/attribute.py` — split each turn's observed charges into direct, carry, overhead, and output; output targets the exchange and **never** an item (invariant A2, FR-005)
-- [X] T035 [US1] Roll subagent turns up to the parent exchange exactly once in `src/ccaudit/model/attribute.py`, asserting rather than warning on a double count (FR-009, data-model validation rule 5)
-- [X] T036 [US1] Create `src/ccaudit/model/reconcile.py` — enforce `Σ attributions + unattributed == session total` by integer equality, emit the remainder as its own explicit entry, and raise on violation (invariant A1, FR-012, FR-013)
-- [X] T037 [US1] Persist `AnalysisResult` and `Attribution` rows in one transaction via `src/ccaudit/store/db.py`, keyed `(session_id, fingerprint, policy)` so a repeat run creates no second entry (FR-047, FR-094)
-- [X] T038 [US1] Create `src/ccaudit/render/data.py` — the report-data envelope from `contracts/report-data.md`: `scope`, `totals` (with `uncertainty_notes`), `components` sourced from `config/components.py`, and `items`. One contract, three consumers
-- [X] T039 [US1] Create `src/ccaudit/render/terminal.py` — ranked table with proportion bars, every absolute paired with its share, every figure labelled an **API-equivalent cost estimate**, the unattributed line always present, and plain-text degradation when not a TTY (FR-010, FR-011, FR-033, FR-070, FR-071)
-- [X] T040 [US1] Implement `analyse --session` and `--json` in `src/ccaudit/cli.py`, returning exit `3` when reconciliation fails rather than printing the numbers
+- [X] T032 [US1] Create `src/claude_cost_tracker/model/residency.py` — the per-turn resident set: injections in, spans out, eviction and compaction survival applied so carry stops when content leaves (FR-003, FR-004)
+- [X] T033 [P] [US1] Create `src/claude_cost_tracker/model/policy.py` — the proportional (default) and exclusive carry-splitting policies over integer weights, using largest-remainder allocation from `src/claude_cost_tracker/money.py` (FR-006, invariant A3)
+- [X] T034 [US1] Create `src/claude_cost_tracker/model/attribute.py` — split each turn's observed charges into direct, carry, overhead, and output; output targets the exchange and **never** an item (invariant A2, FR-005)
+- [X] T035 [US1] Roll subagent turns up to the parent exchange exactly once in `src/claude_cost_tracker/model/attribute.py`, asserting rather than warning on a double count (FR-009, data-model validation rule 5)
+- [X] T036 [US1] Create `src/claude_cost_tracker/model/reconcile.py` — enforce `Σ attributions + unattributed == session total` by integer equality, emit the remainder as its own explicit entry, and raise on violation (invariant A1, FR-012, FR-013)
+- [X] T037 [US1] Persist `AnalysisResult` and `Attribution` rows in one transaction via `src/claude_cost_tracker/store/db.py`, keyed `(session_id, fingerprint, policy)` so a repeat run creates no second entry (FR-047, FR-094)
+- [X] T038 [US1] Create `src/claude_cost_tracker/render/data.py` — the report-data envelope from `contracts/report-data.md`: `scope`, `totals` (with `uncertainty_notes`), `components` sourced from `config/components.py`, and `items`. One contract, three consumers
+- [X] T039 [US1] Create `src/claude_cost_tracker/render/terminal.py` — ranked table with proportion bars, every absolute paired with its share, every figure labelled an **API-equivalent cost estimate**, the unattributed line always present, and plain-text degradation when not a TTY (FR-010, FR-011, FR-033, FR-070, FR-071)
+- [X] T040 [US1] Implement `analyse --session` and `--json` in `src/claude_cost_tracker/cli.py`, returning exit `3` when reconciliation fails rather than printing the numbers
 - [X] T041 [P] [US1] Unit-test residency in `tests/unit/test_residency.py` — a span ends on eviction, on invalidation, and at session end; carry accrues only while resident
 - [X] T042 [P] [US1] Unit-test splitting policies in `tests/unit/test_policy.py` — both policies conserve the pool exactly; policy choice changes per-item figures and never the total
 - [X] T043 [P] [US1] Unit-test attribution in `tests/unit/test_attribute.py` — output never targets an item; subagent work counted once
@@ -136,13 +136,13 @@ with opposite remedies — and make any figure traceable to the records that pro
 profiles; verify the direct/carry splits differ measurably and the derivation of each is printable
 without rerunning the analysis (SC-008, SC-010).
 
-- [X] T050 [US2] Extend `src/ccaudit/model/residency.py` with per-item cause metrics — load count, turns resident, and `end_reason` per span (FR-008, FR-035)
-- [X] T051 [US2] Add `source_refs` provenance to every attribution row in `src/ccaudit/model/attribute.py` — the record identifiers, the formula, and the inputs behind the figure (FR-015, Principle VI)
-- [X] T052 [US2] Create `src/ccaudit/render/explain.py` — the derivation trace: component, formula, inputs, policy in effect, `basis`, `confidence`, and source record identifiers
-- [X] T053 [US2] Implement the `explain` command in `src/ccaudit/cli.py` (`explain <figure-id>`, `--explain FIGURE`)
-- [X] T054 [US2] Add grouping aggregation queries to `src/ccaudit/store/db.py` — by file, folder (at every level of the hierarchy), extension, category, and item, each reconciling to the total (FR-007)
-- [X] T055 [US2] Implement `--by`, `--sort`, and `--top` in `src/ccaudit/cli.py` and `src/ccaudit/render/terminal.py`, with the omitted remainder still shown as its own line
-- [X] T056 [US2] Populate `reads`, `turns_resident`, and the direct/carry split per item in `src/ccaudit/render/data.py`
+- [X] T050 [US2] Extend `src/claude_cost_tracker/model/residency.py` with per-item cause metrics — load count, turns resident, and `end_reason` per span (FR-008, FR-035)
+- [X] T051 [US2] Add `source_refs` provenance to every attribution row in `src/claude_cost_tracker/model/attribute.py` — the record identifiers, the formula, and the inputs behind the figure (FR-015, Principle VI)
+- [X] T052 [US2] Create `src/claude_cost_tracker/render/explain.py` — the derivation trace: component, formula, inputs, policy in effect, `basis`, `confidence`, and source record identifiers
+- [X] T053 [US2] Implement the `explain` command in `src/claude_cost_tracker/cli.py` (`explain <figure-id>`, `--explain FIGURE`)
+- [X] T054 [US2] Add grouping aggregation queries to `src/claude_cost_tracker/store/db.py` — by file, folder (at every level of the hierarchy), extension, category, and item, each reconciling to the total (FR-007)
+- [X] T055 [US2] Implement `--by`, `--sort`, and `--top` in `src/claude_cost_tracker/cli.py` and `src/claude_cost_tracker/render/terminal.py`, with the omitted remainder still shown as its own line
+- [X] T056 [US2] Populate `reads`, `turns_resident`, and the direct/carry split per item in `src/claude_cost_tracker/render/data.py`
 - [X] T057 [US2] Create the cause-profile golden fixture under `tests/golden/fixtures/session_cause_profiles/` — two files, equal total, opposite profiles, expected breakdown hand-verified
 - [X] T058 [US2] Golden-test cause attribution in `tests/golden/test_cause_profiles.py` — the two files' direct/carry splits differ measurably
 - [X] T059 [P] [US2] Unit-test grouping in `tests/unit/test_grouping.py` — every grouping level sums to the session total; no bucket silently absorbs the remainder
@@ -162,17 +162,17 @@ Code, and optional automatic capture that never blocks the user.
 project directory and get a correct breakdown of the most recent session — no configuration, no
 credential, no prior step (SC-011, SC-015).
 
-- [X] T062 [US3] Implement the zero-argument default in `src/ccaudit/cli.py` and `src/ccaudit/ingest/discover.py` — resolve the current working directory's project and its most recent session (FR-048)
-- [X] T063 [US3] Create the state directory on demand under `CCAUDIT_HOME` in `src/ccaudit/store/db.py` — no config file, no first-run wizard (FR-050)
-- [X] T064 [US3] Create `src/ccaudit/store/claims.py` — claim per `(session_id, fingerprint)` with `state`, `expires_at`, `pid`, `host`; taken by a single atomic statement that also reclaims expired claims (invariants K1–K3, FR-089, FR-092)
-- [X] T065 [US3] Implement the internal `_enqueue` command in `src/ccaudit/cli.py` — append a queue entry and return, targeting under 50 ms, never analysing inline (PITFALLS: `SessionEnd` cannot raise its own budget)
-- [X] T066 [US3] Spawn the detached worker from `_enqueue` in `src/ccaudit/cli.py` with `start_new_session=True` and stdio redirected away from the parent; a failed spawn degrades to the queue entry, losing nothing (research §5, FR-088)
-- [X] T067 [US3] Implement `--wait SECONDS` in `src/ccaudit/cli.py` — bound the wait on a live claim, then compute the result locally rather than block (FR-091, SC-035)
-- [X] T068 [P] [US3] Create `src/ccaudit/plugin/.claude-plugin/plugin.json` — name, description, version
-- [X] T069 [P] [US3] Create `src/ccaudit/plugin/commands/audit.md` — `/ccaudit:audit`, analysing the current session including while in progress; costs nothing until typed (FR-051, FR-055)
-- [X] T070 [P] [US3] Create `src/ccaudit/plugin/skills/ccaudit/SKILL.md` — model-invocable so a natural-language cost question is answered from measured data; shells out to the CLI and reimplements nothing (FR-052)
-- [X] T071 [P] [US3] Create `src/ccaudit/plugin/hooks/hooks.json` — opt-in `SessionEnd` hook invoking `ccaudit _enqueue` (FR-053, FR-054)
-- [X] T072 [US3] Implement self-footprint measurement in `src/ccaudit/model/attribute.py` and `src/ccaudit/render/terminal.py` — report the tool's own always-resident contribution as its own figure (FR-056, SC-017)
+- [X] T062 [US3] Implement the zero-argument default in `src/claude_cost_tracker/cli.py` and `src/claude_cost_tracker/ingest/discover.py` — resolve the current working directory's project and its most recent session (FR-048)
+- [X] T063 [US3] Create the state directory on demand under `CCOST_HOME` in `src/claude_cost_tracker/store/db.py` — no config file, no first-run wizard (FR-050)
+- [X] T064 [US3] Create `src/claude_cost_tracker/store/claims.py` — claim per `(session_id, fingerprint)` with `state`, `expires_at`, `pid`, `host`; taken by a single atomic statement that also reclaims expired claims (invariants K1–K3, FR-089, FR-092)
+- [X] T065 [US3] Implement the internal `_enqueue` command in `src/claude_cost_tracker/cli.py` — append a queue entry and return, targeting under 50 ms, never analysing inline (PITFALLS: `SessionEnd` cannot raise its own budget)
+- [X] T066 [US3] Spawn the detached worker from `_enqueue` in `src/claude_cost_tracker/cli.py` with `start_new_session=True` and stdio redirected away from the parent; a failed spawn degrades to the queue entry, losing nothing (research §5, FR-088)
+- [X] T067 [US3] Implement `--wait SECONDS` in `src/claude_cost_tracker/cli.py` — bound the wait on a live claim, then compute the result locally rather than block (FR-091, SC-035)
+- [X] T068 [P] [US3] Create `src/claude_cost_tracker/plugin/.claude-plugin/plugin.json` — name, description, version
+- [X] T069 [P] [US3] Create `src/claude_cost_tracker/plugin/commands/audit.md` — `/ccost:audit`, analysing the current session including while in progress; costs nothing until typed (FR-051, FR-055)
+- [X] T070 [P] [US3] Create `src/claude_cost_tracker/plugin/skills/ccost/SKILL.md` — model-invocable so a natural-language cost question is answered from measured data; shells out to the CLI and reimplements nothing (FR-052)
+- [X] T071 [P] [US3] Create `src/claude_cost_tracker/plugin/hooks/hooks.json` — opt-in `SessionEnd` hook invoking `ccost _enqueue` (FR-053, FR-054)
+- [X] T072 [US3] Implement self-footprint measurement in `src/claude_cost_tracker/model/attribute.py` and `src/claude_cost_tracker/render/terminal.py` — report the tool's own always-resident contribution as its own figure (FR-056, SC-017)
 - [X] T073 [P] [US3] Unit-test claims in `tests/unit/test_claims.py` — an expired claim is reclaimable with no manual cleanup; a partial result is never readable as complete
 - [X] T074 [US3] Component-test the capture path in `tests/component/test_enqueue_worker.py` — `_enqueue` returns fast, the worker completes the analysis, two simultaneous analyses leave exactly one stored result with identical figures (SC-033, SC-034)
 - [X] T075 [US3] System-test first-run ceremony in `tests/system/test_zero_argument_run.py` — clean state directory, no arguments, correct breakdown, no configuration step
@@ -191,15 +191,15 @@ work-driven reads on one common scale.
 model and above it on another; verify the same file is classified differently per turn's model and
 reported as full-rate-every-turn where it does not cache (SC-026, SC-028).
 
-- [X] T076 [US4] Create `src/ccaudit/model/lanes.py` — classify each (turn, resident item) as `cached` / `uncached` / `loading`, with the threshold read from `config/pricing.toml` for **that turn's model** and never inferred from model ordering (invariant L1, FR-077, FR-078, FR-079)
-- [X] T077 [US4] Create `src/ccaudit/model/invalidation.py` — detect `tools`/`system`/`messages` tier changes, name the trigger, and charge the forced reload to the change rather than to the content re-loaded (FR-081, SC-027)
-- [X] T078 [US4] Price carry per lane in `src/ccaudit/model/attribute.py` — reduced reuse rate, full rate, and the TTL-dependent write multiplier read per request (FR-080)
-- [X] T079 [US4] Distinguish the four cache-miss reasons in `src/ccaudit/model/lanes.py` — left the conversation, prefix change, never eligible, lookback window exceeded — without collapsing them (FR-082, PITFALLS)
-- [X] T080 [US4] Report each always-resident item individually in `src/ccaudit/render/data.py` — instruction files, skills, base instructions, and each group of tool descriptions, never one combined bucket (FR-076)
-- [X] T081 [US4] Add `lanes` and `never_cacheable_on` to items in `src/ccaudit/render/data.py` and surface them in `src/ccaudit/render/terminal.py` as findings, not footnotes
-- [X] T082 [US4] Build the `comparison` series in `src/ccaudit/render/data.py` — resident instruction content against work-driven reads on one common scale, two series and one axis (FR-037)
-- [X] T083 [US4] Implement confidence-driven presentation in `src/ccaudit/render/data.py` and `src/ccaudit/render/terminal.py` — `display_sig_figs` from confidence, an `uncertainty` range with its dominant driver, and totals-level uncertainty notes (FR-095, FR-096, FR-097, FR-098)
-- [X] T084 [US4] Populate `diagnostics.limitations` in `src/ccaudit/render/data.py` — including that injected instruction content is stripped before the transcript is written, stated alongside the figures it affects (FR-018, FR-019)
+- [X] T076 [US4] Create `src/claude_cost_tracker/model/lanes.py` — classify each (turn, resident item) as `cached` / `uncached` / `loading`, with the threshold read from `config/pricing.toml` for **that turn's model** and never inferred from model ordering (invariant L1, FR-077, FR-078, FR-079)
+- [X] T077 [US4] Create `src/claude_cost_tracker/model/invalidation.py` — detect `tools`/`system`/`messages` tier changes, name the trigger, and charge the forced reload to the change rather than to the content re-loaded (FR-081, SC-027)
+- [X] T078 [US4] Price carry per lane in `src/claude_cost_tracker/model/attribute.py` — reduced reuse rate, full rate, and the TTL-dependent write multiplier read per request (FR-080)
+- [X] T079 [US4] Distinguish the four cache-miss reasons in `src/claude_cost_tracker/model/lanes.py` — left the conversation, prefix change, never eligible, lookback window exceeded — without collapsing them (FR-082, PITFALLS)
+- [X] T080 [US4] Report each always-resident item individually in `src/claude_cost_tracker/render/data.py` — instruction files, skills, base instructions, and each group of tool descriptions, never one combined bucket (FR-076)
+- [X] T081 [US4] Add `lanes` and `never_cacheable_on` to items in `src/claude_cost_tracker/render/data.py` and surface them in `src/claude_cost_tracker/render/terminal.py` as findings, not footnotes
+- [X] T082 [US4] Build the `comparison` series in `src/claude_cost_tracker/render/data.py` — resident instruction content against work-driven reads on one common scale, two series and one axis (FR-037)
+- [X] T083 [US4] Implement confidence-driven presentation in `src/claude_cost_tracker/render/data.py` and `src/claude_cost_tracker/render/terminal.py` — `display_sig_figs` from confidence, an `uncertainty` range with its dominant driver, and totals-level uncertainty notes (FR-095, FR-096, FR-097, FR-098)
+- [X] T084 [US4] Populate `diagnostics.limitations` in `src/claude_cost_tracker/render/data.py` — including that injected instruction content is stripped before the transcript is written, stated alongside the figures it affects (FR-018, FR-019)
 - [X] T085 [P] [US4] Unit-test lane assignment in `tests/unit/test_lanes.py` — the same 984-token file classifies as cached on Opus 5 and uncached on Opus 4.6 within one session
 - [X] T086 [P] [US4] Unit-test invalidation tiers in `tests/unit/test_invalidation.py` — a tool-set change re-writes everything; a system-prompt edit re-writes system and messages but not tools
 - [X] T087 [US4] Create the threshold-spanning golden fixture under `tests/golden/fixtures/session_threshold_span/` and pin it in `tests/golden/test_lane_pricing.py`
@@ -218,15 +218,15 @@ part-to-whole view.
 **Independent Test**: Produce a report, move it to a machine with no tooling, disconnect the
 network, open it, and confirm every figure and visual renders (SC-012).
 
-- [X] T089 [US5] Create `src/ccaudit/render/charts/__init__.py` — shared SVG geometry, the fixed-order categorical palette, single-hue sequential ramps, and light/dark theming (research §1, FR-041)
-- [X] T090 [P] [US5] Implement the icicle and treemap in `src/ccaudit/render/charts/hierarchy.py` — drill-down over the folder tree with a flat/total toggle (FR-034)
-- [X] T091 [P] [US5] Implement the residency timeline in `src/ccaudit/render/charts/timeline.py` — one bar per span, so prolonged residency is visible at a glance (FR-036)
-- [X] T092 [P] [US5] Implement stacked/delta bars and the cumulative sparkline in `src/ccaudit/render/charts/bars.py` — direct-versus-carry per item, and cost accumulating over the session with compaction events marked (FR-035, FR-039)
-- [X] T093 [US5] Build the `tree` and `turns` sections in `src/ccaudit/render/data.py`, with an `unattributed` node present at the root whenever the remainder is non-zero (FR-040)
-- [X] T094 [US5] Create `src/ccaudit/render/assets/` — CSS and vanilla JS for sorting, filtering, and the flat/total toggle, inlined at render time; every distinction conveyed by more than colour (FR-042)
-- [X] T095 [US5] Create `src/ccaudit/render/report.py` — a single self-contained HTML file with the data inlined as a JSON literal and zero external requests (FR-032, FR-075)
-- [X] T096 [US5] Implement `report --out PATH` and `--open` in `src/ccaudit/cli.py`
-- [X] T097 [US5] Implement `--redact` across `src/ccaudit/render/data.py` — stable pseudonyms in `display`, `identity` omitted, cost structure and tree shape preserved (FR-043)
+- [X] T089 [US5] Create `src/claude_cost_tracker/render/charts/__init__.py` — shared SVG geometry, the fixed-order categorical palette, single-hue sequential ramps, and light/dark theming (research §1, FR-041)
+- [X] T090 [P] [US5] Implement the icicle and treemap in `src/claude_cost_tracker/render/charts/hierarchy.py` — drill-down over the folder tree with a flat/total toggle (FR-034)
+- [X] T091 [P] [US5] Implement the residency timeline in `src/claude_cost_tracker/render/charts/timeline.py` — one bar per span, so prolonged residency is visible at a glance (FR-036)
+- [X] T092 [P] [US5] Implement stacked/delta bars and the cumulative sparkline in `src/claude_cost_tracker/render/charts/bars.py` — direct-versus-carry per item, and cost accumulating over the session with compaction events marked (FR-035, FR-039)
+- [X] T093 [US5] Build the `tree` and `turns` sections in `src/claude_cost_tracker/render/data.py`, with an `unattributed` node present at the root whenever the remainder is non-zero (FR-040)
+- [X] T094 [US5] Create `src/claude_cost_tracker/render/assets/` — CSS and vanilla JS for sorting, filtering, and the flat/total toggle, inlined at render time; every distinction conveyed by more than colour (FR-042)
+- [X] T095 [US5] Create `src/claude_cost_tracker/render/report.py` — a single self-contained HTML file with the data inlined as a JSON literal and zero external requests (FR-032, FR-075)
+- [X] T096 [US5] Implement `report --out PATH` and `--open` in `src/claude_cost_tracker/cli.py`
+- [X] T097 [US5] Implement `--redact` across `src/claude_cost_tracker/render/data.py` — stable pseudonyms in `display`, `identity` omitted, cost structure and tree shape preserved (FR-043)
 - [X] T098 [P] [US5] Unit-test chart geometry in `tests/unit/test_charts.py` — rectangles partition their parent exactly; the unattributed slice is emitted whenever non-zero
 - [X] T099 [US5] System-test the report in `tests/system/test_report_offline.py` — no external URL of any kind in the output, every figure labelled API-equivalent and paired with a share, redaction preserves totals
 
@@ -242,13 +242,13 @@ exclude recomputed from stored data, and the exclusion stated as part of the res
 **Independent Test**: Combine several sessions and verify per-item totals equal the sum of the
 per-session figures; exclude one and verify the totals drop by exactly its contribution (SC-020).
 
-- [X] T100 [US6] Implement the selection options in `src/ccaudit/cli.py` — `--session`, `--project`, `--since`/`--until`, `--all`, `--last N`, `--exclude`, combining as an intersection
-- [X] T101 [US6] Implement the `sessions` command in `src/ccaudit/cli.py` and `src/ccaudit/render/terminal.py` — a browsable list with enough detail to identify each session (FR-060)
-- [X] T102 [US6] Implement cross-session aggregation in `src/ccaudit/store/db.py` — accumulate per-item attribution from stored results **without re-reading the original records** (FR-061, FR-062, SC-021)
-- [X] T103 [US6] Populate `scope.sessions_included`, `scope.sessions_excluded_count`, and `scope.producing_versions` in `src/ccaudit/render/data.py`, and state them in every multi-session output (FR-063, FR-028)
-- [X] T104 [US6] Add `per_session` decomposition to each item in `src/ccaudit/render/data.py` — accumulated total plus contribution per contributing session (FR-064, FR-065)
-- [X] T105 [US6] Create `src/ccaudit/render/serve.py` — an ephemeral `http.server` bound to `127.0.0.1` on an OS-assigned port, read-only over SQLite, serving the same data contract to the same renderer, shutting down cleanly (FR-072, FR-073)
-- [X] T106 [US6] Implement the `ui` command in `src/ccaudit/cli.py` with drill-down, sorting, filtering, and session selection, leaving nothing running on exit (SC-025)
+- [X] T100 [US6] Implement the selection options in `src/claude_cost_tracker/cli.py` — `--session`, `--project`, `--since`/`--until`, `--all`, `--last N`, `--exclude`, combining as an intersection
+- [X] T101 [US6] Implement the `sessions` command in `src/claude_cost_tracker/cli.py` and `src/claude_cost_tracker/render/terminal.py` — a browsable list with enough detail to identify each session (FR-060)
+- [X] T102 [US6] Implement cross-session aggregation in `src/claude_cost_tracker/store/db.py` — accumulate per-item attribution from stored results **without re-reading the original records** (FR-061, FR-062, SC-021)
+- [X] T103 [US6] Populate `scope.sessions_included`, `scope.sessions_excluded_count`, and `scope.producing_versions` in `src/claude_cost_tracker/render/data.py`, and state them in every multi-session output (FR-063, FR-028)
+- [X] T104 [US6] Add `per_session` decomposition to each item in `src/claude_cost_tracker/render/data.py` — accumulated total plus contribution per contributing session (FR-064, FR-065)
+- [X] T105 [US6] Create `src/claude_cost_tracker/render/serve.py` — an ephemeral `http.server` bound to `127.0.0.1` on an OS-assigned port, read-only over SQLite, serving the same data contract to the same renderer, shutting down cleanly (FR-072, FR-073)
+- [X] T106 [US6] Implement the `ui` command in `src/claude_cost_tracker/cli.py` with drill-down, sorting, filtering, and session selection, leaving nothing running on exit (SC-025)
 - [X] T107 [P] [US6] Unit-test aggregation exactness in `tests/unit/test_aggregation.py` — combined totals equal the sum of per-session figures; excluding one session subtracts exactly its contribution
 - [X] T108 [US6] System-test multi-session behaviour in `tests/system/test_multi_session.py` — include/exclude recomputation under 2 s over a 100-session corpus, and a months-old session analysed with no loss of detail (SC-021, SC-022)
 
@@ -265,10 +265,10 @@ figures as current and never reporting a figure that later proves an over-count.
 labelled provisional; re-run after more turns and confirm the later result supersedes rather than
 adds (SC-023, SC-031).
 
-- [X] T109 [US7] Set `scope.provisional` and `scope.covered_through_turn` for in-progress sessions in `src/ccaudit/render/data.py`, and render the provisional label prominently in `src/ccaudit/render/terminal.py` (FR-066, FR-067)
-- [X] T110 [US7] Enforce freshness on read in `src/ccaudit/store/db.py` — a stored result whose fingerprint differs from the transcript's current fingerprint is either recomputed or served with explicit coverage ("covers turns 1–40; session is now at 62"), never as current (FR-084, FR-086, SC-030)
-- [X] T111 [US7] Implement `--refresh` and `--watch` in `src/ccaudit/cli.py` — `--watch` polls the coverage fingerprint, redraws only on change, and exits on interrupt or when the session ends (FR-068)
-- [X] T112 [US7] Ensure a later result supersedes an earlier provisional one for the same session in `src/ccaudit/store/db.py`, rather than accumulating alongside it (FR-069)
+- [X] T109 [US7] Set `scope.provisional` and `scope.covered_through_turn` for in-progress sessions in `src/claude_cost_tracker/render/data.py`, and render the provisional label prominently in `src/claude_cost_tracker/render/terminal.py` (FR-066, FR-067)
+- [X] T110 [US7] Enforce freshness on read in `src/claude_cost_tracker/store/db.py` — a stored result whose fingerprint differs from the transcript's current fingerprint is either recomputed or served with explicit coverage ("covers turns 1–40; session is now at 62"), never as current (FR-084, FR-086, SC-030)
+- [X] T111 [US7] Implement `--refresh` and `--watch` in `src/claude_cost_tracker/cli.py` — `--watch` polls the coverage fingerprint, redraws only on change, and exits on interrupt or when the session ends (FR-068)
+- [X] T112 [US7] Ensure a later result supersedes an earlier provisional one for the same session in `src/claude_cost_tracker/store/db.py`, rather than accumulating alongside it (FR-069)
 - [X] T113 [P] [US7] Unit-test freshness in `tests/unit/test_freshness.py` — invariants F1 and F2: stale is never current, and an unchanged transcript creates no second entry
 - [X] T114 [US7] Component-test in-progress analysis in `tests/component/test_in_progress.py` — a growing fixture transcript yields a monotonically increasing total with no provisional figure ever later proving an over-count
 
@@ -341,10 +341,10 @@ contract. Golden fixtures are built alongside the arithmetic they pin, never aft
 
 ```bash
 # After T015 (records.py) lands, four modules touch four different files:
-Task: "Create src/ccaudit/ingest/dedup.py"
-Task: "Create src/ccaudit/ingest/discover.py"
-Task: "Create src/ccaudit/ingest/tokens.py"
-Task: "Create src/ccaudit/ingest/anchors.py"
+Task: "Create src/claude_cost_tracker/ingest/dedup.py"
+Task: "Create src/claude_cost_tracker/ingest/discover.py"
+Task: "Create src/claude_cost_tracker/ingest/tokens.py"
+Task: "Create src/claude_cost_tracker/ingest/anchors.py"
 
 # Then their unit tests, also four different files:
 Task: "Unit-test record parsing in tests/unit/test_records.py"

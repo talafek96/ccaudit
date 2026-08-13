@@ -8,8 +8,8 @@ from fractions import Fraction
 
 import pytest
 
-from ccaudit.config.components import sig_figs_for
-from ccaudit.money import (
+from claude_cost_tracker.config.components import sig_figs_for
+from claude_cost_tracker.money import (
     allocate,
     cost_micros,
     format_micros,

@@ -180,7 +180,7 @@ def main() -> int:
 
         # Local first, so a failure leaves nothing published to undo.
         git("branch", "--force", RELEASE_BRANCH, commit)
-        git("tag", "--annotate", tag, "--message", f"ccaudit {following}", commit)
+        git("tag", "--annotate", tag, "--message", f"claude-cost-tracker {following}", commit)
         try:
             # Atomic: the branch and its tag land together or not at all. Separately, a
             # half-push leaves either a release the workflow refuses or a branch claiming to
@@ -229,7 +229,7 @@ def _draft_release(tag: str, version: Version) -> str:
             tag,
             "--draft",
             "--title",
-            f"ccaudit {version}",
+            f"claude-cost-tracker {version}",
             # Notes from the commits since the last release, so the draft opens with something
             # to edit rather than an empty box.
             "--generate-notes",

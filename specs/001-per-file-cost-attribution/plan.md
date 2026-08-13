@@ -6,7 +6,7 @@
 
 ## Summary
 
-**ccaudit** reads Claude Code's local session transcripts, reconstructs what content was resident
+**claude-cost-tracker** reads Claude Code's local session transcripts, reconstructs what content was resident
 in the conversation at every turn, and attributes each turn's actual token charges to the files
 and other context items that caused them — reconciling to the session total with any remainder
 shown explicitly.
@@ -104,8 +104,8 @@ specs/001-per-file-cost-attribution/
 ### Source Code (repository root)
 
 ```text
-src/ccaudit/
-├── __main__.py             # `python -m ccaudit`
+src/claude_cost_tracker/
+├── __main__.py             # `python -m claude_cost_tracker`
 ├── cli.py                  # Argument parsing, zero-argument default, exit codes
 ├── analyse.py              # The pipeline: parse → dedup → size → timeline → attribute → reconcile
 ├── money.py                # Integer micro-dollars: rates → cost, largest-remainder, sig figs

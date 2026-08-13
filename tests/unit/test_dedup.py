@@ -7,8 +7,8 @@ exchanges into a new file, and summing both doubles figures that still look plau
 import json
 from pathlib import Path
 
-from ccaudit.ingest.dedup import DUPLICATE_TURN, USAGE_CONFLICT, dedup_turns
-from ccaudit.ingest.records import ParsedTranscript, parse_transcript
+from claude_cost_tracker.ingest.dedup import DUPLICATE_TURN, USAGE_CONFLICT, dedup_turns
+from claude_cost_tracker.ingest.records import ParsedTranscript, parse_transcript
 
 MODEL = "claude-opus-5"
 

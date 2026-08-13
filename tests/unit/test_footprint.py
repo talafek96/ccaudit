@@ -10,9 +10,9 @@ from pathlib import Path
 
 import pytest
 
-from ccaudit.analyse import analyse_transcript
-from ccaudit.config import BUNDLED_PRICING_PATH, load_pricing
-from ccaudit.footprint import FOOTPRINT_CEILING_SHARE, SKILL_PATH, measure
+from claude_cost_tracker.analyse import analyse_transcript
+from claude_cost_tracker.config import BUNDLED_PRICING_PATH, load_pricing
+from claude_cost_tracker.footprint import FOOTPRINT_CEILING_SHARE, SKILL_PATH, measure
 from tests.fixtures.builder import TranscriptBuilder
 
 PRICING = load_pricing(BUNDLED_PRICING_PATH)

@@ -1,8 +1,8 @@
 """Contract on the package skeleton: the distribution is importable and versioned."""
 
-import ccaudit
+import claude_cost_tracker
 
 
 def test_package_exposes_a_version() -> None:
-    assert isinstance(ccaudit.__version__, str)
-    assert ccaudit.__version__
+    assert isinstance(claude_cost_tracker.__version__, str)
+    assert claude_cost_tracker.__version__

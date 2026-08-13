@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from ccaudit.ingest.anchors import (
+from claude_cost_tracker.ingest.anchors import (
     DEFAULT_RELATIVE_TOLERANCE,
     AnchorEntry,
     AnchorParseError,
@@ -37,7 +37,7 @@ Context Usage
 ### Memory Files
 | Type | Path | Tokens |
 | User | /Users/dev/.claude/CLAUDE.md | 130 |
-| Project | /Users/dev/projects/ccaudit/CLAUDE.md | 531 |
+| Project | /Users/dev/projects/claude-cost-tracker/CLAUDE.md | 531 |
 
 ### Skills
 | carousel-composition | Project | ~290 |
@@ -74,7 +74,7 @@ class TestParsing:
     def test_parses_the_per_file_detail_table_under_its_section(self) -> None:
         """The path is the identifying column, not the `Type` cell beside it."""
         entries = {entry.label: entry for entry in parse_context_report(CONTEXT_REPORT)}
-        memory = entries["/Users/dev/projects/ccaudit/CLAUDE.md"]
+        memory = entries["/Users/dev/projects/claude-cost-tracker/CLAUDE.md"]
         assert memory.tokens == 531
         assert memory.section == "Memory Files"
         assert memory.qualifiers == ("Project",)

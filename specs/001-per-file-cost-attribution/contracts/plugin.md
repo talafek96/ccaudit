@@ -6,10 +6,10 @@ content** (FR-055).
 ## Layout
 
 ```text
-src/ccaudit/plugin/
+src/claude_cost_tracker/plugin/
 ├── .claude-plugin/plugin.json     # name, description, version
-├── commands/audit.md              # /ccaudit:audit — costs nothing until typed
-├── skills/ccaudit/SKILL.md        # model-invocable; description resident, body on invocation
+├── commands/audit.md              # /ccost:audit — costs nothing until typed
+├── skills/ccost/SKILL.md        # model-invocable; description resident, body on invocation
 └── hooks/hooks.json               # optional SessionEnd capture
 ```
 
@@ -32,7 +32,7 @@ would corrupt the baseline it exists to measure and appear in its own reports. H
 hence FR-056: the tool must **measure and disclose its own footprint** rather than assert it is
 negligible (SC-017: under 0.5% of session cost).
 
-## Slash command — `/ccaudit:audit`
+## Slash command — `/ccost:audit`
 
 Analyses the **current** session, including while in progress (FR-051). Passes the session
 identifier through from the invocation context; requires no arguments. Output is the terminal
@@ -48,7 +48,7 @@ rather than estimated (FR-052). The skill shells out to the CLI; it does not rei
 **Contract: enqueue and return. Never analyse inline.**
 
 ```jsonc
-{ "hooks": { "SessionEnd": [{ "hooks": [{ "type": "command", "command": "ccaudit _enqueue" }] }] } }
+{ "hooks": { "SessionEnd": [{ "hooks": [{ "type": "command", "command": "ccost _enqueue" }] }] } }
 ```
 
 `_enqueue` is internal: it appends a queue entry, spawns a detached worker, and exits — target
@@ -79,8 +79,8 @@ result, never wait forever. See `data-model.md` invariants K1–K3.
 ## Distribution
 
 ```
-/plugin marketplace add <owner>/ccaudit
-/plugin install ccaudit
+/plugin marketplace add <owner>/ccost
+/plugin install ccost
 ```
 
 Local development: `--plugin-dir`. Removal leaves no trace in subsequent sessions while retaining
